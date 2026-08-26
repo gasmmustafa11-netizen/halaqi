@@ -53,6 +53,14 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  console.log('[AUTH REQUEST DEBUG]', {
+    url,
+    method: options.method || 'GET',
+    hasToken: !!token,
+    tokenLength: token?.length || 0,
+    authorizationHeader: headers.get('Authorization') ? 'PRESENT' : 'MISSING',
+  });
+
   const response = await fetch(url, {
     ...options,
     headers,
@@ -70,6 +78,63 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 }
 
 export const api = {
+
+  async refreshToken(): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/auth/refresh', {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && data.token) {
+        setAuthToken(data.token);
+
+        return {
+          success: true,
+          user: data.user,
+          token: data.token,
+        };
+      }
+
+      return {
+        success: false,
+        error: data.error || 'تعذر تجديد جلسة تسجيل الدخول',
+      };
+    } catch (err) {
+      console.error('API Error [refreshToken]:', err);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم لتجديد الجلسة',
+      };
+    }
+  },
+
+
+  async updateMyAvatar(imageUrl: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/auth/me/avatar', {
+        method: 'PUT',
+        body: JSON.stringify({ imageUrl }),
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        user: data.user,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [updateMyAvatar]:', err);
+      return {
+        success: false,
+        error: 'تعذر حفظ الصورة الشخصية',
+      };
+    }
+  },
+
   async uploadImage(dataUrl: string): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
     try {
       const res = await fetchWithAuth('/api/uploads/image', {
@@ -214,8 +279,27 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(updates),
       });
-      return res.ok;
-    } catch {
+
+      const data = await res.json().catch(() => ({}));
+
+      console.log('[SALON STATUS UPDATE]', {
+        salonId,
+        updates,
+        status: res.status,
+        ok: res.ok,
+        data,
+      });
+
+      if (!res.ok && typeof window !== 'undefined') {
+        window.alert(
+          data?.error ||
+          `فشل تحديث حالة الصالون. HTTP ${res.status}`
+        );
+      }
+
+      return res.ok && data?.success !== false;
+    } catch (error) {
+      console.error('[SALON STATUS UPDATE ERROR]', error);
       return false;
     }
   },
@@ -375,6 +459,38 @@ export const api = {
     } catch (err) {
       console.error('API Error [createBooking]:', err);
       return { success: false, error: 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' };
+    }
+  },
+
+  async completeBookingByQr(
+    bookingId: string,
+    qrNonce: string
+  ): Promise<{ success: boolean; booking?: Booking; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/bookings/${bookingId}/complete-by-qr`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ qrNonce }),
+        }
+      );
+
+      const data = await res.json();
+
+      return {
+        success: Boolean(res.ok && data.success),
+        booking: data.booking,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [completeBookingByQr]:', err);
+      return {
+        success: false,
+        error: 'تعذر إكمال الخدمة عبر QR.',
+      };
     }
   },
 
@@ -630,6 +746,143 @@ export const api = {
     }
   },
 
+  async getAdminSettlements(params?: {
+    year?: number;
+    month?: number;
+    search?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<any> {
+    try {
+      const query = new URLSearchParams();
+
+      if (params?.year != null) {
+        query.set('year', String(params.year));
+      }
+
+      if (params?.month != null) {
+        query.set('month', String(params.month));
+      }
+
+      if (params?.search) {
+        query.set('search', params.search);
+      }
+
+      if (params?.status) {
+        query.set('status', params.status);
+      }
+
+      if (params?.page != null) {
+        query.set('page', String(params.page));
+      }
+
+      if (params?.pageSize != null) {
+        query.set('pageSize', String(params.pageSize));
+      }
+
+      const res = await fetchWithAuth(
+        `/api/admin/settlements?${query.toString()}`
+      );
+
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [getAdminSettlements]:', err);
+
+      return {
+        success: false,
+        items: [],
+        total: 0,
+        page: params?.page || 1,
+        pageSize: params?.pageSize || 50,
+        error: 'تعذر تحميل التسويات.',
+      };
+    }
+  },
+
+  async generateAdminSettlements(
+    year: number,
+    month: number
+  ): Promise<any> {
+    try {
+      const res = await fetchWithAuth(
+        '/api/admin/settlements/generate',
+        {
+          method: 'POST',
+          body: JSON.stringify({ year, month }),
+        }
+      );
+
+      return await res.json();
+    } catch (err) {
+      console.error(
+        'API Error [generateAdminSettlements]:',
+        err
+      );
+
+      return {
+        success: false,
+        error: 'تعذر توليد التسويات.',
+      };
+    }
+  },
+
+  async markAdminSettlementPaid(
+    settlementId: string,
+    paidAmount: number,
+    notes?: string
+  ): Promise<any> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/admin/settlements/${settlementId}/paid`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            paidAmount,
+            notes,
+          }),
+        }
+      );
+
+      return await res.json();
+    } catch (err) {
+      console.error(
+        'API Error [markAdminSettlementPaid]:',
+        err
+      );
+
+      return {
+        success: false,
+        error: 'تعذر تسجيل الدفع.',
+      };
+    }
+  },
+
+  async processAdminSettlementEnforcement(): Promise<any> {
+    try {
+      const res = await fetchWithAuth(
+        '/api/admin/settlements/process-overdue',
+        {
+          method: 'POST',
+        }
+      );
+
+      return await res.json();
+    } catch (err) {
+      console.error(
+        'API Error [processAdminSettlementEnforcement]:',
+        err
+      );
+
+      return {
+        success: false,
+        markedOverdue: 0,
+        suspended: 0,
+        error: 'تعذر معالجة المستحقات المتأخرة.',
+      };
+    }
+  },
+
   async getPlatformSettings(): Promise<PlatformSettings | null> {
     try {
       const res = await fetchWithAuth('/api/admin/settings');
@@ -692,7 +945,9 @@ export const api = {
 
   async getMe(): Promise<{ success: boolean; user?: User }> {
     try {
-      const res = await fetchWithAuth('/api/auth/me');
+      const res = await fetchWithAuth('/api/auth/me', {
+        cache: 'no-store',
+      });
       if (!res.ok) return { success: false };
       const data = await res.json();
       return { success: true, user: data.user };

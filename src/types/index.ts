@@ -29,7 +29,7 @@ export interface AuditLog {
 }
 
 export type SalonType = 'men' | 'women' | 'unisex';
-export type SalonStatus = 'approved' | 'pending' | 'rejected' | 'suspended';
+export type SalonStatus = 'approved' | 'pending' | 'rejected' | 'suspended' | 'banned';
 
 export interface WorkingDayHours {
   open: string; // e.g. "09:00"
@@ -141,6 +141,13 @@ export interface Booking {
   commissionAmount: number; // IQD (e.g. 10%)
   salonPayout: number; // IQD
   status: BookingStatus;
+
+  // Service completion verification
+  completionQrNonce?: string;
+  completionQrExpiresAt?: string;
+  completedAt?: string;
+  completedBy?: string;
+
   paymentMethod: PaymentMethod;
   paymentStatus: 'unpaid' | 'paid' | 'deposit_paid' | 'refunded';
   createdAt: string;
@@ -184,7 +191,7 @@ export interface Notification {
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
   read: boolean;
   createdAt: string;
   link?: string;

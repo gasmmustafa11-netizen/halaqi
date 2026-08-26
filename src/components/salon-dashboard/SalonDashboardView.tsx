@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Salon, Service, Barber, Booking, SalonPost, PostComment } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import {
   Calendar,
   Clock,
@@ -24,7 +25,8 @@ import {
   Settings,
   Lock,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  ScanLine
 } from 'lucide-react';
 
 export const SalonDashboardView: React.FC = () => {
@@ -37,6 +39,12 @@ export const SalonDashboardView: React.FC = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState<boolean>(false);
+  const [qrScannerError, setQrScannerError] = useState<string>('');
+  const qrScannerRef = React.useRef<Html5Qrcode | null>(null);
+  const qrScannerElementId = 'halaqi-qr-reader';
+
 
   // New Service Modal
   const [isServiceModalOpen, setIsServiceModalOpen] = useState<boolean>(false);
@@ -64,7 +72,7 @@ export const SalonDashboardView: React.FC = () => {
 
   const handleSelectPostImage = async () => {
     try {
-      const photo = await Camera.getPhoto({
+      const photo = await CapacitorCamera.getPhoto({
         quality: 90,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
@@ -174,6 +182,104 @@ export const SalonDashboardView: React.FC = () => {
   useEffect(() => {
     loadDashboardData();
   }, [user]);
+
+  const stopQrScanner = async () => {
+    try {
+      if (qrScannerRef.current) {
+        const scannerState = qrScannerRef.current.getState();
+
+        if (scannerState !== undefined && scannerState !== 1) {
+          await qrScannerRef.current.stop();
+        }
+
+        qrScannerRef.current.clear();
+        qrScannerRef.current = null;
+      }
+    } catch (error) {
+      console.error('[QR SCANNER] Stop failed:', error);
+    }
+  };
+
+  const closeQrScanner = async () => {
+    await stopQrScanner();
+    setIsQrScannerOpen(false);
+    setQrScannerError('');
+  };
+
+  const startQrScanner = async () => {
+    setIsQrScannerOpen(true);
+    setQrScannerError('');
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const scanner = new Html5Qrcode(qrScannerElementId);
+      qrScannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1,
+        },
+        async (decodedText) => {
+          await stopQrScanner();
+
+          const separatorIndex = decodedText.indexOf(':');
+
+          if (separatorIndex <= 0) {
+            setQrScannerError('رمز QR غير صالح.');
+            setIsQrScannerOpen(true);
+            return;
+          }
+
+          const bookingId = decodedText.slice(0, separatorIndex);
+          const qrNonce = decodedText.slice(separatorIndex + 1);
+
+          if (!bookingId || !qrNonce) {
+            setQrScannerError('رمز QR غير صالح.');
+            setIsQrScannerOpen(true);
+            return;
+          }
+
+          const result = await api.completeBookingByQr(
+            bookingId,
+            qrNonce
+          );
+
+          if (!result.success) {
+            setQrScannerError(
+              result.error || 'تعذر إكمال الخدمة عبر QR.'
+            );
+            setIsQrScannerOpen(true);
+            return;
+          }
+
+          setIsQrScannerOpen(false);
+          setQrScannerError('');
+          await loadDashboardData();
+          alert('تم تأكيد إتمام الخدمة بنجاح.');
+        },
+        () => {
+          // Ignore normal frame-by-frame scan misses.
+        }
+      );
+    } catch (error: any) {
+      console.error('[QR SCANNER] Start failed:', error);
+
+      setQrScannerError(
+        error?.message ||
+          'تعذر تشغيل الكاميرا. تأكد من السماح بالوصول إلى الكاميرا.'
+      );
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      void stopQrScanner();
+    };
+  }, []);
 
   const handleUpdateBookingStatus = async (bookingId: string, status: string) => {
     await api.updateBookingStatus(bookingId, status);
@@ -374,7 +480,22 @@ export const SalonDashboardView: React.FC = () => {
       {activeTab === 'calendar' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-base">جدول المواعيد الواردة</h3>
+            <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-white text-base">
+              جدول المواعيد الواردة
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onClick={startQrScanner}
+            className="px-3 py-2 rounded-xl bg-[#d4af37] hover:bg-[#c9a52f] text-black font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md"
+          >
+            <ScanLine className="w-4 h-4" />
+            <span>مسح QR لإتمام الخدمة</span>
+          </button>
+        </div>
             <span className="text-xs text-slate-400 font-mono">
               إجمالي الحجوزات: {bookings.length}
             </span>
@@ -448,11 +569,12 @@ export const SalonDashboardView: React.FC = () => {
                     {b.status === 'confirmed' && (
                       <>
                         <button
-                          onClick={() => handleUpdateBookingStatus(b.id, 'completed')}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors flex items-center gap-1"
+                          type="button"
+                          onClick={startQrScanner}
+                          className="px-3 py-1.5 rounded-xl bg-[#d4af37] hover:bg-[#c9a52f] text-black font-bold text-xs transition-colors flex items-center gap-1"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>إتمام الموعد</span>
+                          <ScanLine className="w-3.5 h-3.5" />
+                          <span>مسح QR</span>
                         </button>
                         <button
                           onClick={() => handleUpdateBookingStatus(b.id, 'cancelled')}
@@ -466,6 +588,52 @@ export const SalonDashboardView: React.FC = () => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {isQrScannerOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl bg-[#141721] border border-white/10 shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-white">
+                  مسح QR لإتمام الخدمة
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  وجّه الكاميرا إلى الرمز الموجود عند الزبون
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeQrScanner}
+                className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div
+                id={qrScannerElementId}
+                className="w-full min-h-[280px] rounded-2xl overflow-hidden bg-black"
+              />
+
+              {qrScannerError && (
+                <div className="mt-3 p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs leading-relaxed">
+                  {qrScannerError}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={closeQrScanner}
+                className="w-full mt-4 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold"
+              >
+                إغلاق الكاميرا
+              </button>
+            </div>
           </div>
         </div>
       )}

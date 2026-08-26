@@ -48,7 +48,7 @@ export const AdminPanelView: React.FC = () => {
   const { t } = useLanguage();
   const { user, switchRoleDemo } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts' | 'settlements'>('analytics');
   const [salons, setSalons] = useState<Salon[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -62,6 +62,26 @@ export const AdminPanelView: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [settlementItems, setSettlementItems] = useState<any[]>([]);
+  const [settlementYear, setSettlementYear] = useState(
+    Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Baghdad',
+      year: 'numeric'
+    }).format(new Date()))
+  );
+  const [settlementMonth, setSettlementMonth] = useState(
+    Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Baghdad',
+      month: 'numeric'
+    }).format(new Date()))
+  );
+  const [settlementSearch, setSettlementSearch] = useState('');
+  const [settlementStatus, setSettlementStatus] = useState('');
+  const [settlementPage, setSettlementPage] = useState(1);
+  const [settlementTotal, setSettlementTotal] = useState(0);
+  const [isLoadingSettlements, setIsLoadingSettlements] = useState(false);
+  const [isProcessingSettlements, setIsProcessingSettlements] = useState(false);
+
 
   // Coupon Creation Form State
   const [newCouponCode, setNewCouponCode] = useState<string>('');
@@ -125,6 +145,138 @@ export const AdminPanelView: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [user, isUserAdmin]);
+
+
+  const loadSettlements = async () => {
+    if (!isUserAdmin) return;
+
+    setIsLoadingSettlements(true);
+
+    try {
+      const result = await api.getAdminSettlements({
+        year: settlementYear,
+        month: settlementMonth,
+        search: settlementSearch,
+        status: settlementStatus,
+        page: settlementPage,
+        pageSize: 50,
+      });
+
+      if (!result.success) {
+        setSettlementItems([]);
+        setSettlementTotal(0);
+        return;
+      }
+
+      setSettlementItems(result.items || []);
+      setSettlementTotal(Number(result.total || 0));
+    } catch (error) {
+      console.error('Settlement load failed:', error);
+      setSettlementItems([]);
+      setSettlementTotal(0);
+    } finally {
+      setIsLoadingSettlements(false);
+    }
+  };
+
+  const handleGenerateSettlements = async () => {
+    if (!isUserAdmin) return;
+
+    setIsProcessingSettlements(true);
+
+    try {
+      const result = await api.generateAdminSettlements(
+        settlementYear,
+        settlementMonth
+      );
+
+      if (!result.success) {
+        alert(result.error || 'تعذر تحديث التسويات.');
+        return;
+      }
+
+      await loadSettlements();
+      alert('تم تحديث التسويات بنجاح.');
+    } finally {
+      setIsProcessingSettlements(false);
+    }
+  };
+
+  const handleProcessSettlements = async () => {
+    if (!isUserAdmin) return;
+
+    setIsProcessingSettlements(true);
+
+    try {
+      const result = await api.processAdminSettlementEnforcement();
+
+      if (!result.success) {
+        alert(result.error || 'تعذر معالجة المتأخرات.');
+        return;
+      }
+
+      await loadSettlements();
+
+      alert(
+        `تمت المعالجة.\nالمتأخرات: ${result.markedOverdue || 0}\nالموقوف: ${result.suspended || 0}`
+      );
+    } finally {
+      setIsProcessingSettlements(false);
+    }
+  };
+
+  const handleMarkSettlementPaid = async (item: any) => {
+    if (!isUserAdmin || !item.settlementId) return;
+
+    const amount = Number(item.commissionAmount || 0);
+
+    if (amount <= 0) {
+      alert('لا توجد عمولة مستحقة.');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `تسجيل استلام ${amount.toLocaleString()} د.ع من ${item.salonName}؟`
+      )
+    ) {
+      return;
+    }
+
+    setIsProcessingSettlements(true);
+
+    try {
+      const result = await api.markAdminSettlementPaid(
+        item.settlementId,
+        amount
+      );
+
+      if (!result.success) {
+        alert(result.error || 'تعذر تسجيل الدفع.');
+        return;
+      }
+
+      await loadSettlements();
+      await loadAdminData();
+
+      alert('تم تسجيل الدفع بنجاح.');
+    } finally {
+      setIsProcessingSettlements(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isUserAdmin || activeTab !== 'settlements') return;
+    void loadSettlements();
+  }, [
+    isUserAdmin,
+    activeTab,
+    settlementYear,
+    settlementMonth,
+    settlementSearch,
+    settlementStatus,
+    settlementPage,
+  ]);
 
   const loadSalonPosts = async () => {
     if (!isUserAdmin) return;
@@ -239,7 +391,29 @@ export const AdminPanelView: React.FC = () => {
     await loadAdminData();
   };
 
-  const handleUpdateSalonStatus = async (salonId: string, status: 'approved' | 'pending' | 'suspended') => {
+  const handleUpdateSalonStatus = async (
+    salonId: string,
+    status: 'approved' | 'pending' | 'suspended' | 'banned'
+  ) => {
+    if (status === 'banned') {
+      const confirmed = window.confirm(
+        'تحذير: حظر الصالون نهائيًا سيجعله غير ظاهر لجميع المستخدمين ولن يمكن فتح صفحته. هل أنت متأكد؟'
+      );
+
+      if (!confirmed) return;
+
+      const success = await api.updateSalonStatus(salonId, {
+        status: 'banned',
+      });
+
+      if (!success) {
+        window.alert('تعذر حظر الصالون نهائيًا.');
+        return;
+      }
+
+      await loadAdminData();
+      return;
+    }
     if (status === 'suspended') {
       const reason = window.prompt('اكتب سبب إيقاف الصالون:');
       if (!reason?.trim()) return;
@@ -616,6 +790,7 @@ export const AdminPanelView: React.FC = () => {
         {[
           { id: 'analytics', label: 'التحليلات والمؤشرات', icon: TrendingUp },
           { id: 'salons', label: 'إدارة الصالونات والاعتمادات', icon: Store, count: pendingSalons.length ? pendingSalons.length : undefined },
+          { id: 'settlements', label: 'التسويات والعمولات', icon: DollarSign },
           { id: 'users', label: 'المستخدمين والأدوار (RBAC)', icon: Users, count: usersList.length },
           { id: 'audit', label: 'سجلات المراقبة والأمان', icon: FileText, count: auditLogs.length },
           { id: 'coupons', label: 'كوبونات الخصم', icon: Tag, count: coupons.length },
@@ -649,6 +824,208 @@ export const AdminPanelView: React.FC = () => {
           );
         })}
       </div>
+
+
+      {/* TAB: Salon Settlements */}
+      {activeTab === 'settlements' && (
+        <div className="space-y-5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-white">التسويات والعمولات</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                متابعة مستحقات جميع الصالونات وتسجيل المدفوعات.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleGenerateSettlements}
+                disabled={isProcessingSettlements}
+                className="px-4 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black disabled:opacity-50"
+              >
+                تحديث التسويات
+              </button>
+
+              <button
+                type="button"
+                onClick={handleProcessSettlements}
+                disabled={isProcessingSettlements}
+                className="px-4 py-2 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs font-bold disabled:opacity-50"
+              >
+                معالجة المتأخرات
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="flex-1">
+              <input
+                value={settlementSearch}
+                onChange={(e) => {
+                  setSettlementSearch(e.target.value);
+                  setSettlementPage(1);
+                }}
+                placeholder="ابحث باسم الصالون أو المدينة..."
+                className="w-full bg-[#141414] border border-[#262626] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#D4AF37]/50"
+              />
+            </div>
+
+            <select
+              value={settlementMonth}
+              onChange={(e) => {
+                setSettlementMonth(Number(e.target.value));
+                setSettlementPage(1);
+              }}
+              className="bg-[#141414] border border-[#262626] rounded-xl px-4 py-3 text-sm text-white"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>شهر {m}</option>
+              ))}
+            </select>
+
+            <select
+              value={settlementYear}
+              onChange={(e) => {
+                setSettlementYear(Number(e.target.value));
+                setSettlementPage(1);
+              }}
+              className="bg-[#141414] border border-[#262626] rounded-xl px-4 py-3 text-sm text-white"
+            >
+              {[settlementYear - 1, settlementYear, settlementYear + 1].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+
+            <select
+              value={settlementStatus}
+              onChange={(e) => {
+                setSettlementStatus(e.target.value);
+                setSettlementPage(1);
+              }}
+              className="bg-[#141414] border border-[#262626] rounded-xl px-4 py-3 text-sm text-white"
+            >
+              <option value="">كل الحالات</option>
+              <option value="pending">مستحق</option>
+              <option value="overdue">متأخر</option>
+              <option value="suspended">موقوف</option>
+              <option value="paid">مدفوع</option>
+            </select>
+          </div>
+
+          {isLoadingSettlements ? (
+            <div className="p-10 text-center text-gray-400 rounded-2xl bg-[#141414] border border-[#262626]">
+              جاري تحميل التسويات...
+            </div>
+          ) : settlementItems.length === 0 ? (
+            <div className="p-10 text-center text-gray-400 rounded-2xl bg-[#141414] border border-[#262626]">
+              لا توجد نتائج.
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-[#141414] border border-[#262626] overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-500 text-[11px]">
+                    <th className="text-right p-4">الصالون</th>
+                    <th className="text-right p-4">الحجوزات المكتملة</th>
+                    <th className="text-right p-4">العمولة</th>
+                    <th className="text-right p-4">الحالة</th>
+                    <th className="text-right p-4">الاستحقاق</th>
+                    <th className="text-right p-4">الإجراء</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {settlementItems.map((item) => (
+                    <tr
+                      key={`${item.salonId}-${item.settlementId || 'none'}`}
+                      className="border-b border-white/5"
+                    >
+                      <td className="p-4">
+                        <div className="font-bold text-white">{item.salonName}</div>
+                        <div className="text-[11px] text-gray-500">{item.city || '—'}</div>
+                      </td>
+
+                      <td className="p-4 text-gray-300">
+                        {Number(item.completedBookingsCount || 0).toLocaleString()}
+                      </td>
+
+                      <td className="p-4 font-black text-[#D4AF37]">
+                        {Number(item.commissionAmount || 0).toLocaleString()} د.ع
+                      </td>
+
+                      <td className="p-4">
+                        <span className="text-xs font-bold">
+                          {item.status === 'paid'
+                            ? 'مدفوع'
+                            : item.status === 'suspended'
+                            ? 'موقوف'
+                            : item.status === 'overdue'
+                            ? 'متأخر'
+                            : item.status === 'pending'
+                            ? 'مستحق'
+                            : 'بدون تسوية'}
+                        </span>
+                      </td>
+
+                      <td className="p-4 text-xs text-gray-400">
+                        {item.dueAt
+                          ? new Date(item.dueAt).toLocaleDateString('ar-IQ')
+                          : '—'}
+                      </td>
+
+                      <td className="p-4">
+                        {item.settlementId && item.status !== 'paid' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkSettlementPaid(item)}
+                            disabled={isProcessingSettlements}
+                            className="px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-bold disabled:opacity-50"
+                          >
+                            تم استلام الدفع
+                          </button>
+                        ) : item.status === 'paid' ? (
+                          <span className="text-xs text-emerald-300 font-bold">
+                            تم الاستلام
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-500">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {settlementTotal > 50 && (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                disabled={settlementPage <= 1}
+                onClick={() => setSettlementPage((p) => Math.max(1, p - 1))}
+                className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 disabled:opacity-30"
+              >
+                السابق
+              </button>
+
+              <span className="text-xs text-gray-500">
+                صفحة {settlementPage} من {Math.max(1, Math.ceil(settlementTotal / 50))}
+              </span>
+
+              <button
+                type="button"
+                disabled={settlementPage >= Math.ceil(settlementTotal / 50)}
+                onClick={() => setSettlementPage((p) => p + 1)}
+                className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 disabled:opacity-30"
+              >
+                التالي
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: Analytics & Reports */}
       {activeTab === 'posts' && (
@@ -883,17 +1260,25 @@ export const AdminPanelView: React.FC = () => {
                           ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
                           : s.status === 'suspended'
                           ? 'bg-red-950 text-red-300 border border-red-500/40'
-                          : 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                          : s.status === 'banned'
+                              ? 'bg-red-950 text-red-200 border border-red-500/70'
+                            : 'bg-amber-950 text-amber-300 border border-amber-500/40'
                       }`}
                     >
-                      {s.status === 'approved' ? 'معتمد' : s.status === 'suspended' ? 'موقوف' : 'معلق'}
+                      {s.status === 'approved'
+  ? 'معتمد'
+  : s.status === 'suspended'
+  ? 'موقوف'
+  : s.status === 'banned'
+  ? 'محظور نهائيًا'
+  : 'معلق'}
                     </span>
                   </div>
 
                   {/* Actions & Verification */}
                   <div className="flex flex-wrap items-center justify-between pt-3 border-t border-[#262626] text-xs gap-2">
                     <div className="flex items-center gap-2">
-                      {s.status !== 'approved' && (
+                      {s.status !== 'approved' && s.status !== 'banned' && (
                         <button
                           onClick={() => handleUpdateSalonStatus(s.id, 'approved')}
                           className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1"
@@ -902,7 +1287,7 @@ export const AdminPanelView: React.FC = () => {
                           <span>اعتماد</span>
                         </button>
                       )}
-                      {s.status !== 'suspended' && (
+                      {s.status !== 'suspended' && s.status !== 'banned' && (
                         <button
                           onClick={() => handleUpdateSalonStatus(s.id, 'suspended')}
                           className="px-2.5 py-1 rounded-lg bg-red-950 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold flex items-center gap-1"
@@ -919,6 +1304,15 @@ export const AdminPanelView: React.FC = () => {
                         >
                           <CheckCircle className="w-3.5 h-3.5" />
                           <span>رفع العقوبة</span>
+                        </button>
+                      )}
+                      {s.status !== 'banned' && (
+                        <button
+                          onClick={() => handleUpdateSalonStatus(s.id, 'banned')}
+                          className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 border border-red-400/50 text-white font-bold flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>حظر نهائي</span>
                         </button>
                       )}
                       <button

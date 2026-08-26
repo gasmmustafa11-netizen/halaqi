@@ -148,7 +148,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const confirmBooking = async (): Promise<Booking | null> => {
-    if (!activeSalon || !selectedService || !selectedBarber || !selectedDate || !selectedTimeSlot) {
+    if (!activeSalon || !selectedService || !selectedDate || !selectedTimeSlot) {
       setError('يرجى إكمال جميع خطوات الحجز');
       return null;
     }
@@ -172,8 +172,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       salonType: activeSalon.type,
       serviceId: selectedService.id,
       serviceName: selectedService.name,
-      barberId: selectedBarber.id,
-      barberName: selectedBarber.name,
       customerId: user?.id || `cust_${Date.now()}`,
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),

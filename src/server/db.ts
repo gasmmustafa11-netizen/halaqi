@@ -940,7 +940,7 @@ class DatabaseStore {
       SELECT *
       FROM services
       WHERE salon_id = ${salonId}
-      ORDER BY created_at ASC
+      ORDER BY id ASC
     `;
 
     return rows.map((sv: any) => ({
@@ -957,6 +957,139 @@ class DatabaseStore {
       barberIds: sv.barber_ids || [],
       isPopular: sv.is_popular ?? false,
     }));
+  }
+
+  async createServiceInNeon(service: Service): Promise<Service | undefined> {
+    try {
+      const rows = await sql`
+        INSERT INTO services (
+          id,
+          salon_id,
+          name,
+          name_en,
+          category,
+          category_en,
+          description,
+          price,
+          duration_minutes,
+          image,
+          barber_ids,
+          is_popular
+        )
+        VALUES (
+          ${service.id},
+          ${service.salonId},
+          ${service.name},
+          ${service.nameEn ?? null},
+          ${service.category ?? null},
+          ${service.categoryEn ?? null},
+          ${service.description ?? null},
+          ${service.price ?? 0},
+          ${service.durationMinutes ?? 0},
+          ${service.image ?? null},
+          ${JSON.stringify(service.barberIds ?? [])}::jsonb,
+          ${service.isPopular ?? false}
+        )
+        RETURNING *
+      `;
+
+      const s: any = rows[0];
+      if (!s) return undefined;
+
+      return {
+        id: s.id,
+        salonId: s.salon_id,
+        name: s.name,
+        nameEn: s.name_en ?? '',
+        category: s.category ?? '',
+        categoryEn: s.category_en ?? '',
+        description: s.description ?? '',
+        price: Number(s.price || 0),
+        durationMinutes: Number(s.duration_minutes || 0),
+        image: s.image ?? undefined,
+        barberIds: s.barber_ids || [],
+        isPopular: s.is_popular ?? false,
+      };
+    } catch (error: any) {
+      console.error('[SERVICE_CREATE] Failed to save service to Neon:', error);
+      return undefined;
+    }
+  }
+
+  async updateServiceInNeon(
+    serviceId: string,
+    updates: Partial<Service>
+  ): Promise<Service | undefined> {
+    try {
+      const current = await this.getServiceByIdFromNeon(serviceId);
+      if (!current) return undefined;
+
+      const next = {
+        ...current,
+        ...updates,
+        id: current.id,
+        salonId: current.salonId,
+      };
+
+      const rows = await sql`
+        UPDATE services
+        SET
+          name = ${next.name},
+          name_en = ${next.nameEn ?? null},
+          category = ${next.category ?? null},
+          category_en = ${next.categoryEn ?? null},
+          description = ${next.description ?? null},
+          price = ${next.price ?? 0},
+          duration_minutes = ${next.durationMinutes ?? 0},
+          image = ${next.image ?? null},
+          barber_ids = ${JSON.stringify(next.barberIds ?? [])}::jsonb,
+          is_popular = ${next.isPopular ?? false}
+        WHERE id = ${serviceId}
+        RETURNING *
+      `;
+
+      const sv: any = rows[0];
+      if (!sv) return undefined;
+
+      return {
+        id: sv.id,
+        salonId: sv.salon_id,
+        name: sv.name,
+        nameEn: sv.name_en ?? '',
+        category: sv.category ?? '',
+        categoryEn: sv.category_en ?? '',
+        description: sv.description ?? '',
+        price: Number(sv.price || 0),
+        durationMinutes: Number(sv.duration_minutes || 0),
+        image: sv.image ?? undefined,
+        barberIds: sv.barber_ids || [],
+        isPopular: sv.is_popular ?? false,
+      };
+    } catch (error: any) {
+      console.error(
+        '[SERVICE_UPDATE] Failed to update service in Neon:',
+        error?.message || error
+      );
+      return undefined;
+    }
+  }
+
+  async deleteServiceFromNeon(serviceId: string): Promise<boolean> {
+    try {
+      const rows = await sql`
+        DELETE FROM services
+        WHERE id = ${serviceId}
+        RETURNING id
+      `;
+
+      return rows.length > 0;
+    } catch (error: any) {
+      console.error(
+        '[SERVICE_DELETE] Failed to delete service from Neon:',
+        error?.message || error
+      );
+      return false;
+    }
   }
 
   async getServiceByIdFromNeon(serviceId: string): Promise<Service | undefined> {
@@ -1065,6 +1198,50 @@ class DatabaseStore {
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
     }));
+  }
+
+  async getBannedSalonByOwnerFromNeon(userId: string): Promise<Salon | undefined> {
+    const rows = await sql`
+      SELECT *
+      FROM salons
+      WHERE owner_id = ${userId}
+        AND status = 'banned'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const s: any = rows[0];
+
+    return {
+      id: s.id,
+      name: s.name,
+      nameEn: s.name_en,
+      slug: s.slug,
+      type: s.type,
+      city: s.city,
+      area: s.area,
+      address: s.address,
+      lat: Number(s.lat || 0),
+      lng: Number(s.lng || 0),
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      description: s.description,
+      descriptionEn: s.description_en,
+      rating: Number(s.rating || 0),
+      reviewCount: Number(s.review_count || 0),
+      startingPrice: Number(s.starting_price || 0),
+      coverImage: s.cover_image,
+      gallery: s.gallery || [],
+      isVerified: s.is_verified ?? false,
+      isFeatured: s.is_featured ?? false,
+      status: s.status,
+      ownerId: s.owner_id,
+      workingHours: s.working_hours || defaultWorkingHours,
+      features: s.features || [],
+      createdAt: new Date(s.created_at).toISOString(),
+    };
   }
 
   async getSalonByOwnerFromNeon(userId: string): Promise<Salon | undefined> {
@@ -1324,6 +1501,86 @@ class DatabaseStore {
     };
   }
 
+  async getBarberByIdFromNeon(id: string): Promise<Barber | undefined> {
+    const rows = await sql`
+      SELECT
+        id,
+        salon_id,
+        name,
+        name_en,
+        avatar,
+        title,
+        title_en,
+        experience_years,
+        rating,
+        review_count,
+        specializations,
+        is_available,
+        phone
+      FROM barbers
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const b: any = rows[0];
+
+    return {
+      id: b.id,
+      salonId: b.salon_id,
+      name: b.name,
+      nameEn: b.name_en,
+      avatar: b.avatar,
+      title: b.title,
+      titleEn: b.title_en,
+      experienceYears: Number(b.experience_years || 0),
+      rating: Number(b.rating || 0),
+      reviewCount: Number(b.review_count || 0),
+      specializations: b.specializations || [],
+      isAvailable: b.is_available ?? true,
+      phone: b.phone || undefined,
+    };
+  }
+
+  async getBarbersBySalonFromNeon(salonId: string): Promise<Barber[]> {
+    const rows = await sql`
+      SELECT
+        id,
+        salon_id,
+        name,
+        name_en,
+        avatar,
+        title,
+        title_en,
+        experience_years,
+        rating,
+        review_count,
+        specializations,
+        is_available,
+        phone
+      FROM barbers
+      WHERE salon_id = ${salonId}
+      ORDER BY id
+    `;
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      salonId: row.salon_id,
+      name: row.name,
+      nameEn: row.name_en,
+      avatar: row.avatar,
+      title: row.title,
+      titleEn: row.title_en,
+      experienceYears: Number(row.experience_years || 0),
+      rating: Number(row.rating || 0),
+      reviewCount: Number(row.review_count || 0),
+      specializations: row.specializations || [],
+      isAvailable: row.is_available ?? true,
+      phone: row.phone || undefined,
+    }));
+  }
+
   async persistUserToNeon(userId: string): Promise<boolean> {
     const user = this.state.users.find((u) => u.id === userId);
     if (!user) return false;
@@ -1384,30 +1641,119 @@ class DatabaseStore {
     );
   }
 
+  // Find user by Email or Phone from Neon
+  async findUserByEmailOrPhoneFromNeon(
+    identifier: string
+  ): Promise<UserWithAuth | undefined> {
+    const normalized = identifier.trim().toLowerCase();
+    const phone = identifier.trim();
+
+    const rows = await sql`
+      SELECT id, name, email, phone, role, city, salon_id, avatar,
+             password_hash, salt, is_active, is_banned, created_at
+      FROM users
+      WHERE LOWER(email) = ${normalized}
+         OR phone = ${phone}
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const u: any = rows[0];
+
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone,
+      role: u.role,
+      city: u.city || 'baghdad',
+      salonId: u.salon_id || undefined,
+      avatar: u.avatar || undefined,
+      passwordHash: u.password_hash || undefined,
+      salt: u.salt || undefined,
+      isActive: u.is_active ?? true,
+      isBanned: u.is_banned ?? false,
+      createdAt: new Date(u.created_at).toISOString(),
+    };
+  }
+
   // Authenticate user with password
-  authenticate(identifier: string, password?: string): { success: boolean; user?: User; error?: string } {
-    const user = this.findUserByEmailOrPhone(identifier);
+  async authenticate(
+    identifier: string,
+    password?: string
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    let user = this.findUserByEmailOrPhone(identifier);
+
+    // If the user is not in this serverless instance's memory,
+    // load the account permanently stored in Neon.
     if (!user) {
-      return { success: false, error: 'المستخدم غير موجود. يرجى التحقق من رقم الهاتف أو البريد.' };
-    }
+      try {
+        user = await this.findUserByEmailOrPhoneFromNeon(identifier);
 
-    if (user.isBanned) {
-      return { success: false, error: 'تم حظر هذا الحساب من قبل إدارة المنصة. يرجى مراجعة الدعم.' };
-    }
+        if (user) {
+          const existsInMemory = this.state.users.some(
+            (u) => u.id === user!.id
+          );
 
-    if (!user.isActive) {
-      return { success: false, error: 'هذا الحساب غير نشط حالياً.' };
-    }
+          if (!existsInMemory) {
+            this.state.users.push(user);
+          }
+        }
+      } catch (error: any) {
+        console.error(
+          '[LOGIN NEON FALLBACK] Failed to load user:',
+          error?.message || error
+        );
 
-    // Verify password if provided or required
-    if (user.passwordHash && user.salt && password) {
-      const isValid = verifyPassword(password, user.passwordHash, user.salt);
-      if (!isValid) {
-        return { success: false, error: 'كلمة المرور غير صحيحة.' };
+        return {
+          success: false,
+          error: 'تعذر التحقق من الحساب حالياً. حاول مرة أخرى.',
+        };
       }
     }
 
-    return { success: true, user: this.sanitizeUser(user) };
+    if (!user) {
+      return {
+        success: false,
+        error: 'المستخدم غير موجود. يرجى التحقق من رقم الهاتف أو البريد.',
+      };
+    }
+
+    if (user.isBanned) {
+      return {
+        success: false,
+        error: 'تم حظر هذا الحساب من قبل إدارة المنصة. يرجى مراجعة الدعم.',
+      };
+    }
+
+    if (!user.isActive) {
+      return {
+        success: false,
+        error: 'هذا الحساب غير نشط حالياً.',
+      };
+    }
+
+    // Verify password
+    if (user.passwordHash && user.salt && password) {
+      const isValid = verifyPassword(
+        password,
+        user.passwordHash,
+        user.salt
+      );
+
+      if (!isValid) {
+        return {
+          success: false,
+          error: 'كلمة المرور غير صحيحة.',
+        };
+      }
+    }
+
+    return {
+      success: true,
+      user: this.sanitizeUser(user),
+    };
   }
 
   // Create User with server-enforced role restrictions
@@ -1532,15 +1878,16 @@ class DatabaseStore {
 
     this.state.notifications.unshift(notification);
 
-    // Persist notification in Neon database
+    // Persist notification in Neon database.
+    // The current Neon notifications table does not have salon_id.
     await sql`
       INSERT INTO notifications
-      (id, user_id, title, title_en, message, message_en, type, read, created_at, link, salon_id)
+      (id, user_id, title, title_en, message, message_en, type, read, created_at, link)
       VALUES
       (${notification.id}, ${notification.userId}, ${notification.title},
        ${notification.titleEn}, ${notification.message}, ${notification.messageEn},
        ${notification.type}, ${notification.read}, ${notification.createdAt},
-       ${notification.link ?? null}, ${notification.salonId ?? null})
+       ${notification.link ?? null})
       ON CONFLICT (id) DO NOTHING
     `.catch((error: any) => {
       console.error('فشل حفظ الإشعار في Neon:', error.message);
@@ -1640,6 +1987,30 @@ class DatabaseStore {
     return { success: true };
   }
 
+  async isApprovedSalonOwnerFromNeon(
+    userId: string,
+    salonId: string
+  ): Promise<boolean> {
+    try {
+      const rows = await sql`
+        SELECT id
+        FROM salons
+        WHERE id = ${salonId}
+          AND owner_id = ${userId}
+          AND status = 'approved'
+        LIMIT 1
+      `;
+
+      return rows.length > 0;
+    } catch (error: any) {
+      console.error(
+        '[OWNER_CHECK] Neon ownership lookup failed:',
+        error
+      );
+      return false;
+    }
+  }
+
   // Salon Ownership verification helper
   isSalonOwner(userId: string, salonId: string): boolean {
     const user = this.state.users.find((u) => u.id === userId);
@@ -1713,6 +2084,168 @@ class DatabaseStore {
     return this.state.barbers.filter((b) => b.salonId === salonId);
   }
 
+  async getBookingsForSalonOwnerFromNeon(userId: string): Promise<Booking[]> {
+    const rows = await sql`
+      SELECT
+        b.id,
+        b.booking_number,
+        b.salon_id,
+        b.salon_name,
+        b.salon_address,
+        b.salon_phone,
+        b.salon_type,
+        b.service_id,
+        b.service_name,
+        b.barber_id,
+        b.barber_name,
+        b.customer_id,
+        b.customer_name,
+        b.customer_phone,
+        b.customer_email,
+        b.notes,
+        b.date,
+        b.time_slot,
+        b.duration_minutes,
+        b.price,
+        b.discount_amount,
+        b.final_price,
+        b.commission_amount,
+        b.salon_payout,
+        b.status,
+        b.payment_method,
+        b.payment_status,
+        b.created_at,
+        b.rated,
+        b.cancellation_reason
+      FROM bookings b
+      INNER JOIN salons s ON s.id = b.salon_id
+      WHERE s.owner_id = ${userId}
+      ORDER BY b.created_at DESC
+    `;
+
+    return rows.map((b: any) => ({
+      id: b.id,
+      bookingNumber: b.booking_number,
+      salonId: b.salon_id,
+      salonName: b.salon_name,
+      salonAddress: b.salon_address,
+      salonPhone: b.salon_phone,
+      salonType: b.salon_type,
+      serviceId: b.service_id,
+      serviceName: b.service_name,
+      barberId: b.barber_id || undefined,
+      barberName: b.barber_name || undefined,
+      customerId: b.customer_id,
+      customerName: b.customer_name,
+      customerPhone: b.customer_phone,
+      customerEmail: b.customer_email || undefined,
+      notes: b.notes || undefined,
+      date:
+        b.date instanceof Date
+          ? b.date.toISOString().slice(0, 10)
+          : String(b.date),
+      timeSlot: b.time_slot,
+      durationMinutes: Number(b.duration_minutes || 0),
+      price: Number(b.price || 0),
+      discountAmount: Number(b.discount_amount || 0),
+      finalPrice: Number(b.final_price || 0),
+      commissionAmount: Number(b.commission_amount || 0),
+      salonPayout: Number(b.salon_payout || 0),
+      status: b.status,
+      paymentMethod: b.payment_method,
+      paymentStatus: b.payment_status,
+      createdAt: new Date(b.created_at).toISOString(),
+      rated: b.rated ?? false,
+      cancellationReason: b.cancellation_reason || undefined,
+    }));
+  }
+
+  async getAllBookingsFromNeon(): Promise<Booking[]> {
+    const rows = await sql`
+      SELECT
+        id,
+        booking_number,
+        salon_id,
+        salon_name,
+        salon_address,
+        salon_phone,
+        salon_type,
+        service_id,
+        service_name,
+        barber_id,
+        barber_name,
+        customer_id,
+        customer_name,
+        customer_phone,
+        customer_email,
+        notes,
+        date,
+        time_slot,
+        duration_minutes,
+        price,
+        discount_amount,
+        final_price,
+        commission_amount,
+        salon_payout,
+        status,
+        payment_method,
+        payment_status,
+        created_at,
+        rated,
+        cancellation_reason,
+      completion_qr_nonce,
+      completion_qr_expires_at,
+      completed_at,
+      completed_by
+      FROM bookings
+      ORDER BY created_at DESC
+    `;
+
+    return rows.map((b: any) => ({
+      id: b.id,
+      bookingNumber: b.booking_number,
+      salonId: b.salon_id,
+      salonName: b.salon_name,
+      salonAddress: b.salon_address,
+      salonPhone: b.salon_phone,
+      salonType: b.salon_type,
+      serviceId: b.service_id,
+      serviceName: b.service_name,
+      barberId: b.barber_id || undefined,
+      barberName: b.barber_name || undefined,
+      customerId: b.customer_id,
+      customerName: b.customer_name,
+      customerPhone: b.customer_phone,
+      customerEmail: b.customer_email || undefined,
+      notes: b.notes || undefined,
+      date:
+        b.date instanceof Date
+          ? b.date.toISOString().slice(0, 10)
+          : String(b.date),
+      timeSlot: b.time_slot,
+      durationMinutes: Number(b.duration_minutes || 0),
+      price: Number(b.price || 0),
+      discountAmount: Number(b.discount_amount || 0),
+      finalPrice: Number(b.final_price || 0),
+      commissionAmount: Number(b.commission_amount || 0),
+      salonPayout: Number(b.salon_payout || 0),
+      status: b.status,
+      paymentMethod: b.payment_method,
+      paymentStatus: b.payment_status,
+      completionQrNonce: b.completion_qr_nonce || undefined,
+      completionQrExpiresAt: b.completion_qr_expires_at
+        ? new Date(b.completion_qr_expires_at).toISOString()
+        : undefined,
+      completedAt: b.completed_at
+        ? new Date(b.completed_at).toISOString()
+        : undefined,
+      completedBy: b.completed_by || undefined,
+      createdAt: new Date(b.created_at).toISOString(),
+      rated: b.rated ?? false,
+      cancellationReason: b.cancellation_reason || undefined,
+    }));
+  }
+
   // Strict Double-booking check & atomic booking creation
   createBookingAtomic(
     bookingData: Omit<Booking, 'id' | 'bookingNumber' | 'createdAt' | 'commissionAmount' | 'salonPayout'>,
@@ -1750,28 +2283,39 @@ class DatabaseStore {
     }
     const realServicePrice = service.price;
 
-    // 4. Validate Barber belongs to the salon
-    const barber = this.state.barbers.find(
-      (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
-    );
-    if (!barber) {
-      return { success: false, error: 'الحلاق المختار لا ينتمي لهذا الصالون أو غير متاح.' };
-    }
+    // 4. Barber is OPTIONAL.
+    // If a barber is supplied, validate that the barber belongs to this salon.
+    // New bookings are allowed without a barber.
+    const barber = bookingData.barberId
+      ? this.state.barbers.find(
+          (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+        )
+      : undefined;
 
-    // 5. Check double booking atomically for (barberId, date, timeSlot) where status is NOT cancelled
-    const conflict = this.state.bookings.find(
-      (b) =>
-        b.barberId === bookingData.barberId &&
-        b.date === bookingData.date &&
-        b.timeSlot === bookingData.timeSlot &&
-        b.status !== 'cancelled'
-    );
-
-    if (conflict) {
+    if (bookingData.barberId && !barber) {
       return {
         success: false,
-        error: 'الموعد المحدد محجوز بالفعل لهذا الحلاق. يرجى اختيار موعد أو حلاق آخر.',
+        error: 'الحلاق المحدد لا ينتمي لهذا الصالون أو غير متاح.',
       };
+    }
+
+    // 5. Check double booking only when a specific barber exists.
+    // A salon-level booking without a barber must not be blocked by barber slots.
+    if (bookingData.barberId) {
+      const conflict = this.state.bookings.find(
+        (b) =>
+          b.barberId === bookingData.barberId &&
+          b.date === bookingData.date &&
+          b.timeSlot === bookingData.timeSlot &&
+          b.status !== 'cancelled'
+      );
+
+      if (conflict) {
+        return {
+          success: false,
+          error: 'الموعد المحدد محجوز بالفعل لهذا الحلاق. يرجى اختيار موعد أو حلاق آخر.',
+        };
+      }
     }
 
     // 6. Check if time is blocked by salon owner
@@ -1811,6 +2355,13 @@ class DatabaseStore {
     const salonPayout = finalPrice - commissionAmount;
 
     const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const completionQrNonce =
+      `qr_${Date.now()}_${Math.random().toString(36).substring(2, 14)}`;
+
+    const completionQrExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    ).toISOString();
+
     const newBooking: Booking = {
       ...bookingData,
       id: `bk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1820,7 +2371,7 @@ class DatabaseStore {
       salonPhone: salon.phone,
       salonType: salon.type,
       serviceName: service.name,
-      barberName: barber.name,
+      barberName: barber?.name,
       durationMinutes: service.durationMinutes,
       price: realServicePrice,
       discountAmount,
@@ -1828,10 +2379,124 @@ class DatabaseStore {
       commissionAmount,
       salonPayout,
       status: 'confirmed',
+      completionQrNonce,
+      completionQrExpiresAt,
       createdAt: new Date().toISOString(),
     };
 
     this.state.bookings.unshift(newBooking);
+
+    // Persist booking to Neon.
+    // barber_id/barber_name are intentionally NULL when no barber is assigned.
+    void sql`
+      INSERT INTO bookings (
+        id,
+        booking_number,
+        salon_id,
+        salon_name,
+        salon_address,
+        salon_phone,
+        salon_type,
+        service_id,
+        service_name,
+        barber_id,
+        barber_name,
+        customer_id,
+        customer_name,
+        customer_phone,
+        customer_email,
+        notes,
+        date,
+        time_slot,
+        duration_minutes,
+        price,
+        discount_amount,
+        final_price,
+        commission_amount,
+        salon_payout,
+        status,
+        payment_method,
+        payment_status,
+        created_at,
+        rated,
+        cancellation_reason ,
+      completion_qr_nonce,
+      completion_qr_expires_at,
+      completed_at,
+      completed_by
+      )
+      VALUES (
+        ${newBooking.id},
+        ${newBooking.bookingNumber},
+        ${newBooking.salonId},
+        ${newBooking.salonName},
+        ${newBooking.salonAddress},
+        ${newBooking.salonPhone},
+        ${newBooking.salonType},
+        ${newBooking.serviceId},
+        ${newBooking.serviceName},
+        ${newBooking.barberId ?? null},
+        ${newBooking.barberName ?? null},
+        ${newBooking.customerId},
+        ${newBooking.customerName},
+        ${newBooking.customerPhone},
+        ${newBooking.customerEmail ?? null},
+        ${newBooking.notes ?? null},
+        ${newBooking.date},
+        ${newBooking.timeSlot},
+        ${newBooking.durationMinutes},
+        ${newBooking.price},
+        ${newBooking.discountAmount},
+        ${newBooking.finalPrice},
+        ${newBooking.commissionAmount},
+        ${newBooking.salonPayout},
+        ${newBooking.status},
+        ${newBooking.paymentMethod ?? null},
+        ${newBooking.paymentStatus ?? null},
+        ${newBooking.createdAt},
+        ${newBooking.rated ?? false},
+        ${newBooking.cancellationReason ?? null},
+      ${newBooking.completionQrNonce ?? null},
+      ${newBooking.completionQrExpiresAt ?? null},
+      ${newBooking.completedAt ?? null},
+      ${newBooking.completedBy ?? null}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        booking_number = EXCLUDED.booking_number,
+        salon_id = EXCLUDED.salon_id,
+        salon_name = EXCLUDED.salon_name,
+        salon_address = EXCLUDED.salon_address,
+        salon_phone = EXCLUDED.salon_phone,
+        salon_type = EXCLUDED.salon_type,
+        service_id = EXCLUDED.service_id,
+        service_name = EXCLUDED.service_name,
+        barber_id = EXCLUDED.barber_id,
+        barber_name = EXCLUDED.barber_name,
+        customer_id = EXCLUDED.customer_id,
+        customer_name = EXCLUDED.customer_name,
+        customer_phone = EXCLUDED.customer_phone,
+        customer_email = EXCLUDED.customer_email,
+        notes = EXCLUDED.notes,
+        date = EXCLUDED.date,
+        time_slot = EXCLUDED.time_slot,
+        duration_minutes = EXCLUDED.duration_minutes,
+        price = EXCLUDED.price,
+        discount_amount = EXCLUDED.discount_amount,
+        final_price = EXCLUDED.final_price,
+        commission_amount = EXCLUDED.commission_amount,
+        salon_payout = EXCLUDED.salon_payout,
+        status = EXCLUDED.status,
+      completion_qr_nonce = EXCLUDED.completion_qr_nonce,
+      completion_qr_expires_at = EXCLUDED.completion_qr_expires_at,
+      completed_at = EXCLUDED.completed_at,
+      completed_by = EXCLUDED.completed_by,
+        payment_method = EXCLUDED.payment_method,
+        payment_status = EXCLUDED.payment_status,
+        rated = EXCLUDED.rated,
+        cancellation_reason = EXCLUDED.cancellation_reason
+    `.catch((error: any) => {
+      console.error('[BOOKING] Failed to persist booking to Neon:', error?.message || error);
+    });
 
     // Create automated customer notification
     this.state.notifications.unshift({
@@ -1863,6 +2528,239 @@ class DatabaseStore {
     return {
       success: true,
       booking: newBooking,
+    };
+  }
+
+  async completeBookingByQr(
+    bookingId: string,
+    qrNonce: string,
+    requestingUser: User,
+    ip?: string
+  ): Promise<{
+    success: boolean;
+    booking?: Booking;
+    error?: string;
+  }> {
+    const booking = this.state.bookings.find((b) => b.id === bookingId);
+
+    if (!booking) {
+      return {
+        success: false,
+        error: 'الحجز غير موجود.',
+      };
+    }
+
+    // Only salon owner/staff/admin can complete a booking by QR.
+    if (
+      requestingUser.role !== 'admin' &&
+      requestingUser.role !== 'salon_owner' &&
+      requestingUser.role !== 'staff'
+    ) {
+      return {
+        success: false,
+        error: 'غير مصرح لك بإتمام الحجز عبر QR.',
+      };
+    }
+
+    // Salon owner/staff must belong to the booking salon.
+    if (requestingUser.role !== 'admin') {
+      const isOwner = this.isApprovedSalonOwner(
+        requestingUser.id,
+        booking.salonId
+      );
+
+      if (!isOwner) {
+        return {
+          success: false,
+          error: 'غير مصرح لك بإتمام حجز لهذا الصالون.',
+        };
+      }
+    }
+
+    // Prevent using the QR more than once.
+    if (booking.status === 'completed' || booking.completedAt) {
+      return {
+        success: false,
+        error: 'تم إكمال هذا الحجز مسبقاً.',
+      };
+    }
+
+    if (booking.status === 'cancelled') {
+      return {
+        success: false,
+        error: 'لا يمكن إكمال حجز ملغى.',
+      };
+    }
+
+    // Verify QR nonce.
+    if (
+      !booking.completionQrNonce ||
+      !qrNonce ||
+      booking.completionQrNonce !== qrNonce
+    ) {
+      this.addAuditLog({
+        userId: requestingUser.id,
+        userEmail: requestingUser.email,
+        userRole: requestingUser.role,
+        action: 'BOOKING_QR_INVALID',
+        targetType: 'booking',
+        targetId: booking.id,
+        details: `محاولة استخدام QR غير صالح للحجز ${booking.bookingNumber}`,
+        ip: ip || '127.0.0.1',
+        status: 'failure',
+      });
+
+      return {
+        success: false,
+        error: 'رمز QR غير صالح.',
+      };
+    }
+
+    // Verify QR expiry.
+    if (
+      booking.completionQrExpiresAt &&
+      new Date(booking.completionQrExpiresAt).getTime() < Date.now()
+    ) {
+      this.addAuditLog({
+        userId: requestingUser.id,
+        userEmail: requestingUser.email,
+        userRole: requestingUser.role,
+        action: 'BOOKING_QR_EXPIRED',
+        targetType: 'booking',
+        targetId: booking.id,
+        details: `محاولة استخدام QR منتهي للحجز ${booking.bookingNumber}`,
+        ip: ip || '127.0.0.1',
+        status: 'failure',
+      });
+
+      return {
+        success: false,
+        error: 'انتهت صلاحية رمز QR.',
+      };
+    }
+
+    const completedAt = new Date().toISOString();
+
+    booking.status = 'completed';
+    booking.completedAt = completedAt;
+    booking.completedBy = requestingUser.id;
+
+    // Invalidate QR immediately after successful use.
+    booking.completionQrNonce = undefined;
+    booking.completionQrExpiresAt = undefined;
+
+    // Persist completion to Neon before sending success notifications.
+    try {
+      await sql`
+        UPDATE bookings
+        SET
+          status = ${booking.status},
+          completion_qr_nonce = NULL,
+          completion_qr_expires_at = NULL,
+          completed_at = ${completedAt},
+          completed_by = ${requestingUser.id}
+        WHERE id = ${booking.id}
+      `;
+    } catch (error: any) {
+      console.error(
+        '[BOOKING_QR] Failed to persist completion to Neon:',
+        error?.message || error
+      );
+
+      // Roll back the in-memory completion if durable persistence failed.
+      booking.status = 'confirmed';
+      booking.completedAt = undefined;
+      booking.completedBy = undefined;
+      booking.completionQrNonce = qrNonce;
+
+      return {
+        success: false,
+        error: 'تعذر حفظ إتمام الخدمة. يرجى المحاولة مرة أخرى.',
+      };
+    }
+
+    // ----------------------------------------------------------
+    // Customer notification
+    // ----------------------------------------------------------
+    await this.createNotification({
+      userId: booking.customerId,
+      title: 'تم إكمال موعدك بنجاح',
+      titleEn: 'Appointment Completed',
+      message: `تم تأكيد إكمال موعدك في ${booking.salonName}. شكراً لاستخدامك حلاقي.`,
+      messageEn: `Your appointment at ${booking.salonName} has been completed successfully.`,
+      type: 'booking_completed',
+      link: '/bookings',
+      salonId: booking.salonId,
+    });
+
+    // ----------------------------------------------------------
+    // Salon owner notification
+    // ----------------------------------------------------------
+    const ownerRows = await sql`
+      SELECT owner_id
+      FROM salons
+      WHERE id = ${booking.salonId}
+      LIMIT 1
+    `;
+
+    const ownerId = ownerRows[0]?.owner_id;
+
+    if (ownerId) {
+      await this.createNotification({
+        userId: ownerId,
+        title: 'تم إتمام حجز ✅',
+        titleEn: 'Booking Completed ✅',
+        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName} بنجاح عبر QR.`,
+        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed successfully via QR.`,
+        type: 'booking_completed',
+        link: '/bookings',
+        salonId: booking.salonId,
+      });
+    }
+
+    // ----------------------------------------------------------
+    // Admin notifications
+    // ----------------------------------------------------------
+    const adminRows = await sql`
+      SELECT id
+      FROM users
+      WHERE role = 'admin'
+        AND is_active = true
+    `;
+
+    for (const admin of adminRows) {
+      if (admin.id === requestingUser.id) {
+        continue;
+      }
+
+      await this.createNotification({
+        userId: admin.id,
+        title: 'عملية خدمة مكتملة ✅',
+        titleEn: 'Service Completed ✅',
+        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName}. قيمة الخدمة: ${booking.finalPrice.toLocaleString()} د.ع.`,
+        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed. Service value: ${booking.finalPrice.toLocaleString()} IQD.`,
+        type: 'booking_completed',
+        link: '/admin/',
+        salonId: booking.salonId,
+      });
+    }
+
+    // Audit log.
+    this.addAuditLog({
+      userId: requestingUser.id,
+      userEmail: requestingUser.email,
+      userRole: requestingUser.role,
+      action: 'BOOKING_QR_COMPLETED',
+      targetType: 'booking',
+      targetId: booking.id,
+      details: `إكمال الحجز ${booking.bookingNumber} عبر QR في صالون ${booking.salonName}`,
+      ip: ip || '127.0.0.1',
+      status: 'success',
+    });
+
+    return {
+      success: true,
+      booking,
     };
   }
 
@@ -2000,41 +2898,63 @@ class DatabaseStore {
   // SALON POSTS
   // ==========================================
 
-  getSalonPosts(salonId?: string): SalonPost[] {
-    const posts = salonId
-      ? this.state.salonPosts.filter((p) => p.salonId === salonId)
-      : this.state.salonPosts;
+  async getSalonPosts(salonId?: string): Promise<SalonPost[]> {
+    try {
+      const rows = salonId
+        ? await sql`SELECT * FROM salon_posts WHERE salon_id = ${salonId} ORDER BY created_at DESC`
+        : await sql`SELECT * FROM salon_posts ORDER BY created_at DESC`;
 
-    return posts.map((post) => ({
-      ...post,
-      likeCount: this.state.postLikes.filter((l) => l.postId === post.id).length,
-      commentCount: this.state.postComments.filter((c) => c.postId === post.id).length,
-    }));
+      return rows.map((p: any) => ({
+        id: p.id,
+        salonId: p.salon_id,
+        ownerId: p.owner_id,
+        salonName: p.salon_name,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      }));
+    } catch (error: any) {
+      console.error('فشل جلب منشورات الصالون من Neon:', error.message);
+      return [];
+    }
   }
 
-  createSalonPost(
+  async createSalonPost(
     data: {
       salonId: string;
       imageUrl: string;
       caption: string;
     },
     requestingUser: User
-  ): { success: boolean; post?: SalonPost; error?: string } {
+  ): Promise<{ success: boolean; post?: SalonPost; error?: string }> {
     if (requestingUser.role !== 'salon_owner' && requestingUser.role !== 'admin') {
       return { success: false, error: 'غير مسموح لك بنشر منشورات.' };
     }
+    // Neon is the authoritative source for salons.
+    // Local memory can be stale after deployment/restart.
+    let salon = await this.getSalonByIdFromNeon(data.salonId);
 
-    const salon = this.state.salons.find((s) => s.id === data.salonId);
+    // Fallback to local memory only if Neon lookup returns nothing.
+    if (!salon) {
+      salon = this.state.salons.find((s) => s.id === data.salonId);
+    }
+
     if (!salon) {
       return { success: false, error: 'الصالون غير موجود.' };
     }
 
     if (
-      requestingUser.role === 'salon_owner' && salon.status !== 'approved' || requestingUser.role === 'salon_owner' &&
-      salon.ownerId !== requestingUser.id
+      requestingUser.role === 'salon_owner' &&
+      (salon.status !== 'approved' || salon.ownerId !== requestingUser.id)
     ) {
       return { success: false, error: 'لا يمكنك النشر في صالون آخر.' };
     }
+
 
     if (!data.imageUrl?.trim()) {
       return { success: false, error: 'صورة المنشور مطلوبة.' };
@@ -2054,185 +2974,1022 @@ class DatabaseStore {
 
     this.state.salonPosts.unshift(post);
 
-    void sql`
-      INSERT INTO salon_posts
-      (id, salon_id, owner_id, salon_name, image_url, caption, created_at, updated_at, like_count, comment_count)
-      VALUES
-      (${post.id}, ${post.salonId}, ${post.ownerId}, ${post.salonName},
-       ${post.imageUrl}, ${post.caption}, ${post.createdAt}, ${post.createdAt}, 0, 0)
-      ON CONFLICT (id) DO NOTHING
-    `.catch((error: any) => {
+    try {
+      await sql`
+        INSERT INTO salon_posts
+        (id, salon_id, owner_id, salon_name, image_url, caption, created_at, updated_at, like_count, comment_count)
+        VALUES
+        (${post.id}, ${post.salonId}, ${post.ownerId}, ${post.salonName},
+         ${post.imageUrl}, ${post.caption}, ${post.createdAt}, ${post.createdAt}, 0, 0)
+        ON CONFLICT (id) DO NOTHING
+      `;
+    } catch (error: any) {
       console.error('فشل حفظ المنشور في Neon:', error.message);
-    });
+      return {
+        success: false,
+        error: 'تعذر حفظ المنشور في قاعدة البيانات.',
+      };
+    }
 
     return { success: true, post };
   }
 
-  deleteSalonPost(
+  async deleteSalonPost(
     postId: string,
     requestingUser: User
-  ): { success: boolean; error?: string } {
-    const post = this.state.salonPosts.find((p) => p.id === postId);
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const rows = await sql`
+        SELECT id, salon_id, owner_id
+        FROM salon_posts
+        WHERE id = ${postId}
+        LIMIT 1
+      `;
 
-    if (!post) {
-      return { success: false, error: 'المنشور غير موجود.' };
-    }
+      if (!rows.length) {
+        return { success: false, error: 'المنشور غير موجود.' };
+      }
 
-    const allowed =
-      requestingUser.role === 'admin' ||
-      (
-        requestingUser.role === 'salon_owner' &&
-        this.isApprovedSalonOwner(requestingUser.id, post.salonId)
+      const post = rows[0] as any;
+
+      let allowed = requestingUser.role === 'admin';
+
+      if (!allowed && requestingUser.role === 'salon_owner' && post.salon_id) {
+        allowed = await this.isApprovedSalonOwnerFromNeon(
+          requestingUser.id,
+          post.salon_id
+        );
+      }
+
+      if (!allowed) {
+        return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
+      }
+
+      await sql`DELETE FROM post_likes WHERE post_id = ${postId}`;
+      await sql`DELETE FROM post_comments WHERE post_id = ${postId}`;
+      await sql`DELETE FROM salon_posts WHERE id = ${postId}`;
+
+      this.state.salonPosts = this.state.salonPosts.filter(
+        (p) => p.id !== postId
+      );
+      this.state.postLikes = this.state.postLikes.filter(
+        (l) => l.postId !== postId
+      );
+      this.state.postComments = this.state.postComments.filter(
+        (c) => c.postId !== postId
       );
 
-    if (!allowed) {
-      return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
+      return { success: true };
+    } catch (error: any) {
+      console.error('فشل حذف المنشور من Neon:', error?.message || error);
+      return {
+        success: false,
+        error: 'تعذر حذف المنشور من قاعدة البيانات.',
+      };
     }
-
-    this.state.salonPosts = this.state.salonPosts.filter(
-      (p) => p.id !== postId
-    );
-
-    this.state.postLikes = this.state.postLikes.filter(
-      (l) => l.postId !== postId
-    );
-
-    this.state.postComments = this.state.postComments.filter(
-      (c) => c.postId !== postId
-    );
-
-    return { success: true };
   }
 
-  togglePostLike(
+  async togglePostLike(
     postId: string,
     requestingUser: User
-  ): { success: boolean; liked?: boolean; likeCount?: number; error?: string } {
-    const post = this.state.salonPosts.find((p) => p.id === postId);
+  ): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const posts = await sql`
+        SELECT id
+        FROM salon_posts
+        WHERE id = ${postId}
+        LIMIT 1
+      `;
 
-    if (!post) {
-      return { success: false, error: 'المنشور غير موجود.' };
-    }
+      if (!posts.length) {
+        return { success: false, error: 'المنشور غير موجود.' };
+      }
 
-    const existing = this.state.postLikes.find(
-      (l) => l.postId === postId && l.userId === requestingUser.id
-    );
+      const existing = await sql`
+        SELECT id
+        FROM post_likes
+        WHERE post_id = ${postId}
+          AND user_id = ${requestingUser.id}
+        LIMIT 1
+      `;
 
-    if (existing) {
-      this.state.postLikes = this.state.postLikes.filter(
-        (l) => l.id !== existing.id
+      let liked: boolean;
+
+      if (existing.length) {
+        await sql`
+          DELETE FROM post_likes
+          WHERE post_id = ${postId}
+            AND user_id = ${requestingUser.id}
+        `;
+        liked = false;
+      } else {
+        const likeId =
+          `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+        await sql`
+          INSERT INTO post_likes
+            (id, post_id, user_id, created_at)
+          VALUES
+            (${likeId}, ${postId}, ${requestingUser.id}, NOW())
+        `;
+
+        liked = true;
+      }
+
+      const countRows = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM post_likes
+        WHERE post_id = ${postId}
+      `;
+
+      const likeCount = Number(countRows[0]?.count || 0);
+
+      await sql`
+        UPDATE salon_posts
+        SET like_count = ${likeCount},
+            updated_at = NOW()
+        WHERE id = ${postId}
+      `;
+
+      const localLike = this.state.postLikes.find(
+        (l) => l.postId === postId && l.userId === requestingUser.id
       );
+
+      if (liked && !localLike) {
+        this.state.postLikes.push({
+          id: `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          postId,
+          userId: requestingUser.id,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      if (!liked) {
+        this.state.postLikes = this.state.postLikes.filter(
+          (l) => !(l.postId === postId && l.userId === requestingUser.id)
+        );
+      }
+
+      const localPost = this.state.salonPosts.find((p) => p.id === postId);
+      if (localPost) {
+        localPost.likeCount = likeCount;
+      }
 
       return {
         success: true,
-        liked: false,
-        likeCount: this.state.postLikes.filter((l) => l.postId === postId)
-          .length,
+        liked,
+        likeCount,
+      };
+    } catch (error: any) {
+      console.error('فشل تحديث إعجاب المنشور في Neon:', error?.message || error);
+      return {
+        success: false,
+        error: 'تعذر تحديث الإعجاب.',
       };
     }
-
-    const like: PostLike = {
-      id: `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      postId,
-      userId: requestingUser.id,
-      createdAt: new Date().toISOString(),
-    };
-
-    this.state.postLikes.push(like);
-
-    return {
-      success: true,
-      liked: true,
-      likeCount: this.state.postLikes.filter((l) => l.postId === postId)
-        .length,
-    };
   }
 
-  getPostLikeStatus(
+  async getPostLikeStatus(
     postId: string,
     userId: string
-  ): { liked: boolean; likeCount: number } {
-    return {
-      liked: this.state.postLikes.some(
-        (l) => l.postId === postId && l.userId === userId
-      ),
-      likeCount: this.state.postLikes.filter((l) => l.postId === postId)
-        .length,
-    };
+  ): Promise<{ liked: boolean; likeCount: number }> {
+    try {
+      const rows = await sql`
+        SELECT
+          EXISTS(
+            SELECT 1
+            FROM post_likes
+            WHERE post_id = ${postId}
+              AND user_id = ${userId}
+          ) AS liked,
+          (
+            SELECT COUNT(*)::int
+            FROM post_likes
+            WHERE post_id = ${postId}
+          ) AS like_count
+      `;
+
+      return {
+        liked: Boolean(rows[0]?.liked),
+        likeCount: Number(rows[0]?.like_count || 0),
+      };
+    } catch (error: any) {
+      console.error('فشل جلب حالة الإعجاب من Neon:', error?.message || error);
+
+      const local = this.state.postLikes;
+
+      return {
+        liked: local.some(
+          (l) => l.postId === postId && l.userId === userId
+        ),
+        likeCount: local.filter((l) => l.postId === postId).length,
+      };
+    }
   }
 
-  addPostComment(
+  async addPostComment(
     data: {
       postId: string;
       comment: string;
     },
     requestingUser: User
-  ): { success: boolean; comment?: PostComment; error?: string } {
-    const post = this.state.salonPosts.find((p) => p.id === data.postId);
+  ): Promise<{
+    success: boolean;
+    comment?: PostComment;
+    error?: string;
+  }> {
+    try {
+      if (!data.comment?.trim()) {
+        return {
+          success: false,
+          error: 'التعليق لا يمكن أن يكون فارغاً.',
+        };
+      }
 
-    if (!post) {
-      return { success: false, error: 'المنشور غير موجود.' };
+      const posts = await sql`
+        SELECT id
+        FROM salon_posts
+        WHERE id = ${data.postId}
+        LIMIT 1
+      `;
+
+      if (!posts.length) {
+        return { success: false, error: 'المنشور غير موجود.' };
+      }
+
+      const comment: PostComment = {
+        id:
+          `comment_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        postId: data.postId,
+        userId: requestingUser.id,
+        userName: requestingUser.name,
+        userAvatar: requestingUser.avatar,
+        comment: data.comment.trim(),
+        createdAt: new Date().toISOString(),
+      };
+
+      await sql`
+        INSERT INTO post_comments
+          (id, post_id, user_id, user_name, user_avatar, comment, created_at)
+        VALUES
+          (
+            ${comment.id},
+            ${comment.postId},
+            ${comment.userId},
+            ${comment.userName},
+            ${comment.userAvatar || null},
+            ${comment.comment},
+            ${comment.createdAt}
+          )
+      `;
+
+      const countRows = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM post_comments
+        WHERE post_id = ${data.postId}
+      `;
+
+      const commentCount = Number(countRows[0]?.count || 0);
+
+      await sql`
+        UPDATE salon_posts
+        SET comment_count = ${commentCount},
+            updated_at = NOW()
+        WHERE id = ${data.postId}
+      `;
+
+      this.state.postComments.push(comment);
+
+      const localPost = this.state.salonPosts.find(
+        (p) => p.id === data.postId
+      );
+      if (localPost) {
+        localPost.commentCount = commentCount;
+      }
+
+      return {
+        success: true,
+        comment,
+      };
+    } catch (error: any) {
+      console.error('فشل إضافة التعليق إلى Neon:', error?.message || error);
+      return {
+        success: false,
+        error: 'تعذر إضافة التعليق.',
+      };
     }
-
-    if (!data.comment?.trim()) {
-      return { success: false, error: 'التعليق لا يمكن أن يكون فارغاً.' };
-    }
-
-    const comment: PostComment = {
-      id: `comment_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      postId: data.postId,
-      userId: requestingUser.id,
-      userName: requestingUser.name,
-      userAvatar: requestingUser.avatar,
-      comment: data.comment.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    this.state.postComments.push(comment);
-
-    return { success: true, comment };
   }
 
-  getPostComments(postId: string): PostComment[] {
-    return this.state.postComments
-      .filter((c) => c.postId === postId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  async getPostComments(postId: string): Promise<PostComment[]> {
+    try {
+      const rows = await sql`
+        SELECT
+          id,
+          post_id,
+          user_id,
+          user_name,
+          user_avatar,
+          comment,
+          created_at
+        FROM post_comments
+        WHERE post_id = ${postId}
+        ORDER BY created_at ASC
+      `;
+
+      return rows.map((c: any) => ({
+        id: c.id,
+        postId: c.post_id,
+        userId: c.user_id,
+        userName: c.user_name,
+        userAvatar: c.user_avatar,
+        comment: c.comment,
+        createdAt: c.created_at
+          ? new Date(c.created_at).toISOString()
+          : new Date().toISOString(),
+      }));
+    } catch (error: any) {
+      console.error('فشل جلب تعليقات المنشور من Neon:', error?.message || error);
+
+      return this.state.postComments
+        .filter((c) => c.postId === postId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    }
   }
 
-  deletePostComment(
+  async deletePostComment(
     commentId: string,
     requestingUser: User
-  ): { success: boolean; error?: string } {
-    const comment = this.state.postComments.find(
-      (c) => c.id === commentId
-    );
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const rows = await sql`
+        SELECT
+          pc.id,
+          pc.post_id,
+          pc.user_id,
+          sp.salon_id
+        FROM post_comments pc
+        LEFT JOIN salon_posts sp
+          ON sp.id = pc.post_id
+        WHERE pc.id = ${commentId}
+        LIMIT 1
+      `;
 
-    if (!comment) {
-      return { success: false, error: 'التعليق غير موجود.' };
-    }
+      if (!rows.length) {
+        return {
+          success: false,
+          error: 'التعليق غير موجود.',
+        };
+      }
 
-    const post = this.state.salonPosts.find(
-      (p) => p.id === comment.postId
-    );
+      const comment = rows[0] as any;
 
-    const allowed =
-      requestingUser.role === 'admin' ||
-      comment.userId === requestingUser.id ||
-      (
+      let allowed =
+        requestingUser.role === 'admin' ||
+        comment.user_id === requestingUser.id;
+
+      if (
+        !allowed &&
         requestingUser.role === 'salon_owner' &&
-        !!post?.salonId &&
-        this.isApprovedSalonOwner(requestingUser.id, post.salonId)
+        comment.salon_id
+      ) {
+        allowed = await this.isApprovedSalonOwnerFromNeon(
+          requestingUser.id,
+          comment.salon_id
+        );
+      }
+
+      if (!allowed) {
+        return {
+          success: false,
+          error: 'غير مسموح لك بحذف هذا التعليق.',
+        };
+      }
+
+      await sql`
+        DELETE FROM post_comments
+        WHERE id = ${commentId}
+      `;
+
+      const countRows = await sql`
+        SELECT COUNT(*)::int AS count
+        FROM post_comments
+        WHERE post_id = ${comment.post_id}
+      `;
+
+      const commentCount = Number(countRows[0]?.count || 0);
+
+      await sql`
+        UPDATE salon_posts
+        SET comment_count = ${commentCount},
+            updated_at = NOW()
+        WHERE id = ${comment.post_id}
+      `;
+
+      this.state.postComments = this.state.postComments.filter(
+        (c) => c.id !== commentId
       );
 
-    if (!allowed) {
-      return { success: false, error: 'غير مسموح لك بحذف هذا التعليق.' };
+      const localPost = this.state.salonPosts.find(
+        (p) => p.id === comment.post_id
+      );
+      if (localPost) {
+        localPost.commentCount = commentCount;
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('فشل حذف التعليق من Neon:', error?.message || error);
+      return {
+        success: false,
+        error: 'تعذر حذف التعليق.',
+      };
+    }
+  }
+
+  /**
+   * Generate/update salon settlements for one calendar month.
+   *
+   * Month boundaries are interpreted in Asia/Baghdad, while PostgreSQL
+   * stores timestamps as timestamptz/UTC.
+   *
+   * Only completed bookings with completed_at inside the requested
+   * Baghdad calendar month are counted.
+   *
+   * A paid settlement is never recalculated/overwritten.
+   */
+  async generateSettlementForMonth(
+    year: number,
+    month: number
+  ): Promise<{
+    success: boolean;
+    periodStart: string;
+    periodEnd: string;
+    settlements: Array<{
+      id: string;
+      salonId: string;
+      completedBookingsCount: number;
+      commissionAmount: number;
+      status: string;
+    }>;
+    error?: string;
+  }> {
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12 ||
+      year < 2020 ||
+      year > 2100
+    ) {
+      return {
+        success: false,
+        periodStart: '',
+        periodEnd: '',
+        settlements: [],
+        error: 'Invalid settlement year/month.',
+      };
     }
 
-    this.state.postComments = this.state.postComments.filter(
-      (c) => c.id !== commentId
+    try {
+      /*
+       * Build the Baghdad calendar boundaries in PostgreSQL.
+       *
+       * period_start:
+       *   YYYY-MM-01 00:00:00 Asia/Baghdad
+       *
+       * next_period_start:
+       *   first day of the following month 00:00:00 Asia/Baghdad
+       *
+       * period_end:
+       *   last instant of the requested month in Asia/Baghdad
+       */
+      const rows = await sql`
+        WITH bounds AS (
+          SELECT
+            make_date(${year}, ${month}, 1) AS period_start_date,
+            (make_date(${year}, ${month}, 1) + INTERVAL '1 month')::date
+              AS next_period_start_date
+        ),
+        aggregates AS (
+          SELECT
+            b.salon_id,
+            COUNT(*)::integer AS completed_bookings_count,
+            COALESCE(SUM(b.commission_amount), 0)::integer
+              AS commission_amount
+          FROM bookings b
+          CROSS JOIN bounds x
+          WHERE b.status = 'completed'
+            AND b.completed_at IS NOT NULL
+            AND b.completed_at >= (
+              x.period_start_date::timestamp AT TIME ZONE 'Asia/Baghdad'
+            )
+            AND b.completed_at < (
+              x.next_period_start_date::timestamp AT TIME ZONE 'Asia/Baghdad'
+            )
+          GROUP BY b.salon_id
+        )
+        INSERT INTO salon_settlements (
+          id,
+          salon_id,
+          period_start,
+          period_end,
+          completed_bookings_count,
+          commission_amount,
+          status,
+          due_at,
+          grace_period_ends_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          'settlement_' ||
+            a.salon_id || '_' ||
+            to_char(x.period_start_date, 'YYYYMMDD') || '_' ||
+            to_char((x.next_period_start_date - INTERVAL '1 day')::date, 'YYYYMMDD'),
+          a.salon_id,
+          x.period_start_date,
+          (x.next_period_start_date - INTERVAL '1 day')::date,
+          a.completed_bookings_count,
+          a.commission_amount,
+          'pending',
+          (
+            x.next_period_start_date::timestamp AT TIME ZONE 'Asia/Baghdad'
+          ) - INTERVAL '1 second',
+          (
+            (
+              x.next_period_start_date::timestamp AT TIME ZONE 'Asia/Baghdad'
+            ) + INTERVAL '3 days'
+          ),
+          NOW(),
+          NOW()
+        FROM aggregates a
+        CROSS JOIN bounds x
+        WHERE a.commission_amount > 0
+        ON CONFLICT (salon_id, period_start, period_end)
+        DO UPDATE SET
+          completed_bookings_count = EXCLUDED.completed_bookings_count,
+          commission_amount = EXCLUDED.commission_amount,
+          updated_at = NOW()
+        WHERE salon_settlements.status <> 'paid'
+        RETURNING
+          id,
+          salon_id,
+          completed_bookings_count,
+          commission_amount,
+          status,
+          period_start,
+          period_end
+      `;
+
+      const settlements = rows.map((r: any) => ({
+        id: r.id,
+        salonId: r.salon_id,
+        completedBookingsCount: Number(r.completed_bookings_count || 0),
+        commissionAmount: Number(r.commission_amount || 0),
+        status: r.status,
+      }));
+
+      const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const periodEnd =
+        `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      return {
+        success: true,
+        periodStart,
+        periodEnd,
+        settlements,
+      };
+    } catch (error) {
+      console.error('generateSettlementForMonth failed:', error);
+
+      return {
+        success: false,
+        periodStart: '',
+        periodEnd: '',
+        settlements: [],
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to generate salon settlements.',
+      };
+    }
+  }
+
+  /**
+   * Admin settlement listing.
+   * Uses SQL aggregation/joining and pagination so the admin dashboard
+   * remains usable with thousands of salons.
+   */
+  async getAdminSettlementsForMonth(
+    year: number,
+    month: number,
+    options?: {
+      search?: string;
+      status?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<{
+    success: boolean;
+    items: Array<{
+      salonId: string;
+      salonName: string;
+      city?: string;
+      ownerId: string;
+      completedBookingsCount: number;
+      commissionAmount: number;
+      status: string;
+      settlementId?: string;
+      dueAt?: string;
+      gracePeriodEndsAt?: string;
+      paidAt?: string;
+      paidAmount?: number;
+      paidBy?: string;
+      notes?: string;
+    }>;
+    total: number;
+    page: number;
+    pageSize: number;
+    periodStart: string;
+    periodEnd: string;
+    error?: string;
+  }> {
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12
+    ) {
+      return {
+        success: false,
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        periodStart: '',
+        periodEnd: '',
+        error: 'Invalid settlement year/month.',
+      };
+    }
+
+    const page = Math.max(
+      1,
+      Number.isInteger(options?.page) ? Number(options?.page) : 1
     );
 
-    return { success: true };
+    const pageSize = Math.min(
+      100,
+      Math.max(
+        10,
+        Number.isInteger(options?.pageSize)
+          ? Number(options?.pageSize)
+          : 50
+      )
+    );
+
+    const offset = (page - 1) * pageSize;
+    const search = String(options?.search || '').trim();
+    const status = String(options?.status || '').trim();
+
+    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const periodEnd =
+      `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    try {
+      const rows = await sql`
+        WITH target_period AS (
+          SELECT
+            make_date(${year}, ${month}, 1) AS period_start,
+            (
+              make_date(${year}, ${month}, 1) + INTERVAL '1 month' - INTERVAL '1 day'
+            )::date AS period_end
+        )
+        SELECT
+          s.id AS salon_id,
+          s.name AS salon_name,
+          s.city,
+          s.owner_id,
+          ss.id AS settlement_id,
+          COALESCE(ss.completed_bookings_count, 0)::integer
+            AS completed_bookings_count,
+          COALESCE(ss.commission_amount, 0)::integer
+            AS commission_amount,
+          COALESCE(ss.status, 'none') AS status,
+          ss.due_at,
+          ss.grace_period_ends_at,
+          ss.paid_at,
+          ss.paid_amount,
+          ss.paid_by,
+          ss.notes,
+          COUNT(*) OVER()::integer AS total_count
+        FROM salons s
+        CROSS JOIN target_period p
+        LEFT JOIN salon_settlements ss
+          ON ss.salon_id = s.id
+         AND ss.period_start = p.period_start
+         AND ss.period_end = p.period_end
+        WHERE
+          (
+            ${search} = ''
+            OR s.name ILIKE ${'%' + search + '%'}
+            OR COALESCE(s.name_en, '') ILIKE ${'%' + search + '%'}
+            OR COALESCE(s.city, '') ILIKE ${'%' + search + '%'}
+            OR COALESCE(s.area, '') ILIKE ${'%' + search + '%'}
+          )
+          AND (
+            ${status} = ''
+            OR COALESCE(ss.status, 'none') = ${status}
+          )
+        ORDER BY
+          CASE
+            WHEN COALESCE(ss.status, 'none') IN ('suspended', 'overdue')
+            THEN 0
+            WHEN COALESCE(ss.status, 'none') = 'pending'
+            THEN 1
+            WHEN COALESCE(ss.status, 'none') = 'paid'
+            THEN 2
+            ELSE 3
+          END,
+          COALESCE(ss.commission_amount, 0) DESC,
+          s.name ASC
+        LIMIT ${pageSize}
+        OFFSET ${offset}
+      `;
+
+      const total = rows.length ? Number(rows[0].total_count || 0) : 0;
+
+      return {
+        success: true,
+        items: rows.map((r: any) => ({
+          salonId: r.salon_id,
+          salonName: r.salon_name,
+          city: r.city || undefined,
+          ownerId: r.owner_id,
+          completedBookingsCount: Number(r.completed_bookings_count || 0),
+          commissionAmount: Number(r.commission_amount || 0),
+          status: r.status,
+          settlementId: r.settlement_id || undefined,
+          dueAt: r.due_at
+            ? new Date(r.due_at).toISOString()
+            : undefined,
+          gracePeriodEndsAt: r.grace_period_ends_at
+            ? new Date(r.grace_period_ends_at).toISOString()
+            : undefined,
+          paidAt: r.paid_at
+            ? new Date(r.paid_at).toISOString()
+            : undefined,
+          paidAmount:
+            r.paid_amount == null ? undefined : Number(r.paid_amount),
+          paidBy: r.paid_by || undefined,
+          notes: r.notes || undefined,
+        })),
+        total,
+        page,
+        pageSize,
+        periodStart,
+        periodEnd,
+      };
+    } catch (error) {
+      console.error('getAdminSettlementsForMonth failed:', error);
+
+      return {
+        success: false,
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+        periodStart,
+        periodEnd,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to load salon settlements.',
+      };
+    }
+  }
+
+  /**
+   * Record full payment for a salon settlement.
+   * Partial payment is intentionally rejected for now.
+   */
+  async recordSettlementPayment(
+    settlementId: string,
+    paidAmount: number,
+    adminUserId: string,
+    notes?: string
+  ): Promise<{
+    success: boolean;
+    settlement?: any;
+    error?: string;
+  }> {
+    if (!settlementId) {
+      return { success: false, error: 'معرف التسوية مطلوب.' };
+    }
+
+    if (!Number.isInteger(paidAmount) || paidAmount <= 0) {
+      return { success: false, error: 'مبلغ الدفع غير صالح.' };
+    }
+
+    try {
+      const rows = await sql`
+        UPDATE salon_settlements
+        SET
+          status = 'paid',
+          paid_at = NOW(),
+          paid_amount = ${paidAmount},
+          paid_by = ${adminUserId},
+          notes = ${notes?.trim() || null},
+          updated_at = NOW()
+        WHERE id = ${settlementId}
+          AND status <> 'paid'
+          AND commission_amount = ${paidAmount}
+        RETURNING *
+      `;
+
+      if (!rows.length) {
+        const current = await sql`
+          SELECT
+            id,
+            salon_id,
+            commission_amount,
+            status
+          FROM salon_settlements
+          WHERE id = ${settlementId}
+          LIMIT 1
+        `;
+
+        if (!current.length) {
+          return { success: false, error: 'التسوية غير موجودة.' };
+        }
+
+        if (current[0].status === 'paid') {
+          return { success: false, error: 'هذه التسوية مسددة مسبقاً.' };
+        }
+
+        return {
+          success: false,
+          error: `يجب دفع كامل العمولة: ${Number(
+            current[0].commission_amount || 0
+          ).toLocaleString()} د.ع.`,
+        };
+      }
+
+      const settlement: any = rows[0];
+
+      // Lift only a non-payment suspension caused by this settlement.
+      const reasonPrefix = 'عدم سداد مستحقات المنصة';
+      const salonRows = await sql`
+        SELECT
+          id,
+          owner_id,
+          status,
+          suspension_reason
+        FROM salons
+        WHERE id = ${settlement.salon_id}
+        LIMIT 1
+      `;
+
+      const salon = salonRows[0];
+
+      if (
+        salon &&
+        salon.status === 'suspended' &&
+        String(salon.suspension_reason || '').startsWith(reasonPrefix)
+      ) {
+        await sql`
+          UPDATE salons
+          SET
+            status = 'approved',
+            suspension_reason = NULL,
+            suspension_started_at = NULL,
+            suspension_ends_at = NULL
+          WHERE id = ${settlement.salon_id}
+        `;
+
+        const inMemorySalon = this.state.salons.find(
+          (item) => item.id === settlement.salon_id
+        );
+
+        if (inMemorySalon) {
+          inMemorySalon.status = 'approved';
+          delete inMemorySalon.suspensionReason;
+          delete inMemorySalon.suspensionStartedAt;
+          delete inMemorySalon.suspensionEndsAt;
+        }
+      }
+
+      return {
+        success: true,
+        settlement,
+      };
+    } catch (error) {
+      console.error('recordSettlementPayment failed:', error);
+
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر تسجيل الدفع.',
+      };
+    }
+  }
+
+  /**
+   * Mark unpaid settlements as overdue/suspended according to the
+   * due date and the 3-day grace period.
+   */
+  async processSettlementEnforcement(): Promise<{
+    success: boolean;
+    markedOverdue: number;
+    suspended: number;
+    error?: string;
+  }> {
+    let markedOverdue = 0;
+    let suspended = 0;
+
+    try {
+      const overdueRows = await sql`
+        UPDATE salon_settlements
+        SET
+          status = 'overdue',
+          updated_at = NOW()
+        WHERE status = 'pending'
+          AND commission_amount > 0
+          AND due_at <= NOW()
+          AND grace_period_ends_at > NOW()
+        RETURNING id
+      `;
+
+      markedOverdue = overdueRows.length;
+
+      const suspendRows = await sql`
+        UPDATE salon_settlements
+        SET
+          status = 'suspended',
+          updated_at = NOW()
+        WHERE status IN ('pending', 'overdue')
+          AND commission_amount > 0
+          AND grace_period_ends_at <= NOW()
+        RETURNING id, salon_id, period_start, period_end, commission_amount
+      `;
+
+      for (const row of suspendRows as any[]) {
+        const reason =
+          `عدم سداد مستحقات المنصة للفترة ${row.period_start} إلى ${row.period_end}`;
+
+        await sql`
+          UPDATE salons
+          SET
+            status = 'suspended',
+            suspension_reason = ${reason},
+            suspension_started_at = COALESCE(suspension_started_at, NOW()),
+            suspension_ends_at = NULL
+          WHERE id = ${row.salon_id}
+            AND status <> 'suspended'
+        `;
+
+        const inMemorySalon = this.state.salons.find(
+          (item) => item.id === row.salon_id
+        );
+
+        if (inMemorySalon && inMemorySalon.status !== 'suspended') {
+          inMemorySalon.status = 'suspended';
+          inMemorySalon.suspensionReason = reason;
+          inMemorySalon.suspensionStartedAt =
+            new Date().toISOString();
+          delete inMemorySalon.suspensionEndsAt;
+        }
+
+        suspended += 1;
+      }
+
+      return {
+        success: true,
+        markedOverdue,
+        suspended,
+      };
+    } catch (error) {
+      console.error('processSettlementEnforcement failed:', error);
+
+      return {
+        success: false,
+        markedOverdue,
+        suspended,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر معالجة المستحقات المتأخرة.',
+      };
+    }
   }
 
   validateCoupon(code: string, bookingAmount: number): { valid: boolean; coupon?: Coupon; discount?: number; message?: string } {
@@ -2260,7 +4017,7 @@ class DatabaseStore {
 export async function getNotificationsFromNeon(userId: string): Promise<Notification[]> {
   const rows = await sql`
     SELECT id, user_id, title, title_en, message, message_en,
-           type, read, created_at, link, salon_id
+           type, read, created_at, link
     FROM notifications
     WHERE user_id = ${userId}
        OR type IN ('offer', 'system')
@@ -2278,7 +4035,6 @@ export async function getNotificationsFromNeon(userId: string): Promise<Notifica
     read: n.read ?? false,
     createdAt: new Date(n.created_at).toISOString(),
     link: n.link || undefined,
-    salonId: n.salon_id || undefined,
   }));
 }
 
@@ -2461,6 +4217,14 @@ export async function loadAllFromNeon(): Promise<void> {
         status: b.status,
         paymentMethod: b.payment_method,
         paymentStatus: b.payment_status,
+        completionQrNonce: b.completion_qr_nonce || undefined,
+        completionQrExpiresAt: b.completion_qr_expires_at
+          ? new Date(b.completion_qr_expires_at).toISOString()
+          : undefined,
+        completedAt: b.completed_at
+          ? new Date(b.completed_at).toISOString()
+          : undefined,
+        completedBy: b.completed_by || undefined,
         createdAt: new Date(b.created_at).toISOString(),
         rated: b.rated ?? false,
         cancellationReason: b.cancellation_reason || undefined,

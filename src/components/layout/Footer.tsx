@@ -83,7 +83,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         </div>
 
         <div className="pt-6 border-t border-[#262626] flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px]">
-          <p>© 2026 حلاقي (HALAQI Inc.). جميع الحقوق محفوظة لجمهورية العراق والدول العربية.</p>
+          <p>
+  © 2026 جميع الحقوق محفوظة لمنصة حلاقي /{' '}
+  <button
+    onClick={() => onNavigate('terms_privacy')}
+    className="text-[#D4AF37] hover:text-white transition-colors underline underline-offset-2"
+  >
+    الشروط والأحكام وسياسة الخصوصية
+  </button>
+</p>
           <div className="flex items-center gap-4">
             <span className="text-[#D4AF37] font-mono font-semibold">Baghdad, Iraq</span>
           </div>

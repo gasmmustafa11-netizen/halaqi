@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -40,6 +41,7 @@ export const MyBookingsView: React.FC<MyBookingsViewProps> = ({ onSelectSalonId 
 
   // Rating Modal State
   const [bookingToRate, setBookingToRate] = useState<Booking | null>(null);
+  const [bookingQrToShow, setBookingQrToShow] = useState<Booking | null>(null);
   const [ratingStars, setRatingStars] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState<string>('');
   const [isSubmittingRating, setIsSubmittingRating] = useState<boolean>(false);
@@ -228,7 +230,21 @@ export const MyBookingsView: React.FC<MyBookingsViewProps> = ({ onSelectSalonId 
                 </div>
               </div>
 
-              {/* Action Buttons */}
+              {/* Customer completion QR */}
+        {b.status === 'confirmed' &&
+          b.completionQrNonce &&
+          b.completionQrExpiresAt &&
+          new Date(b.completionQrExpiresAt).getTime() > Date.now() && (
+            <button
+              type="button"
+              onClick={() => setBookingQrToShow(b)}
+              className="w-full rounded-2xl border border-[#d4af37]/30 bg-[#d4af37]/10 hover:bg-[#d4af37]/15 p-3 text-[#d4af37] text-xs font-bold transition-colors"
+            >
+              عرض QR لإتمام الخدمة
+            </button>
+          )}
+
+        {/* Action Buttons */}
               <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
                 {/* Direct WhatsApp button to salon */}
                 <a
@@ -333,6 +349,65 @@ export const MyBookingsView: React.FC<MyBookingsViewProps> = ({ onSelectSalonId 
       )}
 
       {/* Rate Salon Modal */}
+      {bookingQrToShow && (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-[#141721] border border-white/10 shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-white">
+                  QR إتمام الخدمة
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  اعرض هذا الرمز لصاحب الصالون
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setBookingQrToShow(null)}
+                className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-white"
+              >
+                <X className="w-4 h-4 mx-auto" />
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col items-center gap-4">
+              <div className="rounded-2xl bg-white p-4">
+                <QRCodeSVG
+                  value={`${bookingQrToShow.id}:${bookingQrToShow.completionQrNonce}`}
+                  size={240}
+                  level="H"
+                  includeMargin
+                />
+              </div>
+
+              <div className="text-center text-[11px] text-slate-400 leading-relaxed">
+                <p>
+                  هذا الرمز خاص بحجز:
+                  <span className="text-[#d4af37] font-mono font-bold mx-1">
+                    {bookingQrToShow.bookingNumber}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  صالح حتى{' '}
+                  {new Date(
+                    bookingQrToShow.completionQrExpiresAt || ''
+                  ).toLocaleString(isRtl ? 'ar-IQ' : 'en-US')}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setBookingQrToShow(null)}
+                className="w-full px-4 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bookingToRate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-md bg-[#141721] border border-[#d4af37]/30 rounded-3xl p-6 shadow-2xl space-y-4 text-slate-200">
