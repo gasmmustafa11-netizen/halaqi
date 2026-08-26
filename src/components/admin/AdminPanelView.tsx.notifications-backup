@@ -110,22 +110,6 @@ export const AdminPanelView: React.FC = () => {
     loadAdminData();
   }, [user]);
 
-  // تحديث إشعارات الأدمن تلقائياً
-  useEffect(() => {
-    if (!isUserAdmin) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const latestNotifications = await api.getNotifications(user?.id);
-        setNotifications(latestNotifications);
-      } catch (error) {
-        console.error('Error refreshing admin notifications:', error);
-      }
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [user, isUserAdmin]);
-
   const loadSalonPosts = async () => {
     if (!isUserAdmin) return;
 
@@ -485,8 +469,8 @@ export const AdminPanelView: React.FC = () => {
                   <div className="space-y-2 max-h-80 overflow-y-auto">
 {notifications.map((notification) => {
   const salonId =
-    notification.type === 'SALON_JOIN_REQUEST' && notification.salonId
-      ? notification.salonId
+    notification.type === 'new_salon' && notification.link
+      ? notification.link.split('/').filter(Boolean).pop()
       : undefined;
 
   return (
@@ -506,7 +490,7 @@ export const AdminPanelView: React.FC = () => {
             {notification.message}
           </p>
 
-          {notification.type === 'SALON_JOIN_REQUEST' && salonId && (
+          {notification.type === 'new_salon' && salonId && (
             <div className="flex gap-2 mt-3">
               <button
                 type="button"

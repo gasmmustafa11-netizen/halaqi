@@ -360,41 +360,17 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
       )}
 
       {/* Official Google Maps Render OR Built-in Interactive Vector Map */}
-      <div className="relative flex-1 w-full min-h-[500px] bg-[#0A0A0A] overflow-hidden select-none">
-          <MapContainer
-            center={[mapCenter.lat, mapCenter.lng]}
-            zoom={zoom}
-            zoomControl={false}
-            className="leaflet-container"
-            style={{ width: "100%", height: "500px", minHeight: "500px", zIndex: 1 }}
-          >
-            <LeafletMapController center={mapCenter} zoom={zoom} />
-            <TileLayer
-              attribution="&copy; Esri, OpenStreetMap contributors"
-              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
-              maxZoom={19}
-            />
+      <div className="relative flex-1 w-full h-full bg-[#0A0A0A] overflow-hidden select-none">
+          
+        <iframe
+  title="خريطة موقع الصالونات"
+  src="https://www.openstreetmap.org/export/embed.html?bbox=44.25%2C33.25%2C44.48%2C33.40&layer=mapnik"
+  className="w-full h-full min-h-[500px] border-0"
+  style={{ minHeight: "500px" }}
+  loading="lazy"
+  allowFullScreen
+/>
 
-            {userLocation && (
-              <Marker position={[userLocation.lat, userLocation.lng]}>
-                <Popup>
-                  {isRtl ? "📍 موقعك الحالي" : "📍 Your current location"}
-                </Popup>
-              </Marker>
-            )}
-
-            {salons.map((salon) => (
-              <Marker
-                key={salon.id}
-                position={[salon.lat, salon.lng]}
-                eventHandlers={{
-                  click: () => setActiveSalon(salon),
-                }}
-              >
-                <Popup>{salon.name}</Popup>
-              </Marker>
-            ))}
-          </MapContainer>
         </div>
       {/* Selected Salon Info Card Drawer */}
       {activeSalon && (
