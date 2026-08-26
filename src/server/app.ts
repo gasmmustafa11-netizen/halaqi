@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { db } from './db.js';
-import { getNotificationsFromNeon, loadAllFromNeon } from './db.js';
+import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon } from './db.js';
 import {
   AuthenticatedRequest,
   generateToken,
@@ -1412,6 +1412,20 @@ app.put(
             link: '/salon_dashboard',
             salonId: salonId,
           }).catch(() => {});
+
+          // Upgrade owner role to salon_owner and link salon in Neon
+          if (updatedSalon.ownerId) {
+            const owner = db.getUserById(updatedSalon.ownerId);
+            if (owner) {
+              owner.role = 'salon_owner';
+              owner.salonId = salonId;
+              try {
+                await updateUserSalonOwnerInNeon(owner.id, salonId);
+              } catch (err: any) {
+                console.error('[SALON APPROVE] Failed to upgrade owner role:', err?.message || err);
+              }
+            }
+          }
         }
 
         // Notify salon owner about rejection
