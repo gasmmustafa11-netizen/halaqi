@@ -1,0 +1,501 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Heart, MessageCircle, Send, Loader2 } from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { api } from '../../services/api';
+import { Salon, SalonPost, PostComment } from '../../types';
+
+interface PostsViewProps {
+  salons: Salon[];
+  onSelectSalon?: (salon: Salon) => void;
+}
+
+export const PostsView: React.FC<PostsViewProps> = ({
+  salons,
+  onSelectSalon,
+}) => {
+  const { isRtl } = useLanguage();
+  const { user, openAuthModal } = useAuth();
+
+  const [posts, setPosts] = useState<SalonPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
+  const [comments, setComments] = useState<Record<string, PostComment[]>>({});
+  const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
+  const [commentText, setCommentText] = useState<Record<string, string>>({});
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+  const salonMap = useMemo(() => {
+    return new Map(salons.map((salon) => [salon.id, salon]));
+  }, [salons]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPosts = async () => {
+      setLoading(true);
+
+      try {
+        const results = await Promise.all(
+          salons.map((salon) => api.getSalonPosts(salon.id))
+        );
+
+        if (cancelled) return;
+
+        const merged = results
+          .flat()
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() -
+              new Date(a.createdAt).getTime()
+          );
+
+        setPosts(merged);
+
+        const likeEntries = await Promise.all(
+          merged.map(async (post) => {
+            const result = await api.getPostLikeStatus(post.id);
+            return [post.id, !!result.liked] as const;
+          })
+        );
+
+        if (!cancelled) {
+          setLikedPosts(Object.fromEntries(likeEntries));
+        }
+      } catch (error) {
+        console.error('Load posts error:', error);
+
+        if (!cancelled) {
+          setPosts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    if (salons.length > 0) {
+      loadPosts();
+    } else {
+      setPosts([]);
+      setLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [salons]);
+
+  const handleLike = async (post: SalonPost) => {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+
+    if (loadingAction) return;
+
+    setLoadingAction(`like:${post.id}`);
+
+    try {
+      const result = await api.togglePostLike(post.id);
+
+      if (result.success) {
+        setLikedPosts((prev) => ({
+          ...prev,
+          [post.id]: !!result.liked,
+        }));
+
+        setPosts((prev) =>
+          prev.map((item) =>
+            item.id === post.id
+              ? {
+                  ...item,
+                  likeCount:
+                    typeof result.likeCount === 'number'
+                      ? result.likeCount
+                      : item.likeCount,
+                }
+              : item
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Toggle post like error:', error);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleToggleComments = async (post: SalonPost) => {
+    const isOpen = !!openComments[post.id];
+
+    if (isOpen) {
+      setOpenComments((prev) => ({
+        ...prev,
+        [post.id]: false,
+      }));
+      return;
+    }
+
+    if (!comments[post.id]) {
+      setLoadingAction(`comments:${post.id}`);
+
+      try {
+        const result = await api.getPostComments(post.id);
+
+        setComments((prev) => ({
+          ...prev,
+          [post.id]: result,
+        }));
+      } catch (error) {
+        console.error('Load post comments error:', error);
+      } finally {
+        setLoadingAction(null);
+      }
+    }
+
+    setOpenComments((prev) => ({
+      ...prev,
+      [post.id]: true,
+    }));
+  };
+
+  const handleAddComment = async (post: SalonPost) => {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+
+    const text = (commentText[post.id] || '').trim();
+
+    if (!text || loadingAction) return;
+
+    setLoadingAction(`comment:${post.id}`);
+
+    try {
+      const result = await api.addPostComment(post.id, text);
+
+      if (result.success && result.comment) {
+        setComments((prev) => ({
+          ...prev,
+          [post.id]: [...(prev[post.id] || []), result.comment!],
+        }));
+
+        setPosts((prev) =>
+          prev.map((item) =>
+            item.id === post.id
+              ? {
+                  ...item,
+                  commentCount: item.commentCount + 1,
+                }
+              : item
+          )
+        );
+
+        setCommentText((prev) => ({
+          ...prev,
+          [post.id]: '',
+        }));
+      }
+    } catch (error) {
+      console.error('Add post comment error:', error);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const getSalon = (post: SalonPost) => salonMap.get(post.salonId);
+
+  return (
+    <main
+      dir={isRtl ? 'rtl' : 'ltr'}
+      className="relative min-h-screen overflow-hidden bg-[#070707] pb-28 text-white"
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-80 w-80 rounded-full bg-[#D4AF37]/[0.06] blur-[100px]" />
+        <div className="absolute -right-32 top-72 h-96 w-96 rounded-full bg-[#D4AF37]/[0.035] blur-[120px]" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-white/[0.02] blur-[110px]" />
+      </div>
+
+      <div className="relative mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+        <header className="mb-7 overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.035] p-5 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#D4AF37] shadow-[0_0_12px_rgba(212,175,55,0.8)]" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#D4AF37]/80">
+                  {isRtl ? 'Halaqi • Live Feed' : 'Halaqi • Live Feed'}
+                </span>
+              </div>
+
+              <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
+                {isRtl ? 'المنشورات' : 'Posts'}
+              </h1>
+
+              <p className="mt-1.5 text-xs leading-5 text-slate-500 sm:text-sm">
+                {isRtl
+                  ? 'آخر إبداعات وتحديثات الصالونات'
+                  : 'Latest updates and creations from salons'}
+              </p>
+            </div>
+
+            <div className="hidden shrink-0 rounded-2xl border border-[#D4AF37]/15 bg-[#D4AF37]/[0.06] px-4 py-3 text-center sm:block">
+              <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#D4AF37]/60">
+                {isRtl ? 'Feed' : 'Feed'}
+              </div>
+              <div className="mt-0.5 text-lg font-black text-[#D4AF37]">
+                {posts.length}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {loading ? (
+          <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-white/[0.07] bg-white/[0.025] backdrop-blur-xl">
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] shadow-[0_0_40px_rgba(212,175,55,0.08)]">
+                <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
+              </div>
+              <span className="text-xs font-medium text-slate-500">
+                {isRtl ? 'جاري تحميل المنشورات...' : 'Loading posts...'}
+              </span>
+            </div>
+          </div>
+        ) : posts.length === 0 ? (
+          <div className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] px-6 py-16 text-center shadow-2xl backdrop-blur-2xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/15 bg-[#D4AF37]/[0.05]">
+              <MessageCircle className="h-6 w-6 text-[#D4AF37]/70" />
+            </div>
+            <p className="text-sm font-semibold text-slate-300">
+              {isRtl ? 'لا توجد منشورات حالياً' : 'There are no posts yet'}
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              {isRtl
+                ? 'ستظهر منشورات الصالونات هنا عند توفرها.'
+                : 'Salon posts will appear here when available.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-2">
+            {posts.map((post) => {
+              const salon = getSalon(post);
+              const isLiked = !!likedPosts[post.id];
+              const isCommentsOpen = !!openComments[post.id];
+              const postComments = comments[post.id] || [];
+              const isLikeLoading = loadingAction === `like:${post.id}`;
+              const isCommentsLoading =
+                loadingAction === `comments:${post.id}`;
+              const isCommentLoading =
+                loadingAction === `comment:${post.id}`;
+
+              return (
+                <article
+                  key={post.id}
+                  className="group overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.035] shadow-2xl shadow-black/40 backdrop-blur-2xl transition-all duration-300 hover:border-[#D4AF37]/20 hover:bg-white/[0.045]"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-4 text-start transition-colors hover:bg-white/[0.025] sm:px-5"
+                    onClick={() => salon && onSelectSalon?.(salon)}
+                  >
+                    <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl border border-white/[0.10] bg-black/40 shadow-lg">
+                      {salon?.coverImage ? (
+                        <img
+                          src={salon.coverImage}
+                          alt={post.salonName}
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-[#D4AF37]/[0.06] text-sm font-black text-[#D4AF37]">
+                          {post.salonName?.charAt(0) || 'S'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-bold text-white">
+                        {post.salonName}
+                      </div>
+
+                      <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
+                        <span className="h-1 w-1 rounded-full bg-[#D4AF37]/70" />
+                        {new Date(post.createdAt).toLocaleDateString(
+                          isRtl ? 'ar-IQ' : 'en-US',
+                          {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          }
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="hidden shrink-0 rounded-xl border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 sm:block">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">
+                        {isRtl ? 'عرض الصالون' : 'VIEW'}
+                      </span>
+                    </div>
+                  </button>
+
+                  <div className="relative overflow-hidden border-y border-white/[0.06] bg-black/40">
+                    <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/20 via-transparent to-white/[0.025]" />
+                    <img
+                      src={post.imageUrl}
+                      alt={post.caption || post.salonName}
+                      className="block max-h-[680px] min-h-[260px] w-full object-cover transition-transform duration-700 group-hover:scale-[1.01]"
+                      loading="lazy"
+                    />
+                  </div>
+
+                  <div className="p-4 sm:p-5">
+                    {post.caption && (
+                      <p className="mb-5 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                        {post.caption}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleLike(post)}
+                          disabled={isLikeLoading}
+                          className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition-all ${
+                            isLiked
+                              ? 'border-red-400/20 bg-red-400/[0.08] text-red-300'
+                              : 'border-white/[0.07] bg-white/[0.025] text-slate-400 hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white'
+                          }`}
+                        >
+                          <Heart
+                            className={`h-4 w-4 ${
+                              isLiked ? 'fill-current' : ''
+                            }`}
+                          />
+                          <span>{post.likeCount}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleComments(post)}
+                          className="flex h-10 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 text-xs font-bold text-slate-400 transition-all hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white"
+                        >
+                          {isCommentsLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MessageCircle className="h-4 w-4" />
+                          )}
+                          <span>{post.commentCount}</span>
+                        </button>
+                      </div>
+
+                      <div className="hidden text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600 sm:block">
+                        HALAQI
+                      </div>
+                    </div>
+
+                    {isCommentsOpen && (
+                      <div className="mt-5 rounded-2xl border border-white/[0.07] bg-black/20 p-3 backdrop-blur-xl sm:p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-300">
+                            {isRtl ? 'التعليقات' : 'Comments'}
+                          </span>
+                          <span className="text-[10px] text-slate-600">
+                            {post.commentCount}
+                          </span>
+                        </div>
+
+                        <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
+                          {postComments.length === 0 ? (
+                            <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-5 text-center">
+                              <p className="text-xs text-slate-600">
+                                {isRtl
+                                  ? 'لا توجد تعليقات بعد'
+                                  : 'No comments yet'}
+                              </p>
+                            </div>
+                          ) : (
+                            postComments.map((comment) => (
+                              <div
+                                key={comment.id}
+                                className="flex gap-2.5"
+                              >
+                                <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.04]">
+                                  {comment.userAvatar ? (
+                                    <img
+                                      src={comment.userAvatar}
+                                      alt={comment.userName}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-[#D4AF37]">
+                                      {comment.userName?.charAt(0) || 'U'}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.05] bg-white/[0.025] px-3 py-2.5">
+                                  <div className="text-xs font-bold text-slate-200">
+                                    {comment.userName}
+                                  </div>
+                                  <div className="mt-1 text-sm leading-5 text-slate-400">
+                                    {comment.comment}
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="mt-4 flex gap-2">
+                          <input
+                            value={commentText[post.id] || ''}
+                            onChange={(event) =>
+                              setCommentText((prev) => ({
+                                ...prev,
+                                [post.id]: event.target.value,
+                              }))
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                handleAddComment(post);
+                              }
+                            }}
+                            placeholder={
+                              isRtl
+                                ? 'اكتب تعليقاً...'
+                                : 'Write a comment...'
+                            }
+                            className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 transition-all focus:border-[#D4AF37]/40 focus:bg-black/40 focus:ring-1 focus:ring-[#D4AF37]/10"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => handleAddComment(post)}
+                            disabled={
+                              isCommentLoading ||
+                              !(commentText[post.id] || '').trim()
+                            }
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10 transition-all hover:bg-[#e5c45b] disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            {isCommentLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+
+};

@@ -19,7 +19,8 @@ import {
   UserRole,
   SalonPost,
   PostComment,
-  PostLike
+  PostLike,
+  UserPost
 } from '../types';
 
 export interface UserWithAuth extends User {
@@ -1854,6 +1855,7 @@ class DatabaseStore {
   // Create notification
   async createNotification(data: {
     userId: string;
+    actorUserId?: string;
     title: string;
     titleEn: string;
     message: string;
@@ -1865,6 +1867,7 @@ class DatabaseStore {
     const notification: Notification = {
       id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       userId: data.userId,
+      actorUserId: data.actorUserId,
       title: data.title,
       titleEn: data.titleEn,
       message: data.message,
@@ -1882,16 +1885,22 @@ class DatabaseStore {
     // The current Neon notifications table does not have salon_id.
     await sql`
       INSERT INTO notifications
-      (id, user_id, title, title_en, message, message_en, type, read, created_at, link)
+      (id, user_id, actor_user_id, title, title_en, message, message_en, type, read, created_at, link)
       VALUES
-      (${notification.id}, ${notification.userId}, ${notification.title},
+      (${notification.id}, ${notification.userId}, ${notification.actorUserId ?? null}, ${notification.title},
        ${notification.titleEn}, ${notification.message}, ${notification.messageEn},
        ${notification.type}, ${notification.read}, ${notification.createdAt},
        ${notification.link ?? null})
       ON CONFLICT (id) DO NOTHING
-    `.catch((error: any) => {
-      console.error('فشل حفظ الإشعار في Neon:', error.message);
+    `
+;
+
+    console.log('[NOTIFICATION SAVED TO NEON]', {
+      notificationId: notification.id,
+      userId: notification.userId,
+      type: notification.type,
     });
+
 
     // Keep max 500 notifications in memory
     if (this.state.notifications.length > 500) {
@@ -1902,6 +1911,67 @@ class DatabaseStore {
   }
 
   // Admin User Management
+  async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string }) {
+    try {
+      console.log('[PROFILE UPDATE DEBUG] userId =', userId);
+      console.log('[PROFILE UPDATE DEBUG] newName =', updates.name);
+
+      const beforeRows = await sql`
+        SELECT id, name, email, role
+        FROM users
+        WHERE id = ${userId}
+        LIMIT 1
+      `;
+
+      console.log('[PROFILE UPDATE DEBUG] BEFORE =', beforeRows[0] || null);
+
+      const rows = await sql`
+        UPDATE users
+        SET name = ${updates.name},
+            phone = ${updates.phone ?? null},
+            city = ${updates.city ?? null}
+        WHERE id = ${userId}
+        RETURNING id, name, email, phone, role, city, salon_id, avatar,
+                  password_hash, salt, is_active, is_banned, created_at
+      `;
+
+      console.log('[PROFILE UPDATE DEBUG] UPDATED =', rows[0] || null);
+
+      if (!rows.length) return { success: false, error: 'المستخدم غير موجود' };
+
+      const u: any = rows[0];
+      const user = {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        city: u.city || 'baghdad',
+        salonId: u.salon_id || undefined,
+        avatar: u.avatar || undefined,
+        passwordHash: u.password_hash,
+        salt: u.salt,
+        isActive: u.is_active !== false,
+        isBanned: u.is_banned === true,
+        createdAt: u.created_at
+      } as UserWithAuth;
+
+      // مزامنة الاسم الجديد مع state.users حتى يظهر مباشرة في البحث
+      const stateUser = this.state.users.find((item) => item.id === userId);
+
+      if (stateUser) {
+        stateUser.name = user.name;
+        stateUser.phone = user.phone;
+        stateUser.city = user.city;
+      }
+
+      return { success: true, user };
+    } catch (error) {
+      console.error('[DB] updateUserProfile:', error);
+      return { success: false, error: 'تعذر تحديث بيانات المستخدم' };
+    }
+  }
+
   updateUserRole(userId: string, newRole: UserRole, adminUser: User, ip?: string): { success: boolean; error?: string } {
     if (adminUser.role !== 'admin') {
       return { success: false, error: 'غير مصرح لك بتعديل أدوار المستخدمين.' };
@@ -2649,18 +2719,47 @@ class DatabaseStore {
     booking.completionQrNonce = undefined;
     booking.completionQrExpiresAt = undefined;
 
-    // Persist completion to Neon before sending success notifications.
+    // Single CTE: persist completion, fetch salon owner, and collect admin IDs.
+    let ownerId: string | undefined;
+    let adminIds: string[] = [];
     try {
-      await sql`
-        UPDATE bookings
-        SET
-          status = ${booking.status},
-          completion_qr_nonce = NULL,
-          completion_qr_expires_at = NULL,
-          completed_at = ${completedAt},
-          completed_by = ${requestingUser.id}
-        WHERE id = ${booking.id}
+      const metaRows = await sql`
+        WITH completion AS (
+          UPDATE bookings
+          SET
+            status = ${booking.status},
+            completion_qr_nonce = NULL,
+            completion_qr_expires_at = NULL,
+            completed_at = ${completedAt},
+            completed_by = ${requestingUser.id}
+          WHERE id = ${booking.id}
+          RETURNING salon_id
+        ),
+        owner_info AS (
+          SELECT s.owner_id
+          FROM salons s
+          INNER JOIN completion c ON c.salon_id = s.id
+        ),
+        admin_info AS (
+          SELECT id
+          FROM users
+          WHERE role = 'admin'
+            AND is_active = true
+        )
+        SELECT
+          o.owner_id AS owner_id,
+          (SELECT COALESCE(array_agg(a.id), '{}'::text[]) FROM admin_info a) AS admin_ids
+        FROM owner_info o
       `;
+
+      ownerId = metaRows[0]?.owner_id || undefined;
+
+      const rawAdminIds = metaRows[0]?.admin_ids;
+      adminIds = Array.isArray(rawAdminIds)
+        ? rawAdminIds
+        : typeof rawAdminIds === 'string'
+          ? rawAdminIds === '{}' ? [] : rawAdminIds.replace(/[{}]/g, '').split(',').filter(Boolean)
+          : [];
     } catch (error: any) {
       console.error(
         '[BOOKING_QR] Failed to persist completion to Neon:',
@@ -2680,9 +2779,11 @@ class DatabaseStore {
     }
 
     // ----------------------------------------------------------
-    // Customer notification
+    // Fire-and-forget notifications (non-blocking)
     // ----------------------------------------------------------
-    await this.createNotification({
+
+    // Customer notification
+    this.createNotification({
       userId: booking.customerId,
       title: 'تم إكمال موعدك بنجاح',
       titleEn: 'Appointment Completed',
@@ -2691,22 +2792,11 @@ class DatabaseStore {
       type: 'booking_completed',
       link: '/bookings',
       salonId: booking.salonId,
-    });
+    }).catch(() => {});
 
-    // ----------------------------------------------------------
     // Salon owner notification
-    // ----------------------------------------------------------
-    const ownerRows = await sql`
-      SELECT owner_id
-      FROM salons
-      WHERE id = ${booking.salonId}
-      LIMIT 1
-    `;
-
-    const ownerId = ownerRows[0]?.owner_id;
-
     if (ownerId) {
-      await this.createNotification({
+      this.createNotification({
         userId: ownerId,
         title: 'تم إتمام حجز ✅',
         titleEn: 'Booking Completed ✅',
@@ -2715,26 +2805,17 @@ class DatabaseStore {
         type: 'booking_completed',
         link: '/bookings',
         salonId: booking.salonId,
-      });
+      }).catch(() => {});
     }
 
-    // ----------------------------------------------------------
     // Admin notifications
-    // ----------------------------------------------------------
-    const adminRows = await sql`
-      SELECT id
-      FROM users
-      WHERE role = 'admin'
-        AND is_active = true
-    `;
-
-    for (const admin of adminRows) {
-      if (admin.id === requestingUser.id) {
+    for (const adminId of adminIds) {
+      if (adminId === requestingUser.id) {
         continue;
       }
 
-      await this.createNotification({
-        userId: admin.id,
+      this.createNotification({
+        userId: adminId,
         title: 'عملية خدمة مكتملة ✅',
         titleEn: 'Service Completed ✅',
         message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName}. قيمة الخدمة: ${booking.finalPrice.toLocaleString()} د.ع.`,
@@ -2742,7 +2823,7 @@ class DatabaseStore {
         type: 'booking_completed',
         link: '/admin/',
         salonId: booking.salonId,
-      });
+      }).catch(() => {});
     }
 
     // Audit log.
@@ -2924,6 +3005,400 @@ class DatabaseStore {
     }
   }
 
+  async getUserSalonPosts(userId: string): Promise<SalonPost[]> {
+    try {
+      const rows = await sql`
+        SELECT *
+        FROM salon_posts
+        WHERE owner_id = ${userId}
+        ORDER BY created_at DESC
+      `;
+
+      return rows.map((p: any) => ({
+        id: p.id,
+        salonId: p.salon_id,
+        ownerId: p.owner_id,
+        salonName: p.salon_name,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      }));
+    } catch (error: any) {
+      console.error(
+        '[getUserSalonPosts] فشل جلب منشورات المستخدم:',
+        error.message
+      );
+      return [];
+    }
+  }
+
+  async getUserPosts(userId: string): Promise<UserPost[]> {
+    try {
+      const rows = await sql`
+        SELECT
+          id,
+          user_id,
+          image_url,
+          caption,
+          created_at,
+          updated_at,
+          like_count,
+          comment_count
+        FROM user_posts
+        WHERE user_id = ${userId}
+        ORDER BY created_at DESC
+      `;
+
+      return rows.map((p: any) => ({
+        id: p.id,
+        userId: p.user_id,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      }));
+    } catch (error: any) {
+      console.error(
+        '[getUserPosts] فشل جلب منشورات المستخدم:',
+        error?.message || error
+      );
+      return [];
+    }
+  }
+
+
+
+  async getUserPostById(postId: string): Promise<UserPost | null> {
+    try {
+      // الأعمدة الفعلية التي يكتبها createUserPost في user_posts.
+      // بيانات المستخدم (الاسم والصورة) تُجلب من جدول users.
+      const rows = await sql`
+        SELECT
+          up.id,
+          up.user_id,
+          up.image_url,
+          up.caption,
+          up.created_at,
+          up.updated_at,
+          up.like_count,
+          up.comment_count,
+          u.name AS user_name,
+          u.avatar AS user_avatar
+        FROM user_posts up
+        LEFT JOIN users u ON u.id = up.user_id
+        WHERE up.id = ${postId}
+        LIMIT 1
+      `;
+
+      if (!rows.length) {
+        return null;
+      }
+
+      const row: any = rows[0];
+
+      return {
+        id: String(row.id),
+        userId: String(row.user_id),
+        userName: row.user_name || 'مستخدم',
+        userAvatar: row.user_avatar || undefined,
+        imageUrl: row.image_url,
+        caption: row.caption || '',
+        createdAt: row.created_at
+          ? new Date(row.created_at).toISOString()
+          : new Date().toISOString(),
+        updatedAt: row.updated_at
+          ? new Date(row.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(row.like_count || 0),
+        commentCount: Number(row.comment_count || 0),
+      } as UserPost;
+    } catch (error: any) {
+      console.error(
+        '[getUserPostById] فشل جلب المنشور:',
+        error?.message || error
+      );
+      return null;
+    }
+  }
+
+  /*
+   * جلب منشور واحد مباشرة سواء كان منشور مستخدم أو منشور صالون.
+   * postType يُحدد المصدر حتى يتمكن العميل من توجيه اللايكات
+   * والتعليقات إلى الـendpoint الصحيح.
+   */
+  async getUnifiedPostById(postId: string): Promise<any | null> {
+    try {
+      const userPost = await this.getUserPostById(postId);
+
+      if (userPost) {
+        return { ...userPost, postType: 'user' as const };
+      }
+
+      const rows = await sql`
+        SELECT
+          id,
+          salon_id,
+          owner_id,
+          salon_name,
+          image_url,
+          caption,
+          created_at,
+          updated_at,
+          like_count,
+          comment_count
+        FROM salon_posts
+        WHERE id = ${postId}
+        LIMIT 1
+      `;
+
+      if (!rows.length) {
+        return null;
+      }
+
+      const p: any = rows[0];
+
+      return {
+        id: String(p.id),
+        postType: 'salon' as const,
+        salonId: p.salon_id ? String(p.salon_id) : undefined,
+        ownerId: p.owner_id ? String(p.owner_id) : undefined,
+        salonName: p.salon_name || undefined,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: p.created_at
+          ? new Date(p.created_at).toISOString()
+          : new Date().toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      };
+    } catch (error: any) {
+      console.error(
+        '[getUnifiedPostById] فشل جلب المنشور:',
+        error?.message || error
+      );
+      return null;
+    }
+  }
+
+  async getAllUserPosts(): Promise<UserPost[]> {
+    try {
+      const rows = await sql`
+        SELECT
+          up.id,
+          up.user_id,
+          up.image_url,
+          up.caption,
+          up.created_at,
+          up.updated_at,
+          up.like_count,
+          up.comment_count,
+          u.name AS user_name,
+          u.avatar AS user_avatar
+        FROM user_posts up
+        LEFT JOIN users u ON u.id = up.user_id
+        ORDER BY up.created_at DESC
+      `;
+
+      return rows.map((p: any) => ({
+        id: p.id,
+        userId: p.user_id,
+        userName: p.user_name || 'مستخدم',
+        userAvatar: p.user_avatar || undefined,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      }));
+    } catch (error: any) {
+      console.error(
+        '[getAllUserPosts] فشل جلب جميع منشورات المستخدمين:',
+        error?.message || error
+      );
+      return [];
+    }
+  }
+
+  // Unified Posts Feed: salon_posts + user_posts
+  // لا نغيّر الـtypes الأصلية؛ postType خاص بالـFeed فقط.
+  // عند تمرير viewerUserId يُحسب liked لكل منشور من Neon مباشرة
+  // (post_likes هي مصدر الحقيقة لحالة الإعجاب).
+  async getUnifiedPostsFeed(viewerUserId?: string): Promise<any[]> {
+    try {
+      const viewerId = viewerUserId || '';
+
+      const rows = await sql`
+        SELECT
+          sp.id,
+          'salon' AS post_type,
+          sp.salon_id AS salon_id,
+          sp.owner_id AS owner_id,
+          sp.salon_name AS salon_name,
+          NULL::text AS user_id,
+          NULL::text AS user_name,
+          NULL::text AS user_avatar,
+          sp.image_url,
+          sp.caption,
+          sp.created_at,
+          sp.updated_at,
+          sp.like_count,
+          sp.comment_count,
+          EXISTS(
+            SELECT 1
+            FROM post_likes pl
+            WHERE pl.post_type = 'salon'
+              AND pl.post_id = sp.id
+              AND pl.user_id = ${viewerId}
+          ) AS liked_by_me
+        FROM salon_posts sp
+
+        UNION ALL
+
+        SELECT
+          up.id,
+          'user' AS post_type,
+          NULL::text AS salon_id,
+          NULL::text AS owner_id,
+          NULL::text AS salon_name,
+          up.user_id,
+          u.name AS user_name,
+          u.avatar AS user_avatar,
+          up.image_url,
+          up.caption,
+          up.created_at,
+          up.updated_at,
+          up.like_count,
+          up.comment_count,
+          EXISTS(
+            SELECT 1
+            FROM post_likes pl
+            WHERE pl.post_type = 'user'
+              AND pl.post_id = up.id
+              AND pl.user_id = ${viewerId}
+          ) AS liked_by_me
+        FROM user_posts up
+        LEFT JOIN users u ON u.id = up.user_id
+
+        ORDER BY created_at DESC
+      `;
+
+      return rows.map((p: any) => ({
+        id: String(p.id),
+        postType: p.post_type === 'user' ? 'user' : 'salon',
+
+        salonId: p.salon_id ? String(p.salon_id) : undefined,
+        ownerId: p.owner_id ? String(p.owner_id) : undefined,
+        salonName: p.salon_name || undefined,
+
+        userId: p.user_id ? String(p.user_id) : undefined,
+        userName: p.user_name || undefined,
+        userAvatar: p.user_avatar || undefined,
+
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+
+        liked: Boolean(p.liked_by_me),
+      }));
+    } catch (error: any) {
+      console.error(
+        '[getUnifiedPostsFeed] فشل جلب الـFeed الموحد:',
+        error?.message || error
+      );
+      return [];
+    }
+  }
+
+  async createUserPost(
+    data: {
+      imageUrl: string;
+      caption?: string;
+    },
+    requestingUser: User
+  ): Promise<{ success: boolean; post?: UserPost; error?: string }> {
+    try {
+      if (!data.imageUrl?.trim()) {
+        return {
+          success: false,
+          error: 'صورة المنشور مطلوبة.',
+        };
+      }
+
+      const post: UserPost = {
+        id: `user_post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        userId: requestingUser.id,
+        userName: requestingUser.name || 'مستخدم',
+        userAvatar: requestingUser.avatar || undefined,
+        imageUrl: data.imageUrl.trim(),
+        caption: (data.caption || '').trim(),
+        createdAt: new Date().toISOString(),
+        likeCount: 0,
+        commentCount: 0,
+      };
+
+      await sql`
+        INSERT INTO user_posts
+        (
+          id,
+          user_id,
+          image_url,
+          caption,
+          created_at,
+          updated_at,
+          like_count,
+          comment_count
+        )
+        VALUES
+        (
+          ${post.id},
+          ${post.userId},
+          ${post.imageUrl},
+          ${post.caption},
+          ${post.createdAt},
+          ${post.createdAt},
+          0,
+          0
+        )
+      `;
+
+      return {
+        success: true,
+        post,
+      };
+    } catch (error: any) {
+      console.error(
+        '[createUserPost] فشل حفظ منشور المستخدم:',
+        error?.message || error
+      );
+
+      return {
+        success: false,
+        error: 'تعذر حفظ المنشور في قاعدة البيانات.',
+      };
+    }
+  }
+
   async createSalonPost(
     data: {
       salonId: string;
@@ -2999,44 +3474,75 @@ class DatabaseStore {
     requestingUser: User
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const rows = await sql`
-        SELECT id, salon_id, owner_id
-        FROM salon_posts
-        WHERE id = ${postId}
-        LIMIT 1
+      // Single CTE: verify post exists, check authorization, and delete
+      // the post plus all related likes and comments in one round trip.
+      //
+      // Authorization rules (identical to the previous multi-query version):
+      //   - admin                         → always allowed
+      //   - salon_owner + post has salon  → allowed only when the salon
+      //                                     is approved and owned by the
+      //                                     requesting user (Neon lookup)
+      //   - any other role                → rejected
+      const deleteRows = await sql`
+        WITH post_check AS (
+          SELECT id, salon_id, owner_id
+          FROM salon_posts
+          WHERE id = ${postId}
+          LIMIT 1
+        ),
+        owner_check AS (
+          SELECT
+            pc.id,
+            pc.salon_id,
+            pc.owner_id,
+            CASE
+              WHEN ${requestingUser.role} = 'admin' THEN true
+              WHEN ${requestingUser.role} = 'salon_owner' AND pc.salon_id IS NOT NULL THEN
+                EXISTS(
+                  SELECT 1
+                  FROM salons s
+                  WHERE s.id = pc.salon_id
+                    AND s.owner_id = ${requestingUser.id}
+                    AND s.status = 'approved'
+                )
+              ELSE false
+            END AS allowed
+          FROM post_check pc
+        ),
+        del_likes AS (
+          DELETE FROM post_likes pl
+          USING owner_check oc
+          WHERE oc.allowed AND pl.post_id = oc.id
+          RETURNING 1
+        ),
+        del_comments AS (
+          DELETE FROM post_comments pcom
+          USING owner_check oc
+          WHERE oc.allowed AND pcom.post_id = oc.id
+          RETURNING 1
+        )
+        DELETE FROM salon_posts sp
+        USING owner_check oc
+        WHERE oc.allowed AND sp.id = oc.id
+        RETURNING oc.allowed
       `;
 
-      if (!rows.length) {
-        return { success: false, error: 'المنشور غير موجود.' };
-      }
+      if (!deleteRows.length) {
+        // Either the post does not exist, or the user is not authorized.
+        // Reproduce the exact original error messages.
+        const postExists = await sql`
+          SELECT id FROM salon_posts WHERE id = ${postId} LIMIT 1
+        `;
 
-      const post = rows[0] as any;
+        if (!postExists.length) {
+          return { success: false, error: 'المنشور غير موجود.' };
+        }
 
-      let allowed = requestingUser.role === 'admin';
-
-      if (!allowed && requestingUser.role === 'salon_owner' && post.salon_id) {
-        allowed = await this.isApprovedSalonOwnerFromNeon(
-          requestingUser.id,
-          post.salon_id
-        );
-      }
-
-      if (!allowed) {
         return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
       }
 
-      await sql`DELETE FROM post_likes WHERE post_id = ${postId}`;
-      await sql`DELETE FROM post_comments WHERE post_id = ${postId}`;
-      await sql`DELETE FROM salon_posts WHERE id = ${postId}`;
-
       this.state.salonPosts = this.state.salonPosts.filter(
         (p) => p.id !== postId
-      );
-      this.state.postLikes = this.state.postLikes.filter(
-        (l) => l.postId !== postId
-      );
-      this.state.postComments = this.state.postComments.filter(
-        (c) => c.postId !== postId
       );
 
       return { success: true };
@@ -3051,7 +3557,8 @@ class DatabaseStore {
 
   async togglePostLike(
     postId: string,
-    requestingUser: User
+    requestingUser: User,
+    postType: 'salon' | 'user' = 'salon'
   ): Promise<{
     success: boolean;
     liked?: boolean;
@@ -3059,85 +3566,153 @@ class DatabaseStore {
     error?: string;
   }> {
     try {
-      const posts = await sql`
-        SELECT id
-        FROM salon_posts
-        WHERE id = ${postId}
-        LIMIT 1
-      `;
+      // Single CTE: verify post exists, check for existing like,
+      // then INSERT or DELETE in one round trip.
+      const toggleRows = postType === 'user'
+        ? await sql`
+            WITH post_check AS (
+              SELECT id, user_id
+              FROM user_posts
+              WHERE id = ${postId}
+              LIMIT 1
+            ),
+            existing_like AS (
+              SELECT id
+              FROM post_likes
+              WHERE post_type = ${postType}
+                AND post_id = ${postId}
+                AND user_id = ${requestingUser.id}
+              LIMIT 1
+            ),
+            toggled AS (
+              DELETE FROM post_likes
+              WHERE EXISTS (SELECT 1 FROM existing_like)
+                AND post_type = ${postType}
+                AND post_id = ${postId}
+                AND user_id = ${requestingUser.id}
+              RETURNING 'unliked' AS action
+            ),
+            inserted AS (
+              INSERT INTO post_likes (id, post_type, post_id, user_id, created_at)
+              SELECT
+                'like_' || ${Date.now()} || '_' || substr(md5(random()::text), 1, 5),
+                ${postType},
+                ${postId},
+                ${requestingUser.id},
+                NOW()
+              WHERE NOT EXISTS (SELECT 1 FROM existing_like)
+                AND EXISTS (SELECT 1 FROM post_check)
+              RETURNING 'liked' AS action
+            )
+            SELECT
+              pc.user_id AS post_owner_id,
+              COALESCE(t.action, i.action) AS action
+            FROM post_check pc
+            LEFT JOIN toggled t ON true
+            LEFT JOIN inserted i ON true
+          `
+        : await sql`
+            WITH post_check AS (
+              SELECT id
+              FROM salon_posts
+              WHERE id = ${postId}
+              LIMIT 1
+            ),
+            existing_like AS (
+              SELECT id
+              FROM post_likes
+              WHERE post_type = ${postType}
+                AND post_id = ${postId}
+                AND user_id = ${requestingUser.id}
+              LIMIT 1
+            ),
+            toggled AS (
+              DELETE FROM post_likes
+              WHERE EXISTS (SELECT 1 FROM existing_like)
+                AND post_type = ${postType}
+                AND post_id = ${postId}
+                AND user_id = ${requestingUser.id}
+              RETURNING 'unliked' AS action
+            ),
+            inserted AS (
+              INSERT INTO post_likes (id, post_type, post_id, user_id, created_at)
+              SELECT
+                'like_' || ${Date.now()} || '_' || substr(md5(random()::text), 1, 5),
+                ${postType},
+                ${postId},
+                ${requestingUser.id},
+                NOW()
+              WHERE NOT EXISTS (SELECT 1 FROM existing_like)
+                AND EXISTS (SELECT 1 FROM post_check)
+              RETURNING 'liked' AS action
+            )
+            SELECT
+              NULL AS post_owner_id,
+              COALESCE(t.action, i.action) AS action
+            FROM post_check pc
+            LEFT JOIN toggled t ON true
+            LEFT JOIN inserted i ON true
+          `;
 
-      if (!posts.length) {
+      const toggleRow = toggleRows[0] as any;
+
+      if (!toggleRow?.action) {
         return { success: false, error: 'المنشور غير موجود.' };
       }
 
-      const existing = await sql`
-        SELECT id
-        FROM post_likes
-        WHERE post_id = ${postId}
-          AND user_id = ${requestingUser.id}
-        LIMIT 1
-      `;
+      const liked = toggleRow.action === 'liked';
 
-      let liked: boolean;
-
-      if (existing.length) {
-        await sql`
-          DELETE FROM post_likes
-          WHERE post_id = ${postId}
-            AND user_id = ${requestingUser.id}
-        `;
-        liked = false;
-      } else {
-        const likeId =
-          `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-        await sql`
-          INSERT INTO post_likes
-            (id, post_id, user_id, created_at)
-          VALUES
-            (${likeId}, ${postId}, ${requestingUser.id}, NOW())
-        `;
-
-        liked = true;
+      // Notify user post owner on like (not on unlike, not self-notify).
+      if (
+        liked &&
+        postType === 'user' &&
+        toggleRow.post_owner_id &&
+        toggleRow.post_owner_id !== requestingUser.id
+      ) {
+        this.createNotification({
+          userId: toggleRow.post_owner_id,
+          actorUserId: requestingUser.id,
+          title: 'إعجاب جديد بمنشورك',
+          titleEn: 'New Like on Your Post',
+          message: `أعجب ${requestingUser.name || 'مستخدم'} بمنشورك.`,
+          messageEn: `${requestingUser.name || 'A user'} liked your post.`,
+          type: 'post_like',
+          link: `/posts?postId=${postId}`,
+        }).catch(() => {});
       }
 
+      // Single query: count + update post counter.
       const countRows = await sql`
         SELECT COUNT(*)::int AS count
         FROM post_likes
-        WHERE post_id = ${postId}
+        WHERE post_type = ${postType}
+          AND post_id = ${postId}
       `;
 
       const likeCount = Number(countRows[0]?.count || 0);
 
-      await sql`
-        UPDATE salon_posts
-        SET like_count = ${likeCount},
-            updated_at = NOW()
-        WHERE id = ${postId}
-      `;
+      if (postType === 'user') {
+        await sql`
+          UPDATE user_posts
+          SET like_count = ${likeCount},
+              updated_at = NOW()
+          WHERE id = ${postId}
+        `;
+      } else {
+        await sql`
+          UPDATE salon_posts
+          SET like_count = ${likeCount},
+              updated_at = NOW()
+          WHERE id = ${postId}
+        `;
+      }
 
-      const localLike = this.state.postLikes.find(
-        (l) => l.postId === postId && l.userId === requestingUser.id
+      const localSalonPost = this.state.salonPosts.find(
+        (p) => p.id === postId
       );
 
-      if (liked && !localLike) {
-        this.state.postLikes.push({
-          id: `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          postId,
-          userId: requestingUser.id,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      if (!liked) {
-        this.state.postLikes = this.state.postLikes.filter(
-          (l) => !(l.postId === postId && l.userId === requestingUser.id)
-        );
-      }
-
-      const localPost = this.state.salonPosts.find((p) => p.id === postId);
-      if (localPost) {
-        localPost.likeCount = likeCount;
+      if (localSalonPost && postType === 'salon') {
+        localSalonPost.likeCount = likeCount;
       }
 
       return {
@@ -3146,7 +3721,11 @@ class DatabaseStore {
         likeCount,
       };
     } catch (error: any) {
-      console.error('فشل تحديث إعجاب المنشور في Neon:', error?.message || error);
+      console.error(
+        'فشل تحديث إعجاب المنشور في Neon:',
+        error?.message || error
+      );
+
       return {
         success: false,
         error: 'تعذر تحديث الإعجاب.',
@@ -3156,7 +3735,8 @@ class DatabaseStore {
 
   async getPostLikeStatus(
     postId: string,
-    userId: string
+    userId: string,
+    postType: 'salon' | 'user' = 'salon'
   ): Promise<{ liked: boolean; likeCount: number }> {
     try {
       const rows = await sql`
@@ -3164,13 +3744,15 @@ class DatabaseStore {
           EXISTS(
             SELECT 1
             FROM post_likes
-            WHERE post_id = ${postId}
+            WHERE post_type = ${postType}
+              AND post_id = ${postId}
               AND user_id = ${userId}
           ) AS liked,
           (
             SELECT COUNT(*)::int
             FROM post_likes
-            WHERE post_id = ${postId}
+            WHERE post_type = ${postType}
+              AND post_id = ${postId}
           ) AS like_count
       `;
 
@@ -3179,15 +3761,15 @@ class DatabaseStore {
         likeCount: Number(rows[0]?.like_count || 0),
       };
     } catch (error: any) {
-      console.error('فشل جلب حالة الإعجاب من Neon:', error?.message || error);
+      console.error(
+        'فشل جلب حالة الإعجاب من Neon:',
+        error?.message || error
+      );
 
-      const local = this.state.postLikes;
-
+      // Neon هو مصدر الحقيقة؛ لا نرجع بيانات من الذاكرة القديمة.
       return {
-        liked: local.some(
-          (l) => l.postId === postId && l.userId === userId
-        ),
-        likeCount: local.filter((l) => l.postId === postId).length,
+        liked: false,
+        likeCount: 0,
       };
     }
   }
@@ -3211,43 +3793,69 @@ class DatabaseStore {
         };
       }
 
-      const posts = await sql`
-        SELECT id
-        FROM salon_posts
-        WHERE id = ${data.postId}
-        LIMIT 1
+      const commentId =
+        `comment_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const createdAt = new Date().toISOString();
+      const trimmedComment = data.comment.trim();
+
+      // Single CTE: detect post type + owner, insert comment in one round trip.
+      const insertRows = await sql`
+        WITH salon_post AS (
+          SELECT id, owner_id AS post_owner_id, 'salon' AS detected_type
+          FROM salon_posts
+          WHERE id = ${data.postId}
+          LIMIT 1
+        ),
+        user_post AS (
+          SELECT id, user_id AS post_owner_id, 'user' AS detected_type
+          FROM user_posts
+          WHERE id = ${data.postId}
+          LIMIT 1
+        ),
+        post_info AS (
+          SELECT post_owner_id, detected_type
+          FROM salon_post
+          UNION ALL
+          SELECT post_owner_id, detected_type
+          FROM user_post
+          LIMIT 1
+        ),
+        ins AS (
+          INSERT INTO post_comments
+            (id, post_id, user_id, user_name, user_avatar, comment, created_at)
+          SELECT
+            ${commentId},
+            ${data.postId},
+            ${requestingUser.id},
+            ${requestingUser.name},
+            ${requestingUser.avatar || null},
+            ${trimmedComment},
+            ${createdAt}
+          WHERE EXISTS (SELECT 1 FROM post_info)
+          RETURNING id
+        )
+        SELECT pi.post_owner_id, pi.detected_type
+        FROM post_info pi
       `;
 
-      if (!posts.length) {
+      if (!insertRows.length) {
         return { success: false, error: 'المنشور غير موجود.' };
       }
 
+      const postOwnerId = String(insertRows[0]?.post_owner_id || '');
+      const postType = insertRows[0]?.detected_type as 'salon' | 'user';
+
       const comment: PostComment = {
-        id:
-          `comment_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: commentId,
         postId: data.postId,
         userId: requestingUser.id,
         userName: requestingUser.name,
         userAvatar: requestingUser.avatar,
-        comment: data.comment.trim(),
-        createdAt: new Date().toISOString(),
+        comment: trimmedComment,
+        createdAt,
       };
 
-      await sql`
-        INSERT INTO post_comments
-          (id, post_id, user_id, user_name, user_avatar, comment, created_at)
-        VALUES
-          (
-            ${comment.id},
-            ${comment.postId},
-            ${comment.userId},
-            ${comment.userName},
-            ${comment.userAvatar || null},
-            ${comment.comment},
-            ${comment.createdAt}
-          )
-      `;
-
+      // Count + update comment_count on the correct post table.
       const countRows = await sql`
         SELECT COUNT(*)::int AS count
         FROM post_comments
@@ -3256,20 +3864,42 @@ class DatabaseStore {
 
       const commentCount = Number(countRows[0]?.count || 0);
 
-      await sql`
-        UPDATE salon_posts
-        SET comment_count = ${commentCount},
-            updated_at = NOW()
-        WHERE id = ${data.postId}
-      `;
+      if (postType === 'user') {
+        await sql`
+          UPDATE user_posts
+          SET comment_count = ${commentCount},
+              updated_at = NOW()
+          WHERE id = ${data.postId}
+        `;
+      } else {
+        await sql`
+          UPDATE salon_posts
+          SET comment_count = ${commentCount},
+              updated_at = NOW()
+          WHERE id = ${data.postId}
+        `;
+      }
 
-      this.state.postComments.push(comment);
-
-      const localPost = this.state.salonPosts.find(
+      const localSalonPost = this.state.salonPosts.find(
         (p) => p.id === data.postId
       );
-      if (localPost) {
-        localPost.commentCount = commentCount;
+
+      if (localSalonPost) {
+        localSalonPost.commentCount = commentCount;
+      }
+
+      // Fire-and-forget notification to post owner.
+      if (postOwnerId && postOwnerId !== requestingUser.id) {
+        this.createNotification({
+          userId: postOwnerId,
+          actorUserId: requestingUser.id,
+          title: `${requestingUser.name} علّق على منشورك`,
+          titleEn: `${requestingUser.name} commented on your post`,
+          message: `${requestingUser.name} علّق على منشورك`,
+          messageEn: `${requestingUser.name} commented on your post`,
+          type: 'system',
+          link: `/posts?postId=${data.postId}`,
+        }).catch(() => {});
       }
 
       return {
@@ -3277,7 +3907,11 @@ class DatabaseStore {
         comment,
       };
     } catch (error: any) {
-      console.error('فشل إضافة التعليق إلى Neon:', error?.message || error);
+      console.error(
+        'فشل إضافة التعليق إلى Neon:',
+        error?.message || error
+      );
+
       return {
         success: false,
         error: 'تعذر إضافة التعليق.',
@@ -3289,35 +3923,38 @@ class DatabaseStore {
     try {
       const rows = await sql`
         SELECT
-          id,
-          post_id,
-          user_id,
-          user_name,
-          user_avatar,
-          comment,
-          created_at
-        FROM post_comments
-        WHERE post_id = ${postId}
-        ORDER BY created_at ASC
+          pc.id,
+          pc.post_id,
+          pc.user_id,
+          u.name AS user_name,
+          u.avatar AS user_avatar,
+          pc.comment,
+          pc.created_at
+        FROM post_comments pc
+        LEFT JOIN users u ON u.id = pc.user_id
+        WHERE pc.post_id = ${postId}
+        ORDER BY pc.created_at ASC
       `;
 
       return rows.map((c: any) => ({
         id: c.id,
         postId: c.post_id,
         userId: c.user_id,
-        userName: c.user_name,
-        userAvatar: c.user_avatar,
+        userName: c.user_name || 'مستخدم',
+        userAvatar: c.user_avatar || undefined,
         comment: c.comment,
         createdAt: c.created_at
           ? new Date(c.created_at).toISOString()
           : new Date().toISOString(),
       }));
     } catch (error: any) {
-      console.error('فشل جلب تعليقات المنشور من Neon:', error?.message || error);
+      console.error(
+        'فشل جلب تعليقات المنشور من Neon:',
+        error?.message || error
+      );
 
-      return this.state.postComments
-        .filter((c) => c.postId === postId)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      // Neon هو مصدر الحقيقة؛ لا نرجع بيانات من الذاكرة القديمة.
+      return [];
     }
   }
 
@@ -3331,10 +3968,18 @@ class DatabaseStore {
           pc.id,
           pc.post_id,
           pc.user_id,
-          sp.salon_id
+          sp.salon_id,
+          CASE
+            WHEN sp.id IS NOT NULL THEN 'salon'
+            WHEN up.id IS NOT NULL THEN 'user'
+            ELSE NULL
+          END AS post_type,
+          up.user_id AS post_user_id
         FROM post_comments pc
         LEFT JOIN salon_posts sp
           ON sp.id = pc.post_id
+        LEFT JOIN user_posts up
+          ON up.id = pc.post_id
         WHERE pc.id = ${commentId}
         LIMIT 1
       `;
@@ -3354,7 +3999,16 @@ class DatabaseStore {
 
       if (
         !allowed &&
+        comment.post_type === 'user' &&
+        comment.post_user_id === requestingUser.id
+      ) {
+        allowed = true;
+      }
+
+      if (
+        !allowed &&
         requestingUser.role === 'salon_owner' &&
+        comment.post_type === 'salon' &&
         comment.salon_id
       ) {
         allowed = await this.isApprovedSalonOwnerFromNeon(
@@ -3370,11 +4024,42 @@ class DatabaseStore {
         };
       }
 
-      await sql`
-        DELETE FROM post_comments
-        WHERE id = ${commentId}
-      `;
+      // Single CTE: delete comment, recount, and update post counter atomically.
+      if (comment.post_type === 'user') {
+        await sql`
+          WITH removed AS (
+            DELETE FROM post_comments
+            WHERE id = ${commentId}
+            RETURNING 1
+          )
+          UPDATE user_posts
+          SET comment_count = (
+                SELECT COUNT(*)::int
+                FROM post_comments
+                WHERE post_id = ${comment.post_id}
+              ),
+              updated_at = NOW()
+          WHERE id = ${comment.post_id}
+        `;
+      } else if (comment.post_type === 'salon') {
+        await sql`
+          WITH removed AS (
+            DELETE FROM post_comments
+            WHERE id = ${commentId}
+            RETURNING 1
+          )
+          UPDATE salon_posts
+          SET comment_count = (
+                SELECT COUNT(*)::int
+                FROM post_comments
+                WHERE post_id = ${comment.post_id}
+              ),
+              updated_at = NOW()
+          WHERE id = ${comment.post_id}
+        `;
+      }
 
+      // Fetch updated count for in-memory sync.
       const countRows = await sql`
         SELECT COUNT(*)::int AS count
         FROM post_comments
@@ -3383,27 +4068,21 @@ class DatabaseStore {
 
       const commentCount = Number(countRows[0]?.count || 0);
 
-      await sql`
-        UPDATE salon_posts
-        SET comment_count = ${commentCount},
-            updated_at = NOW()
-        WHERE id = ${comment.post_id}
-      `;
-
-      this.state.postComments = this.state.postComments.filter(
-        (c) => c.id !== commentId
-      );
-
       const localPost = this.state.salonPosts.find(
         (p) => p.id === comment.post_id
       );
+
       if (localPost) {
         localPost.commentCount = commentCount;
       }
 
       return { success: true };
     } catch (error: any) {
-      console.error('فشل حذف التعليق من Neon:', error?.message || error);
+      console.error(
+        'فشل حذف التعليق من Neon:',
+        error?.message || error
+      );
+
       return {
         success: false,
         error: 'تعذر حذف التعليق.',
@@ -4016,17 +4695,30 @@ class DatabaseStore {
 
 export async function getNotificationsFromNeon(userId: string): Promise<Notification[]> {
   const rows = await sql`
-    SELECT id, user_id, title, title_en, message, message_en,
-           type, read, created_at, link
-    FROM notifications
-    WHERE user_id = ${userId}
-       OR type IN ('offer', 'system')
-    ORDER BY created_at DESC
+    SELECT
+      n.id,
+      n.user_id,
+      n.actor_user_id,
+      u.name AS actor_name,
+      n.title,
+      n.title_en,
+      n.message,
+      n.message_en,
+      n.type,
+      n.read,
+      n.created_at,
+      n.link
+    FROM notifications n
+    LEFT JOIN users u ON u.id = n.actor_user_id
+    WHERE n.user_id = ${userId}
+    ORDER BY n.created_at DESC
   `;
 
   return rows.map((n: any) => ({
     id: n.id,
     userId: n.user_id,
+    actorUserId: n.actor_user_id || undefined,
+    actorName: n.actor_name || undefined,
     title: n.title,
     titleEn: n.title_en,
     message: n.message,

@@ -3,11 +3,11 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import {
   Home,
-  MapPin,
   Calendar,
   Heart,
   User,
-  Scissors
+  Scissors,
+  LayoutGrid
 } from 'lucide-react';
 
 interface BottomNavBarProps {
@@ -37,16 +37,20 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         <span className="text-[10px] font-bold">{isRtl ? 'الرئيسية' : 'Home'}</span>
       </button>
 
-      {/* Map */}
-      <button
-        onClick={() => onNavigate('map')}
-        className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
-          currentView === 'map' ? 'text-[#D4AF37]' : 'text-gray-400 hover:text-white'
-        }`}
-      >
-        <MapPin className="w-5 h-5" />
-        <span className="text-[10px]">{isRtl ? 'الخريطة' : 'Map'}</span>
-      </button>
+        {/* Posts */}
+        <button
+          type="button"
+          onClick={() => onNavigate('posts')}
+          aria-label={isRtl ? 'المنشورات' : 'Posts'}
+          className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            currentView === 'posts' ? 'text-[#D4AF37]' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <LayoutGrid className="w-5 h-5" />
+          <span className="text-[10px] font-bold">
+            {isRtl ? 'المنشورات' : 'Posts'}
+          </span>
+        </button>
 
       {/* Bookings */}
       <button

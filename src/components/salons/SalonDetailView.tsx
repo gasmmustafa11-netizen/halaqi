@@ -298,17 +298,7 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
         </button>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleToggleFavorite}
-            className={`p-2.5 rounded-xl border transition-all ${
-              isFavorite
-                ? 'bg-rose-500/20 border-rose-500/50 text-rose-400'
-                : 'bg-[#141721] border-white/10 text-slate-300 hover:text-white'
-            }`}
-            title={t('favorites')}
-          >
-            <Heart className={`w-4 h-4 ${isFavorite ? 'fill-rose-400' : ''}`} />
-          </button>
+          
 
           <button
             onClick={handleShare}

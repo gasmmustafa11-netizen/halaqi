@@ -31,6 +31,8 @@ const defaultCustomerUser: User = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+
+/* AUTO_SYNC_NEON_V1 */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('halaqi_user') : null;
@@ -147,6 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(meRes.user);
     }
   };
+
 
   const login = async (emailOrPhone: string, role?: UserRole, password?: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);

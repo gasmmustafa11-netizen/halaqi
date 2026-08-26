@@ -13,10 +13,13 @@ import {
   UserRole,
   SalonPost,
   PostComment,
+  UserPost
 } from '../types';
 
 const API_BASE =
-  import.meta.env.VITE_API_URL || '';
+  typeof window !== 'undefined'
+    ? window.location.origin
+    : (import.meta.env.VITE_API_URL || '');
 
 let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halaqi_auth_token') : null;
 
@@ -91,6 +94,531 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 }
 
 export const api = {
+
+  async search(query: string): Promise<{ salons: any[]; users: any[] }> {
+    try {
+      const q = query.trim();
+
+      if (!q) {
+        return { salons: [], users: [] };
+      }
+
+      const res = await fetchWithAuth(
+        `/api/search?q=${encodeURIComponent(q)}&_=${Date.now()}`,
+        {
+          cache: 'no-store',
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[SEARCH API]', data);
+        return { salons: [], users: [] };
+      }
+
+      return {
+        salons: Array.isArray(data.salons) ? data.salons : [],
+        users: Array.isArray(data.users) ? data.users : [],
+      };
+    } catch (error) {
+      console.error('[SEARCH ERROR]', error);
+      return { salons: [], users: [] };
+    }
+  },
+
+
+  async getUserPosts(userId: string): Promise<{
+    success: boolean;
+    posts?: UserPost[];
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/users/${encodeURIComponent(userId)}/posts`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[USER POSTS API]', data);
+        return {
+          success: false,
+          posts: [],
+          error: data?.error || 'تعذر تحميل منشورات المستخدم.',
+        };
+      }
+
+      return {
+        success: true,
+        posts: Array.isArray(data.posts) ? data.posts : [],
+      };
+    } catch (error) {
+      console.error('[USER POSTS ERROR]', error);
+      return {
+        success: false,
+        posts: [],
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+
+  async getUserPostById(
+    postId: string
+  ): Promise<{ success: boolean; post?: UserPost; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/user-posts/${encodeURIComponent(postId)}`
+      );
+
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [getUserPostById]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async getUserPostsFeed(): Promise<{ success: boolean; posts?: UserPost[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/user-posts/feed');
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: body.error || 'تعذر جلب منشورات المستخدمين.',
+        };
+      }
+
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [getUserPostsFeed]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  // ============================================================
+  // UNIFIED POSTS API
+  // salon_posts + user_posts
+  // ============================================================
+
+  async getUnifiedPostsFeed(): Promise<{
+    success: boolean;
+    posts?: any[];
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/posts/feed');
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        return {
+          success: false,
+          posts: [],
+          error: data?.error || 'تعذر جلب المنشورات.',
+        };
+      }
+
+      return {
+        success: true,
+        posts: Array.isArray(data.posts) ? data.posts : [],
+      };
+    } catch (error) {
+      console.error('[getUnifiedPostsFeed]', error);
+      return {
+        success: false,
+        posts: [],
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async toggleUnifiedPostLike(
+    postId: string,
+    postType: 'salon' | 'user'
+  ): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const base =
+        postType === 'user'
+          ? '/api/user-posts'
+          : '/api/salon-posts';
+
+      const res = await fetchWithAuth(
+        `${base}/${encodeURIComponent(postId)}/like`,
+        { method: 'POST' }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+        error: data.error,
+      };
+    } catch (error) {
+      console.error('[toggleUnifiedPostLike]', error);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async getUnifiedPostLikeStatus(
+    postId: string,
+    postType: 'salon' | 'user'
+  ): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const base =
+        postType === 'user'
+          ? '/api/user-posts'
+          : '/api/salon-posts';
+
+      const res = await fetchWithAuth(
+        `${base}/${encodeURIComponent(postId)}/like`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+        error: data.error,
+      };
+    } catch (error) {
+      console.error('[getUnifiedPostLikeStatus]', error);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async getUnifiedPostComments(
+    postId: string,
+    postType: 'salon' | 'user'
+  ): Promise<PostComment[]> {
+    try {
+      const base =
+        postType === 'user'
+          ? '/api/user-posts'
+          : '/api/salon-posts';
+
+      const res = await fetchWithAuth(
+        `${base}/${encodeURIComponent(postId)}/comments`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[getUnifiedPostComments]', data);
+        return [];
+      }
+
+      return Array.isArray(data.comments) ? data.comments : [];
+    } catch (error) {
+      console.error('[getUnifiedPostComments]', error);
+      return [];
+    }
+  },
+
+  async addUnifiedPostComment(
+    postId: string,
+    postType: 'salon' | 'user',
+    comment: string
+  ): Promise<{
+    success: boolean;
+    comment?: PostComment;
+    error?: string;
+  }> {
+    try {
+      const base =
+        postType === 'user'
+          ? '/api/user-posts'
+          : '/api/salon-posts';
+
+      const res = await fetchWithAuth(
+        `${base}/${encodeURIComponent(postId)}/comments`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ comment }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        comment: data.comment,
+        error: data.error,
+      };
+    } catch (error) {
+      console.error('[addUnifiedPostComment]', error);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  /*
+   * جلب منشور واحد مباشرة (مستخدم أو صالون) مع postType
+   * حتى يتم توجيه اللايكات والتعليقات للـendpoint الصحيح.
+   */
+  async getUnifiedPostById(
+    postId: string
+  ): Promise<{ success: boolean; post?: any; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/posts/${encodeURIComponent(postId)}`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        return {
+          success: false,
+          error: data?.error || 'تعذر جلب المنشور.',
+        };
+      }
+
+      return {
+        success: true,
+        post: data.post,
+      };
+    } catch (error) {
+      console.error('[getUnifiedPostById]', error);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async createUserPost(data: {
+    imageUrl: string;
+    caption?: string;
+  }): Promise<{
+    success: boolean;
+    post?: any;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/user-posts', {
+        method: 'POST',
+        body: JSON.stringify({
+          imageUrl: data.imageUrl,
+          caption: data.caption || '',
+        }),
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok || !result.success) {
+        console.error('[CREATE USER POST API]', result);
+        return {
+          success: false,
+          error: result?.error || 'تعذر حفظ المنشور في قاعدة البيانات.',
+        };
+      }
+
+      return {
+        success: true,
+        post: result.post,
+      };
+    } catch (error) {
+      console.error('[CREATE USER POST ERROR]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async updateMyProfile(data: {
+    name: string;
+    phone?: string;
+    city?: string;
+  }): Promise<{
+    success: boolean;
+    user?: any;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/auth/me/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        return {
+          success: false,
+          error: result?.error || 'تعذر تحديث الملف الشخصي.',
+        };
+      }
+
+      return {
+        success: true,
+        user: result?.user,
+      };
+    } catch (error) {
+      console.error('[UPDATE PROFILE API ERROR]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async getPublicUserProfile(userId: string): Promise<{
+    success: boolean;
+    user?: {
+      id: string;
+      name: string;
+      avatar?: string | null;
+      city?: string | null;
+      role: User['role'];
+      createdAt: string;
+    };
+    salon?: any;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/users/${encodeURIComponent(userId)}/public`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[PUBLIC PROFILE API]', data);
+
+        return {
+          success: false,
+          error: data?.error || 'تعذر تحميل الملف الشخصي.',
+        };
+      }
+
+      return {
+        success: true,
+        user: data.user,
+        salon: data.salon || null,
+      };
+    } catch (error) {
+      console.error('[PUBLIC PROFILE ERROR]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+
+  async getFollowStatus(userId: string): Promise<{
+    success: boolean;
+    isFollowing?: boolean;
+    followersCount?: number;
+    followingCount?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/users/${encodeURIComponent(userId)}/follow-status`
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[FOLLOW STATUS API]', data);
+        return {
+          success: false,
+          error: data?.error || 'تعذر تحميل معلومات المتابعة.',
+        };
+      }
+
+      return {
+        success: true,
+        isFollowing: Boolean(data.isFollowing),
+        followersCount: Number(data.followersCount || 0),
+        followingCount: Number(data.followingCount || 0),
+      };
+    } catch (error) {
+      console.error('[FOLLOW STATUS ERROR]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async toggleFollow(userId: string): Promise<{
+    success: boolean;
+    isFollowing?: boolean;
+    followersCount?: number;
+    followingCount?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/users/${encodeURIComponent(userId)}/follow-toggle`,
+        {
+          method: 'POST',
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        console.error('[FOLLOW TOGGLE API]', data);
+        return {
+          success: false,
+          error: data?.error || 'تعذر تحديث المتابعة.',
+        };
+      }
+
+      return {
+        success: true,
+        isFollowing: Boolean(data.isFollowing),
+        followersCount: Number(data.followersCount || 0),
+        followingCount: Number(data.followingCount || 0),
+      };
+    } catch (error) {
+      console.error('[FOLLOW TOGGLE ERROR]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
 
   async refreshToken(): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
     try {
@@ -1099,6 +1627,60 @@ export const api = {
       console.error('API Error [getPostLikeStatus]:', err);
       return {
         success: false,
+      };
+    }
+  },
+
+  async toggleUserPostLike(id: string): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(`/api/user-posts/${id}/like`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [toggleUserPostLike]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
+  async getUserPostLikeStatus(id: string): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(`/api/user-posts/${id}/like`);
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getUserPostLikeStatus]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
       };
     }
   },
