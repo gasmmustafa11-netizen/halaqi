@@ -329,10 +329,31 @@ app.get('/api/salons/:id', async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
-    return res.json({
-      success: true,
-      salon,
-    });
+    try {
+      const services = await db.getServicesBySalonFromNeon(salon.id);
+      const barbers = await db.getBarbersBySalonFromNeon(salon.id);
+      const reviews = db.getState().reviews.filter(
+        (r) => r.salonId === salon.id
+      );
+
+      return res.json({
+        success: true,
+        salon,
+        services,
+        barbers,
+        reviews,
+      });
+    } catch (error: any) {
+      console.error(
+        '[SALON DETAIL] Failed to load services from Neon:',
+        error?.message || error
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر تحميل خدمات الصالون حالياً.',
+      });
+    }
   } catch (error) {
     console.error('[SALON ERROR]', error);
 
@@ -550,6 +571,114 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
   });
 
   res.status(201).json({ success: true, salon: newSalon });
+});
+
+/* =========================================================
+   SERVICES ENDPOINTS
+========================================================= */
+
+app.get('/api/services', async (req: Request, res: Response) => {
+  const { salonId } = req.query;
+
+  if (salonId) {
+    try {
+      const neonServices = await db.getServicesBySalonFromNeon(salonId as string);
+
+      return res.json({
+        success: true,
+        services: neonServices,
+      });
+    } catch (error: any) {
+      console.error('[SERVICES API] Neon lookup failed:', error?.message || error);
+
+      return res.status(500).json({
+        success: false,
+        services: [],
+        error: 'تعذر تحميل خدمات الصالون حالياً.',
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    services: db.getState().services,
+  });
+});
+
+app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  console.log('[SERVICE_ROUTE] ENTER', {
+    userId: req.user?.id,
+    role: req.user?.role,
+    body: req.body,
+  });
+
+  const newService = {
+    ...req.body,
+    id: `srv_${Date.now()}`,
+  };
+
+  console.log('[SERVICE_ROUTE] BEFORE_NEON', newService);
+
+  let savedService;
+  try {
+    savedService = await db.createServiceInNeon(newService);
+    console.log('[SERVICE_ROUTE] AFTER_NEON', savedService);
+  } catch (error) {
+    console.error('[SERVICE_ROUTE] NEON_THROW', error);
+    return res.status(500).json({
+      success: false,
+      error: 'فشل حفظ الخدمة في قاعدة البيانات',
+    });
+  }
+
+  if (!savedService) {
+    return res.status(500).json({
+      success: false,
+      error: 'فشل حفظ الخدمة في قاعدة البيانات',
+    });
+  }
+
+  db.getState().services.push(savedService);
+
+  db.addAuditLog({
+    userId: req.user!.id,
+    userEmail: req.user!.email,
+    userRole: req.user!.role,
+    action: 'SERVICE_CREATE',
+    targetType: 'service',
+    targetId: newService.id,
+    details: `إضافة خدمة جديدة ${newService.name} بسعر ${newService.price} د.ع للصالون ${newService.salonId}`,
+    ip: req.ip || '127.0.0.1',
+    status: 'success',
+  });
+
+  res.status(201).json({ success: true, service: savedService });
+});
+
+app.put('/api/services/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const idx = db.getState().services.findIndex((s) => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'الخدمة غير موجودة' });
+
+  const targetService = db.getState().services[idx];
+  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetService.salonId)) {
+    return res.status(403).json({ success: false, error: 'غير مصرح لك بتعديل خدمات هذا الصالون.' });
+  }
+
+  db.getState().services[idx] = { ...targetService, ...req.body };
+  res.json({ success: true, service: db.getState().services[idx] });
+});
+
+app.delete('/api/services/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const idx = db.getState().services.findIndex((s) => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ success: false, error: 'الخدمة غير موجودة' });
+
+  const targetService = db.getState().services[idx];
+  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetService.salonId)) {
+    return res.status(403).json({ success: false, error: 'غير مصرح لك بحذف خدمات هذا الصالون.' });
+  }
+
+  db.getState().services.splice(idx, 1);
+  res.json({ success: true });
 });
 
 /* =========================================================
