@@ -23,7 +23,7 @@ interface UserProfileViewProps {
 }
 
 export const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigateToRole }) => {
-  const { user, role, logout, switchRoleDemo } = useAuth();
+  const { user, role, logout } = useAuth();
   const { t, language, setLanguage, isRtl } = useLanguage();
 
   const [name, setName] = useState<string>(user?.name || '');
@@ -92,61 +92,6 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigateToRo
           <LogOut className="w-3.5 h-3.5" />
           <span>{t('logout')}</span>
         </button>
-      </div>
-
-      {/* Role Switcher Sandbox for Instant Testing */}
-      <div className="p-5 rounded-2xl bg-gradient-to-r from-[#181b27] to-[#141721] border border-[#d4af37]/25 space-y-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#d4af37]" />
-          <h3 className="font-bold text-white text-sm">تبديل الأدوار للتجربة والمعاينة الفورية (Role Switcher)</h3>
-        </div>
-        <p className="text-xs text-slate-400">
-          يمكنك التبديل بين حساب زبون، صاحب صالون، ومدير النظام لمعاينة جميع واجهات وصلاحيات المنصة بشكل حي.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-          <button
-            onClick={() => switchRoleDemo('customer')}
-            className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              role === 'customer'
-                ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                : 'bg-white/5 border-white/10 text-slate-300 hover:text-white'
-            }`}
-          >
-            <User className="w-4 h-4" />
-            <span>حساب زبون (أحمد)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              switchRoleDemo('salon_owner');
-              if (onNavigateToRole) onNavigateToRole('salon_owner');
-            }}
-            className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              role === 'salon_owner'
-                ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                : 'bg-white/5 border-white/10 text-slate-300 hover:text-white'
-            }`}
-          >
-            <Scissors className="w-4 h-4" />
-            <span>صاحب صالون (وسام - رويال)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              switchRoleDemo('admin');
-              if (onNavigateToRole) onNavigateToRole('admin');
-            }}
-            className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              role === 'admin'
-                ? 'bg-[#d4af37] text-black border-[#d4af37]'
-                : 'bg-white/5 border-white/10 text-slate-300 hover:text-white'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>مدير النظام المركزي</span>
-          </button>
-        </div>
       </div>
 
       {/* Edit Profile Form */}

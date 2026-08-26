@@ -1,3 +1,5 @@
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import React, { useState, useEffect, useRef } from 'react';
 import { Salon } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -38,6 +40,7 @@ const GOOGLE_MAPS_KEY =
   '';
 
 const hasValidGoogleKey = Boolean(GOOGLE_MAPS_KEY) && GOOGLE_MAPS_KEY !== 'YOUR_API_KEY';
+const LeafletMapController: React.FC<{  center: { lat: number; lng: number };  zoom: number;}> = ({ center, zoom }) => {  const map = useMap();  useEffect(() => {    map.setView([center.lat, center.lng], zoom, { animate: false });  }, [map, center.lat, center.lng, zoom]);  return null;};
 
 export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
   salons,
@@ -263,7 +266,7 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
       </div>
 
       {/* Luxury Bento Custom Controls Toolbar (Zoom, Auto-Tracking, Re-center) */}
-      <div className="absolute top-20 right-4 z-20 flex flex-col gap-2.5 pointer-events-auto">
+      <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-2.5 pointer-events-auto">
         {/* 1. Live GPS Auto-Tracking Button (WatchPosition Toggle) */}
         <button
           onClick={toggleLiveTracking}
@@ -280,10 +283,10 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
         >
           <div className="relative">
             <Radio
-              className={`w-5 h-5 ${isLiveTracking ? 'animate-pulse' : ''}`}
+              className={`w-5 h-5 ${isLiveTracking ? '' : ''}`}
             />
             {isLiveTracking && (
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full " />
             )}
           </div>
         </button>
@@ -293,7 +296,7 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
           onClick={handleGetLocation}
           title={isRtl ? 'تحديد موقعي الآن' : 'Locate my position'}
           className={`p-3 rounded-2xl bg-[#141414]/95 backdrop-blur-md border border-[#262626] text-gray-200 shadow-2xl hover:border-[#D4AF37] hover:text-[#D4AF37] transition-all flex items-center justify-center cursor-pointer ${
-            isLocating ? 'animate-pulse text-[#D4AF37]' : ''
+            isLocating ? ' text-[#D4AF37]' : ''
           }`}
         >
           <LocateFixed className="w-5 h-5" />
@@ -338,7 +341,7 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
       {/* Live Tracking Status Badge Overlay */}
       {isLiveTracking && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-[#141414]/95 border border-[#D4AF37] text-white text-xs px-4 py-1.5 rounded-full backdrop-blur-md shadow-2xl flex items-center gap-2 animate-in fade-in">
-          <span className="w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+          <span className="w-2 h-2 bg-emerald-400 rounded-full " />
           <span className="font-bold text-[#D4AF37]">التتبع المباشر نشط</span>
           <span className="text-[10px] text-gray-400 font-mono">
             {userLocation?.accuracy ? `(دقة ±${Math.round(userLocation.accuracy)}م)` : ''}
@@ -358,160 +361,27 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
 
       {/* Official Google Maps Render OR Built-in Interactive Vector Map */}
       <div className="relative flex-1 w-full h-full bg-[#0A0A0A] overflow-hidden select-none">
-        {hasValidGoogleKey ? (
-          /* Official Google Maps Platform */
-          <APIProvider apiKey={GOOGLE_MAPS_KEY} version="weekly">
-            <Map
-              center={mapCenter}
-              zoom={zoom}
-              mapId="DEMO_MAP_ID"
-              internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-              style={{ width: '100%', height: '100%' }}
-              disableDefaultUI={true}
-              onCameraChanged={(e) => {
-                setMapCenter(e.detail.center);
-                setZoom(e.detail.zoom);
-              }}
+          
+        <MapContainer center={[mapCenter.lat, mapCenter.lng]} zoom={zoom} style={{ width: "100%", height: "100%" }} zoomControl={false}>
+          <LeafletMapController center={mapCenter} zoom={zoom} />
+          <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {userLocation && (
+            <Marker position={[userLocation.lat, userLocation.lng]}>
+              <Popup>📍 موقعك الحالي</Popup>
+            </Marker>
+          )}
+          {filteredSalons.map((salon) => (
+            <Marker
+              key={salon.id}
+              position={[salon.lat, salon.lng]}
+              eventHandlers={{ click: () => setActiveSalon(salon) }}
             >
-              {userLocation && (
-                <AdvancedMarker position={userLocation} title={t('youAreHere')}>
-                  <div className="relative flex items-center justify-center">
-                    <div className="absolute w-12 h-12 bg-sky-500/30 rounded-full animate-ping" />
-                    <Pin background="#0284c7" glyphColor="#ffffff" borderColor="#ffffff" />
-                  </div>
-                </AdvancedMarker>
-              )}
+              <Popup>{salon.name}</Popup>
+            </Marker>
+          ))}
+        </MapContainer>
 
-              {filteredSalons.map((salon) => (
-                <AdvancedMarker
-                  key={salon.id}
-                  position={{ lat: salon.lat, lng: salon.lng }}
-                  onClick={() => setActiveSalon(salon)}
-                  title={salon.name}
-                >
-                  <Pin
-                    background={salon.type === 'women' ? '#db2777' : '#D4AF37'}
-                    glyphColor="#000000"
-                    borderColor="#ffffff"
-                  />
-                </AdvancedMarker>
-              ))}
-            </Map>
-          </APIProvider>
-        ) : (
-          /* Built-in Luxury Vector & GPS Navigation Map */
-          <>
-            {/* Ambient Street Grid Styling */}
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage: `
-                  radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.08) 0%, transparent 80%),
-                  linear-gradient(to right, #262626 1px, transparent 1px),
-                  linear-gradient(to bottom, #262626 1px, transparent 1px)
-                `,
-                backgroundSize: '100% 100%, 40px 40px, 40px 40px',
-              }}
-            />
-
-            {/* River Tigris / Euphrates decorative curve */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40">
-              <path
-                d="M 0,200 Q 250,300 500,220 T 1000,450"
-                fill="none"
-                stroke="#1e3a5f"
-                strokeWidth="24"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 100,0 Q 300,350 700,400 T 1000,600"
-                fill="none"
-                stroke="#1a2e4c"
-                strokeWidth="14"
-                strokeLinecap="round"
-              />
-              <line x1="10%" y1="20%" x2="90%" y2="80%" stroke="#262626" strokeWidth="6" />
-              <line x1="20%" y1="85%" x2="85%" y2="15%" stroke="#262626" strokeWidth="6" />
-              <circle cx="50%" cy="50%" r="180" fill="none" stroke="#262626" strokeWidth="4" strokeDasharray="6 6" />
-            </svg>
-
-            {/* User GPS Location Marker with Live Pulse */}
-            {userLocation && (
-              <div
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none transition-all duration-500 ease-out"
-                style={{
-                  left: `${getSvgCoordinates(userLocation.lat, userLocation.lng).x}%`,
-                  top: `${getSvgCoordinates(userLocation.lat, userLocation.lng).y}%`,
-                }}
-              >
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute w-14 h-14 bg-sky-500/20 rounded-full animate-ping" />
-                  <div className="absolute w-8 h-8 bg-sky-500/40 rounded-full animate-pulse" />
-                  <div className="w-4 h-4 bg-sky-400 border-2 border-white rounded-full shadow-lg shadow-sky-500/50" />
-                  <div className="absolute -bottom-6 bg-[#141414] border border-sky-400/50 text-sky-200 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shadow-md flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-sky-400 rounded-full" />
-                    <span>{t('youAreHere')}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Salon Map Pins */}
-            {filteredSalons.map((salon) => {
-              const coords = getSvgCoordinates(salon.lat, salon.lng);
-              const isSelected = activeSalon?.id === salon.id;
-
-              return (
-                <div
-                  key={salon.id}
-                  className="absolute transform -translate-x-1/2 -translate-y-full cursor-pointer z-10 transition-transform duration-200 hover:scale-110"
-                  style={{ left: `${coords.x}%`, top: `${coords.y}%` }}
-                  onClick={() => setActiveSalon(salon)}
-                >
-                  <div className="relative flex flex-col items-center group">
-                    <div
-                      className={`px-2 py-1 rounded-lg text-[11px] font-bold shadow-xl border flex items-center gap-1 mb-1 transition-all whitespace-nowrap ${
-                        isSelected
-                          ? 'bg-[#D4AF37] text-black border-[#D4AF37] scale-105 ring-2 ring-[#D4AF37]/50'
-                          : salon.type === 'women'
-                          ? 'bg-[#141414] text-pink-200 border-pink-500/30'
-                          : 'bg-[#141414] text-amber-200 border-[#262626]'
-                      }`}
-                    >
-                      {salon.type === 'women' ? (
-                        <Sparkles className="w-3 h-3 text-pink-400" />
-                      ) : (
-                        <Scissors className="w-3 h-3 text-[#D4AF37]" />
-                      )}
-                      <span>{salon.name}</span>
-                      <span className="opacity-75 font-mono text-[9px] ms-1">★ {salon.rating}</span>
-                    </div>
-
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center shadow-2xl border-2 transition-all ${
-                        isSelected
-                          ? 'bg-[#D4AF37] text-black border-white shadow-[#D4AF37]/60'
-                          : salon.type === 'women'
-                          ? 'bg-pink-950 text-pink-300 border-pink-400'
-                          : 'bg-[#141414] text-[#D4AF37] border-[#D4AF37]'
-                      }`}
-                    >
-                      <MapPin className="w-4 h-4 fill-current" />
-                    </div>
-
-                    <div
-                      className={`w-1.5 h-2 -mt-0.5 rounded-b-sm ${
-                        isSelected ? 'bg-[#D4AF37]' : salon.type === 'women' ? 'bg-pink-400' : 'bg-[#D4AF37]'
-                      }`}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-      </div>
-
+        </div>
       {/* Selected Salon Info Card Drawer */}
       {activeSalon && (
         <div className="absolute bottom-4 left-4 right-4 z-20 bg-[#141414]/95 backdrop-blur-xl border border-[#262626] rounded-2xl p-4 shadow-2xl text-white transition-all animate-in fade-in slide-in-from-bottom-6">

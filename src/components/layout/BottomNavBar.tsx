@@ -58,7 +58,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         <div className="relative">
           <Calendar className="w-5 h-5" />
           {bookingCount > 0 && (
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#D4AF37] rounded-full animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#D4AF37] rounded-full " />
           )}
         </div>
         <span className="text-[10px]">{t('myBookings')}</span>

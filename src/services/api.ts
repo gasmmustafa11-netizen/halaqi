@@ -154,6 +154,17 @@ export const api = {
     }
   },
 
+  async liftSalonSanction(salonId: string): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/salons/${salonId}/lift-sanction`, {
+        method: 'PUT',
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
   // Services
   async getServices(salonId?: string): Promise<Service[]> {
     try {

@@ -59,16 +59,6 @@ export const AuthModal: React.FC = () => {
     }
   };
 
-  const handleQuickDemo = async (demoRole: UserRole) => {
-    setLocalError(null);
-    if (demoRole === 'customer') {
-      await login('ahmed@halaqi.iq', 'customer', 'Customer@2026!');
-    } else if (demoRole === 'salon_owner') {
-      await login('wissam@royalbarber.iq', 'salon_owner', 'Owner@Royal2026!');
-    } else if (demoRole === 'admin') {
-      await login('admin@halaqi.iq', 'admin', 'Admin@Halaqi2026!');
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -102,42 +92,6 @@ export const AuthModal: React.FC = () => {
             <span>{localError || authError}</span>
           </div>
         )}
-
-        {/* Fast Demo Switcher */}
-        <div className="p-3 rounded-2xl bg-[#1A1A1A] border border-[#262626] space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-gray-400 font-semibold flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
-              دخول سريع للأدوار المحمية:
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('customer')}
-              className="py-2 px-2 rounded-xl bg-[#262626] hover:bg-[#D4AF37]/20 text-gray-200 hover:text-[#D4AF37] font-bold transition-all border border-[#333] hover:border-[#D4AF37]/40 flex flex-col items-center gap-0.5"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>زبون</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('salon_owner')}
-              className="py-2 px-2 rounded-xl bg-[#262626] hover:bg-[#D4AF37]/20 text-gray-200 hover:text-[#D4AF37] font-bold transition-all border border-[#333] hover:border-[#D4AF37]/40 flex flex-col items-center gap-0.5"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>صاحب صالون</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('admin')}
-              className="py-2 px-2 rounded-xl bg-[#262626] hover:bg-[#D4AF37]/20 text-gray-200 hover:text-[#D4AF37] font-bold transition-all border border-[#333] hover:border-[#D4AF37]/40 flex flex-col items-center gap-0.5"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>مدير المنصة</span>
-            </button>
-          </div>
-        </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3">

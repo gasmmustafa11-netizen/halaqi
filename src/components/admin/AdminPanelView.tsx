@@ -145,8 +145,36 @@ export const AdminPanelView: React.FC = () => {
   };
 
   const handleUpdateSalonStatus = async (salonId: string, status: 'approved' | 'pending' | 'suspended') => {
-    await api.updateSalonStatus(salonId, { status });
+    if (status === 'suspended') {
+      const reason = window.prompt('اكتب سبب إيقاف الصالون:');
+      if (!reason?.trim()) return;
+
+      const hoursInput = window.prompt('مدة الإيقاف بالساعات (مثلاً 24):', '24');
+      if (hoursInput === null) return;
+
+      const hours = Number(hoursInput);
+      if (!Number.isFinite(hours) || hours <= 0) {
+        window.alert('مدة الإيقاف غير صحيحة');
+        return;
+      }
+
+      await api.updateSalonStatus(salonId, {
+        status: 'suspended',
+        suspensionReason: reason.trim(),
+        suspensionHours: hours,
+      } as any);
+    } else {
+      await api.updateSalonStatus(salonId, { status });
+    }
+
     await loadAdminData();
+  };
+
+  const handleLiftSalonSanction = async (salonId: string) => {
+    const success = await api.liftSalonSanction(salonId);
+    if (success) {
+      await loadAdminData();
+    }
   };
 
   const handleToggleVerified = async (salonId: string, current: boolean) => {
@@ -538,6 +566,16 @@ export const AdminPanelView: React.FC = () => {
                         >
                           <XCircle className="w-3.5 h-3.5" />
                           <span>إيقاف</span>
+                        </button>
+                      )}
+
+                      {s.status === 'suspended' && (
+                        <button
+                          onClick={() => handleLiftSalonSanction(s.id)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-950 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>رفع العقوبة</span>
                         </button>
                       )}
                       <button

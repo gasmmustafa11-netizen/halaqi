@@ -1,3 +1,4 @@
+import "dotenv/config";
 import crypto from 'crypto';
 import {
   Salon,
@@ -52,7 +53,7 @@ export function generateSalt(): string {
 
 // Pre-compute salt & hash for initial users
 const defaultSalt = 'halaqi_secure_salt_2026';
-const adminHash = hashPassword('Admin@Halaqi2026!', defaultSalt);
+const adminHash = hashPassword(process.env.HALAQI_ADMIN_PASSWORD || '', defaultSalt);
 const ownerHash = hashPassword('Owner@Royal2026!', defaultSalt);
 const customerHash = hashPassword('Customer@2026!', defaultSalt);
 
@@ -1123,7 +1124,21 @@ class DatabaseStore {
   }
 
   getSalonById(id: string): Salon | undefined {
-    return this.state.salons.find((s) => s.id === id);
+    const salon = this.state.salons.find((s) => s.id === id);
+
+    if (
+      salon &&
+      salon.status === 'suspended' &&
+      salon.suspensionEndsAt &&
+      Date.now() >= new Date(salon.suspensionEndsAt).getTime()
+    ) {
+      salon.status = 'approved';
+      delete salon.suspensionReason;
+      delete salon.suspensionStartedAt;
+      delete salon.suspensionEndsAt;
+    }
+
+    return salon;
   }
 
   getServicesBySalon(salonId: string): Service[] {

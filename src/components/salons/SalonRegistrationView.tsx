@@ -29,6 +29,8 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
   const [city, setCity] = useState<string>('baghdad');
   const [area, setArea] = useState<string>('');
   const [address, setAddress] = useState<string>('');
+  const [salonLocation, setSalonLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const handleGetSalonLocation = () => { navigator.geolocation.getCurrentPosition((position) => { setSalonLocation({ lat: position.coords.latitude, lng: position.coords.longitude }); }, () => alert('تعذر تحديد الموقع. فعّل GPS وأعطِ التطبيق صلاحية الموقع.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }); };
   const [phone, setPhone] = useState<string>(user?.phone || '+964 780 ');
   const [whatsapp, setWhatsapp] = useState<string>(user?.phone || '+964 780 ');
   const [startingPrice, setStartingPrice] = useState<number>(15000);
@@ -62,8 +64,8 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
       city,
       area: area.trim() || 'المركز',
       address: address.trim(),
-      lat: city === 'baghdad' ? 33.3128 : city === 'erbil' ? 36.1912 : 30.5081,
-      lng: city === 'baghdad' ? 44.3615 : city === 'erbil' ? 44.0092 : 47.7835,
+      lat: salonLocation?.lat || 0,
+      lng: salonLocation?.lng || 0,
       phone: phone.trim(),
       whatsapp: whatsapp.trim(),
       rating: 5.0,
@@ -127,6 +129,8 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
 
       {/* Registration Form */}
       <form onSubmit={handleSubmit} className="p-6 sm:p-8 rounded-3xl bg-[#141721] border border-white/10 space-y-6 shadow-xl">
+        <button type="button" onClick={handleGetSalonLocation} className="w-full py-3 rounded-xl bg-[#d4af37] text-black font-bold">📍 تحديد موقع الصالون الحالي</button>
+        {salonLocation && <p className="text-xs text-emerald-400">✓ تم تحديد موقع الصالون: {salonLocation.lat.toFixed(6)}, {salonLocation.lng.toFixed(6)}</p>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">

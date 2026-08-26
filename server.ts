@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { db } from './src/server/db';
@@ -16,7 +17,7 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 3001;
 
   app.use(express.json());
 
@@ -34,6 +35,34 @@ async function startServer() {
     next();
   });
 
+  // Admin lift salon suspension
+  app.put('/api/admin/salons/:id/lift-sanction', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+    const salon = db.getSalonById(req.params.id);
+
+    if (!salon) {
+      return res.status(404).json({ success: false, error: 'الصالون غير موجود' });
+    }
+
+    salon.status = 'approved';
+    delete salon.suspensionReason;
+    delete salon.suspensionStartedAt;
+    delete salon.suspensionEndsAt;
+
+    db.addAuditLog({
+      userId: req.user!.id,
+      userEmail: req.user!.email,
+      userRole: 'admin',
+      action: 'SALON_SANCTION_LIFT',
+      targetType: 'salon',
+      targetId: salon.id,
+      details: `رفع عقوبة الصالون ${salon.name}`,
+      ip: req.ip || '127.0.0.1',
+      status: 'success',
+    });
+
+    res.json({ success: true, salon });
+  });
+
   // ==========================================
   // AUTH ENDPOINTS
   // ==========================================
@@ -47,14 +76,6 @@ async function startServer() {
 
     let authResult = db.authenticate(emailOrPhone || '', password);
 
-    // If login by role requested for fast demo/test
-    if (!authResult.success && role) {
-      const stateUsers = db.getState().users;
-      const matchingUser = stateUsers.find((u) => u.role === role && !u.isBanned && u.isActive);
-      if (matchingUser) {
-        authResult = { success: true, user: db.sanitizeUser(matchingUser) };
-      }
-    }
 
     if (!authResult.success || !authResult.user) {
       // Record failed login audit attempt
@@ -309,13 +330,27 @@ async function startServer() {
 
   // Admin approve/reject/suspend salon
   app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
-    const { status, isVerified, commissionRate } = req.body;
+    const { status, isVerified, commissionRate, suspensionReason, suspensionHours } = req.body;
     const salon = db.getSalonById(req.params.id);
     if (!salon) {
       return res.status(404).json({ success: false, error: 'الصالون غير موجود' });
     }
 
-    if (status) salon.status = status;
+    if (status) {
+      salon.status = status;
+
+      if (status === 'suspended') {
+        const hours = Number(suspensionHours) > 0 ? Number(suspensionHours) : 24;
+        salon.suspensionReason = String(suspensionReason || 'مخالفة شروط المنصة');
+        salon.suspensionStartedAt = new Date().toISOString();
+        salon.suspensionEndsAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+      } else if (status === 'approved') {
+        delete salon.suspensionReason;
+        delete salon.suspensionStartedAt;
+        delete salon.suspensionEndsAt;
+      }
+    }
+
     if (typeof isVerified === 'boolean') salon.isVerified = isVerified;
     if (typeof commissionRate === 'number') salon.commissionRate = commissionRate;
 

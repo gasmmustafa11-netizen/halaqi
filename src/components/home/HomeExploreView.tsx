@@ -52,12 +52,18 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
   useEffect(() => {
     async function loadData() {
       setIsLoading(true);
-      const data = await api.getSalons({
-        city: selectedCity,
-        type: selectedType,
-      });
-      setSalons(data);
-      setIsLoading(false);
+      try {
+        const data = await api.getSalons({
+          city: selectedCity,
+          type: selectedType,
+        });
+        setSalons(data);
+      } catch (err) {
+        console.error('HomeExploreView: failed to load salons', err);
+        setSalons([]);
+      } finally {
+        setIsLoading(false);
+      }
     }
     loadData();
   }, [selectedCity, selectedType]);
@@ -91,7 +97,7 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
           {/* Top Row Indicators */}
           <div className="relative z-10 flex items-center justify-between flex-wrap gap-2">
             <div className="bg-white text-black px-4 py-1.5 rounded-full font-bold shadow-lg text-xs flex items-center gap-2">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+              <span className="w-2 h-2 bg-emerald-500 rounded-full " />
               <span>اكتشف {salons.length} صالوناً متاحاً في العراق</span>
             </div>
 
@@ -104,7 +110,7 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
           {/* Radar Ping Target Center Accent */}
           <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-80">
             <div className="relative">
-              <div className="w-12 h-12 bg-[#D4AF37] rounded-full animate-ping absolute opacity-60" />
+              <div className="w-12 h-12 bg-[#D4AF37] rounded-full  absolute opacity-60" />
               <div className="w-12 h-12 bg-[#D4AF37]/30 backdrop-blur-sm rounded-full border-2 border-[#D4AF37] relative flex items-center justify-center shadow-2xl">
                 <Scissors className="w-5 h-5 text-[#D4AF37]" />
               </div>

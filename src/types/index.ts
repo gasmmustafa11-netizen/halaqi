@@ -70,6 +70,9 @@ export interface Salon {
   isVerified: boolean;
   isFeatured?: boolean;
   status: SalonStatus;
+  suspensionReason?: string;
+  suspensionStartedAt?: string;
+  suspensionEndsAt?: string;
   workingHours: WeeklyWorkingHours;
   features: string[]; // e.g. ["VIP Room", "WiFi", "Coffee & Drinks", "Valet Parking", "Air Conditioned"]
   commissionRate?: number; // e.g. 10 (%)

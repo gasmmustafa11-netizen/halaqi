@@ -48,6 +48,10 @@ function AppContent() {
   };
 
   const handleNavigate = (view: string) => {
+    if (view === 'admin' && role !== 'admin') {
+      return;
+    }
+
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -113,7 +117,7 @@ function AppContent() {
 
         {currentView === 'salon_dashboard' && <SalonDashboardView />}
 
-        {currentView === 'admin' && <AdminPanelView />}
+        {currentView === 'admin' && role === 'admin' && <AdminPanelView />}
 
         {currentView === 'register_salon' && (
           <SalonRegistrationView
