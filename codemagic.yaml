@@ -1,34 +1,24 @@
 workflows:
   halaqi-android:
-    name: Halaqi Android APK
-    max_build_duration: 120
+    name: Halaqi Android Workflow
+    max_build_duration: 60
     instance_type: mac_mini_m2
-
+    environment:
+      java: 17
     scripts:
       - name: Set Android SDK location
         script: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
-
       - name: Install npm dependencies
         script: |
           npm ci
-
       - name: Build web application
         script: |
           npm run build
-
       - name: Sync Capacitor
         script: |
           npx cap sync android
-      - name: Apply Java Version Fix
+      - name: Build Android
         script: |
-          chmod +x fix_java_version.sh
-          ./fix_java_version.sh
-
-      - name: Build Android APK
-        script: |
-          cd android
           ./gradlew assembleDebug
 
-    artifacts:
-      - android/app/build/outputs/apk/debug/*.apk
