@@ -32,7 +32,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
 }) => {
   const { t, language, setLanguage, isRtl } = useLanguage();
-  const { user, role, logout, openAuthModal, switchRoleDemo } = useAuth();
+  const { user, role, logout, openAuthModal, switchRoleDemo, mySalon } = useAuth();
+
+  const salonStatus = mySalon?.status ?? null;
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState<boolean>(false);
 
 
@@ -145,7 +147,12 @@ const toggleLanguage = () => {
     { id: 'explore', label: isRtl ? 'الرئيسية' : 'Home', icon: Scissors },
     { id: 'map', label: isRtl ? 'الخريطة' : 'Map', icon: MapPin },
     { id: 'bookings', label: t('myBookings'), icon: Calendar },
-    { id: 'register_salon', label: t('joinAsSalon'), icon: Store },
+    ...(salonStatus === 'approved'
+      ? [{ id: 'salon_dashboard', label: isRtl ? 'صالونك' : 'Your Salon', icon: Store }]
+      : salonStatus === 'pending'
+      ? [{ id: 'salon_status', label: isRtl ? 'قيد المراجعة' : 'Under Review', icon: Store }]
+      : [{ id: 'register_salon', label: t('joinAsSalon'), icon: Store }]
+    ),
   ];
 
   return (
@@ -216,17 +223,19 @@ const toggleLanguage = () => {
           })}
 
           {/* Quick role views */}
-          <button
-            onClick={() => onNavigate('salon_dashboard')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-              currentView === 'salon_dashboard'
-                ? 'bg-[#D4AF37] text-black shadow-md'
-                : 'text-amber-300/80 hover:text-amber-200 hover:bg-white/5'
-            }`}
-          >
-            <Store className="w-3.5 h-3.5" />
-            <span>لوحة الصالون</span>
-          </button>
+          {salonStatus === 'approved' && (
+            <button
+              onClick={() => onNavigate('salon_dashboard')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === 'salon_dashboard'
+                  ? 'bg-[#D4AF37] text-black shadow-md'
+                  : 'text-amber-300/80 hover:text-amber-200 hover:bg-white/5'
+              }`}
+            >
+              <Store className="w-3.5 h-3.5" />
+              <span>لوحة الصالون</span>
+            </button>
+          )}
 
           {role === 'admin' && (
             <button

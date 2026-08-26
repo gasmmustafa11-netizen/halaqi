@@ -1489,16 +1489,16 @@ export const api = {
     }
   },
 
-  async getMe(): Promise<{ success: boolean; user?: User }> {
+  async getMe(): Promise<{ success: boolean; user?: User; status?: number }> {
     try {
       const res = await fetchWithAuth('/api/auth/me', {
         cache: 'no-store',
       });
-      if (!res.ok) return { success: false };
+      if (!res.ok) return { success: false, status: res.status };
       const data = await res.json();
-      return { success: true, user: data.user };
+      return { success: true, user: data.user, status: res.status };
     } catch {
-      return { success: false };
+      return { success: false, status: 0 };
     }
   },
 

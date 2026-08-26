@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, UserRole } from '../types';
+import { User, UserRole, Salon } from '../types';
 import { api, setAuthToken, getAuthToken } from '../services/api';
 
 interface AuthContextType {
@@ -9,6 +9,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthModalOpen: boolean;
   authError: string | null;
+  mySalon: Salon | null;
   login: (emailOrPhone: string, role?: UserRole, password?: string) => Promise<{ success: boolean; error?: string }>;
   register: (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
@@ -16,6 +17,7 @@ interface AuthContextType {
   openAuthModal: () => void;
   closeAuthModal: () => void;
   refreshUser: () => Promise<void>;
+  refreshMySalon: () => Promise<void>;
 }
 
 const defaultCustomerUser: User = {
@@ -49,6 +51,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [mySalon, setMySalon] = useState<Salon | null>(null);
+
+  // Fetch user's salon whenever user changes (login / session restore / logout)
+  useEffect(() => {
+    if (!user) {
+      setMySalon(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchMySalon = async () => {
+      try {
+        const result = await api.getMySalon();
+        if (!cancelled) {
+          setMySalon(result.success && result.salon ? result.salon : null);
+        }
+      } catch (error) {
+        console.error('[AUTH] Failed to fetch my salon:', error);
+        if (!cancelled) setMySalon(null);
+      }
+    };
+
+    fetchMySalon();
+
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const refreshMySalon = async () => {
+    try {
+      const result = await api.getMySalon();
+      setMySalon(result.success && result.salon ? result.salon : null);
+    } catch (error) {
+      console.error('[AUTH] Failed to refresh salon:', error);
+    }
+  };
 
   // Validate session on load
   useEffect(() => {
@@ -67,12 +105,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted && meRes.success && meRes.user) {
           setUser(meRes.user);
           localStorage.setItem('halaqi_user', JSON.stringify(meRes.user));
-        } else if (mounted) {
-          // Token is invalid/expired.
+        } else if (mounted && meRes.status === 401) {
+          // Only clear session on genuine auth failure (401).
+          // Server errors (500), network issues (status 0), etc.
+          // should NOT destroy the session — keep cached data.
           setAuthToken(null);
           localStorage.removeItem('halaqi_user');
           setUser(null);
         }
+        // For non-401 failures (500 cold start, network error, etc.)
+        // do nothing — keep the cached user/token so the session survives.
       } catch (error) {
         console.error('[AUTH SESSION VERIFY]', error);
       }
@@ -139,7 +181,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('halaqi_user', JSON.stringify(user));
     } else {
       localStorage.removeItem('halaqi_user');
-      setAuthToken(null);
+      // Do NOT call setAuthToken(null) here.
+      // The token must only be cleared via explicit logout or a 401 from verifySession().
+      // Clearing it here causes a feedback loop: server error → user=null → token destroyed → session lost.
     }
   }, [user]);
 
@@ -224,6 +268,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isAuthModalOpen,
         authError,
+        mySalon,
         login,
         register,
         logout,
@@ -237,6 +282,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setIsAuthModalOpen(false);
         },
         refreshUser,
+        refreshMySalon,
       }}
     >
       {children}

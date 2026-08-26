@@ -25,7 +25,7 @@ import { PostsView } from './components/posts/PostsView';
 
 function AppContent() {
   const { isRtl } = useLanguage();
-  const { user, role } = useAuth();
+  const { user, role, mySalon } = useAuth();
   const [currentView, setCurrentView] = useState<string>('explore');
 
   useEffect(() => {
@@ -175,14 +175,22 @@ function AppContent() {
           <MyBookingsView onSelectSalonId={handleSelectSalonById} />
         )}
 
-        {currentView === 'salon_dashboard' && <SalonDashboardView />}
+        {currentView === 'salon_dashboard' && mySalon?.status === 'approved' && <SalonDashboardView />}
 
         {currentView === 'admin' && role === 'admin' && <AdminPanelView />}
 
         {currentView === 'register_salon' && (
           <SalonRegistrationView
             onSuccess={() => {
-              handleNavigate('salon_dashboard');
+              handleNavigate('explore');
+            }}
+          />
+        )}
+
+        {currentView === 'salon_status' && (
+          <SalonRegistrationView
+            onSuccess={() => {
+              handleNavigate('explore');
             }}
           />
         )}
