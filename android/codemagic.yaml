@@ -1,0 +1,21 @@
+workflows:
+  default-workflow:
+    name: Build Android APK
+    instance_type: linux_x2
+    environment:
+      java: 17
+      node: 18
+    scripts:
+      - name: Install dependencies
+        script: npm install
+      - name: Build web
+        script: npm run build
+      - name: Sync Capacitor
+        script: npx cap sync
+      - name: Build Android APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
