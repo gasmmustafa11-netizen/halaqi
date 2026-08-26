@@ -306,6 +306,227 @@ app.get('/api/salons/:id', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const salon = await db.getSalonByOwnerFromNeon(req.user!.id);
+
+    return res.json({
+      success: true,
+      salon: salon || null,
+    });
+  } catch (error: any) {
+    console.error('[MY SALON CHECK] Neon check failed:', error?.message || error);
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+    });
+  }
+});
+
+app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const data = req.body;
+  const ip = req.ip || '127.0.0.1';
+
+  // ============================================================
+  // DUPLICATE SALON REQUEST PROTECTION
+  // ============================================================
+  // Check memory first.
+  const existingSalonMemory = db.getState().salons.find(
+    (s) =>
+      s.ownerId === req.user!.id &&
+      (s.status === 'pending' || s.status === 'approved')
+  );
+
+  if (existingSalonMemory) {
+    return res.status(409).json({
+      success: false,
+      duplicate: true,
+      salon: existingSalonMemory,
+      error:
+        existingSalonMemory.status === 'approved'
+          ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
+          : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
+    });
+  }
+
+  // Permanently banned salon owners cannot submit another salon.
+  try {
+    const bannedSalon = await db.getBannedSalonByOwnerFromNeon(req.user!.id);
+
+    if (bannedSalon) {
+      return res.status(403).json({
+        success: false,
+        banned: true,
+        salon: bannedSalon,
+        error: 'تم حظر صالونك نهائيًا ولا يمكنك تقديم طلب صالون جديد.',
+      });
+    }
+  } catch (error: any) {
+    console.error(
+      '[SALON BAN CHECK] Neon check failed:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من حالة حساب الصالون. حاول مرة أخرى.',
+    });
+  }
+
+  // Check Neon too, so refresh/restart cannot bypass the protection.
+  try {
+    const existingSalonNeon =
+      await db.getSalonByOwnerFromNeon(req.user!.id);
+
+    if (existingSalonNeon) {
+      // Keep memory synchronized if the salon exists in Neon.
+      const existsInMemory = db
+        .getState()
+        .salons.some((s) => s.id === existingSalonNeon.id);
+
+      if (!existsInMemory) {
+        db.getState().salons.push(existingSalonNeon);
+      }
+
+      return res.status(409).json({
+        success: false,
+        duplicate: true,
+        salon: existingSalonNeon,
+        error:
+          existingSalonNeon.status === 'approved'
+            ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
+            : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
+      });
+    }
+  } catch (error: any) {
+    console.error(
+      '[SALON DUPLICATE CHECK] Neon check failed:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+    });
+  }
+
+  const newSalon = {
+    ...data,
+    id: `salon_${Date.now()}`,
+    ownerId: req.user!.id,
+    slug: data.nameEn ? data.nameEn.toLowerCase().replace(/\s+/g, '-') : `salon-${Date.now()}`,
+    rating: 5.0,
+    reviewCount: 0,
+    status: 'pending',
+    isVerified: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  db.getState().salons.push(newSalon);
+
+    // Persist the new salon in Neon.
+    try {
+      const savedSalon = await db.createSalonInNeon(newSalon);
+
+      if (!savedSalon) {
+        const memoryIndex = db.getState().salons.findIndex(
+          (s) => s.id === newSalon.id
+        );
+
+        if (memoryIndex !== -1) {
+          db.getState().salons.splice(memoryIndex, 1);
+        }
+
+        return res.status(500).json({
+          success: false,
+          error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
+        });
+      }
+
+      const memoryIndex = db.getState().salons.findIndex(
+        (s) => s.id === newSalon.id
+      );
+
+      if (memoryIndex !== -1) {
+        db.getState().salons[memoryIndex] = savedSalon;
+      }
+
+      console.log(
+        `[SALON CREATE] Neon synchronized: ${savedSalon.id}`
+      );
+    } catch (error: any) {
+      const memoryIndex = db.getState().salons.findIndex(
+        (s) => s.id === newSalon.id
+      );
+
+      if (memoryIndex !== -1) {
+        db.getState().salons.splice(memoryIndex, 1);
+      }
+
+      console.error(
+        '[SALON CREATE] Neon INSERT failed:',
+        error?.message || error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
+      });
+    }
+
+  // Notify all active admins about the new salon
+  const admins = db.getState().users.filter(
+    (u) => u.role === 'admin' && u.isActive && !u.isBanned
+  );
+
+  for (const admin of admins) {
+    try {
+      await db.createNotification({
+        userId: admin.id,
+        title: 'صالون جديد بانتظار الموافقة',
+        titleEn: 'New Salon Awaiting Approval',
+        message: `تم تسجيل صالون جديد باسم ${newSalon.name} ويحتاج إلى موافقة المدير قبل نشره في الموقع.`,
+        messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
+        type: 'new_salon',
+        link: `/admin/salons/${newSalon.id}`,
+        salonId: newSalon.id,
+      });
+
+      console.log(
+        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+      );
+    } catch (error) {
+      console.error(
+        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+        error
+      );
+    }
+  }
+
+  // If creator is salon_owner, link salonId to user
+  if (req.user!.role === 'salon_owner') {
+    const userInDb = db.getUserById(req.user!.id);
+    if (userInDb) {
+      userInDb.salonId = newSalon.id;
+    }
+  }
+
+  db.addAuditLog({
+    userId: req.user!.id,
+    userEmail: req.user!.email,
+    userRole: req.user!.role,
+    action: 'SALON_CREATE',
+    targetType: 'salon',
+    targetId: newSalon.id,
+    details: `إنشاء صالون جديد: ${newSalon.name} (${newSalon.city})`,
+    ip,
+    status: 'success',
+  });
+
+  res.status(201).json({ success: true, salon: newSalon });
+});
+
 /* =========================================================
    SALON POSTS
 ========================================================= */
