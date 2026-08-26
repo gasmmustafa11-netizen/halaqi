@@ -1,0 +1,19 @@
+# npm audit report
+
+uuid  <11.1.1
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+fix available via `npm audit fix --force`
+Will install @capacitor/cli@8.4.2, which is a breaking change
+node_modules/uuid
+  xcode  >=0.9.2
+  Depends on vulnerable versions of uuid
+  node_modules/xcode
+    @capacitor/cli  8.4.3-nightly-20260715T153327.0 - 8.5.1-nightly-20260821T151115.0
+    Depends on vulnerable versions of xcode
+    node_modules/@capacitor/cli
+
+3 moderate severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force

@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'حلاقي',
   webDir: 'dist',
   server: {
+    url: 'https://halaqi.vercel.app',
     androidScheme: 'https',
     cleartext: true,
   },

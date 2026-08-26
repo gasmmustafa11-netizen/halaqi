@@ -934,8 +934,13 @@ export const api = {
         setAuthToken(data.token);
       }
       return data;
-    } catch {
-      return { success: false, error: 'تعذر الاتصال بالخادم لتسجيل الدخول' };
+    } catch (err) {
+      console.error('[LOGIN FETCH ERROR]', err);
+
+      return {
+        success: false,
+        error: `خطأ الاتصال: ${err instanceof Error ? err.message : String(err)}`
+      };
     }
   },
 
