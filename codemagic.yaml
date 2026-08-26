@@ -20,6 +20,10 @@ workflows:
       - name: Sync Capacitor
         script: |
           npx cap sync android
+      - name: Apply Java Version Fix
+        script: |
+          chmod +x fix_java_version.sh
+          ./fix_java_version.sh
 
       - name: Build Android APK
         script: |
