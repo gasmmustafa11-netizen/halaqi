@@ -40,7 +40,28 @@ const GOOGLE_MAPS_KEY =
   '';
 
 const hasValidGoogleKey = Boolean(GOOGLE_MAPS_KEY) && GOOGLE_MAPS_KEY !== 'YOUR_API_KEY';
-const LeafletMapController: React.FC<{  center: { lat: number; lng: number };  zoom: number;}> = ({ center, zoom }) => {  const map = useMap();  useEffect(() => {    map.setView([center.lat, center.lng], zoom, { animate: false });  }, [map, center.lat, center.lng, zoom]);  return null;};
+
+const LeafletMapController: React.FC<{ center: { lat: number; lng: number }; zoom: number }> = ({ center, zoom }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView([center.lat, center.lng], zoom, { animate: false });
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [map, center.lat, center.lng, zoom]);
+
+  useEffect(() => {
+    map.invalidateSize();
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [map]);
+
+  return null;
+};
 
 export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
   salons,

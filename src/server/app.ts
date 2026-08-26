@@ -27,7 +27,7 @@ const supabase = createClient(
 const app = express();
 
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://images.unsplash.com data: blob:; frame-ancestors 'self';");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://images.unsplash.com https://server.arcgisonline.com https://*.tile.openstreetmap.org data: blob:; frame-ancestors 'self';");
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -228,6 +228,27 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: result.error });
   }
 
+  try {
+    const persisted = await db.persistUserToNeon(result.user.id);
+
+    if (!persisted) {
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر حفظ حساب المستخدم في قاعدة البيانات.',
+      });
+    }
+  } catch (error: any) {
+    console.error(
+      '[AUTH REGISTER] Neon user persistence failed:',
+      error?.message || error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر حفظ حساب المستخدم في قاعدة البيانات.',
+    });
+  }
+
   const token = generateToken(result.user);
 
   res.status(201).json({
@@ -247,6 +268,25 @@ app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) 
 // ==========================================
 // SALONS ENDPOINTS
 // ==========================================
+
+app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const salon = await db.getSalonByOwnerFromNeon(req.user!.id);
+
+    return res.json({
+      success: true,
+      salon: salon || null,
+    });
+  } catch (error: any) {
+    console.error('[MY SALON CHECK] Neon check failed:', error?.message || error);
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+    });
+  }
+});
+
 app.get('/api/salons', (req: AuthenticatedRequest, res: Response) => {
   const { type, city, query, includePending } = req.query;
   let salons = db.getState().salons;
@@ -365,6 +405,11 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
       '[SALON DUPLICATE CHECK] Neon check failed:',
       error?.message || error
     );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+    });
   }
 
   const newSalon = {

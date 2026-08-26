@@ -90,7 +90,7 @@ export function optionalAuthMiddleware(req: AuthenticatedRequest, res: Response,
 }
 
 // Middleware: Strictly require valid login
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
@@ -111,7 +111,29 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     });
   }
 
-  const user = db.getUserById(payload.userId);
+  let user = db.getUserById(payload.userId);
+
+  if (!user) {
+    try {
+      user = await db.getUserByIdFromNeon(payload.userId);
+
+      if (user) {
+        const existsInMemory = db.getState().users.some(
+          (u) => u.id === user!.id
+        );
+
+        if (!existsInMemory) {
+          db.getState().users.push(user);
+        }
+      }
+    } catch (error: any) {
+      console.error(
+        '[AUTH NEON FALLBACK] Failed to load user:',
+        error?.message || error
+      );
+    }
+  }
+
   if (!user) {
     return res.status(401).json({
       success: false,

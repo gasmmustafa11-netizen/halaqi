@@ -701,6 +701,25 @@ export const api = {
     }
   },
 
+  async getMySalon(): Promise<{ success: boolean; salon?: Salon | null; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/salons/mine');
+      const data = await res.json();
+      return {
+        success: res.ok && data.success !== false,
+        salon: data.salon ?? null,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getMySalon]:', err);
+      return {
+        success: false,
+        salon: null,
+        error: 'تعذر التحقق من طلب الصالون',
+      };
+    }
+  },
+
   // Salon Posts
   async getSalonPosts(salonId: string): Promise<SalonPost[]> {
     try {
