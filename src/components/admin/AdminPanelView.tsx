@@ -7,7 +7,8 @@ import {
   AuditLog,
   UserRole,
   SalonPost,
-  PostComment
+  PostComment,
+  Notification
 } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -52,6 +53,7 @@ export const AdminPanelView: React.FC = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [salonPosts, setSalonPosts] = useState<SalonPost[]>([]);
   const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
   const [isLoadingPosts, setIsLoadingPosts] = useState<boolean>(false);
@@ -79,12 +81,13 @@ export const AdminPanelView: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      const [allSalons, allBookings, allCoupons, adminUsers, logs, adminStats] = await Promise.all([
+      const [allSalons, allBookings, allCoupons, adminUsers, logs, adminNotifications, adminStats] = await Promise.all([
         api.getSalons({ includePending: true }),
         api.getBookings({}),
         api.getCoupons(),
         api.getAdminUsers(),
         api.getAuditLogs(),
+        api.getNotifications(user?.id),
         api.getAdminStats(),
       ]);
 
@@ -93,6 +96,7 @@ export const AdminPanelView: React.FC = () => {
       setCoupons(allCoupons);
       setUsersList(adminUsers);
       setAuditLogs(logs);
+      setNotifications(adminNotifications);
       setStats(adminStats);
     } catch (err) {
       console.error('Error loading admin data:', err);

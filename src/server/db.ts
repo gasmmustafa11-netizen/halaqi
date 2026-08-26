@@ -1561,6 +1561,17 @@ class DatabaseStore {
 
     this.state.salonPosts.unshift(post);
 
+    void sql`
+      INSERT INTO salon_posts
+      (id, salon_id, owner_id, salon_name, image_url, caption, created_at, updated_at, like_count, comment_count)
+      VALUES
+      (${post.id}, ${post.salonId}, ${post.ownerId}, ${post.salonName},
+       ${post.imageUrl}, ${post.caption}, ${post.createdAt}, ${post.createdAt}, 0, 0)
+      ON CONFLICT (id) DO NOTHING
+    `.catch((error: any) => {
+      console.error('فشل حفظ المنشور في Neon:', error.message);
+    });
+
     return { success: true, post };
   }
 
