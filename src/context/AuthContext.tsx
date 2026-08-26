@@ -88,6 +88,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Auto-refresh mySalon when the tab becomes visible or while status is pending
+  useEffect(() => {
+    if (!user) return;
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMySalon();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Poll every 30s while salon status is pending
+    let pollInterval: ReturnType<typeof setInterval> | undefined;
+    if (mySalon?.status === 'pending') {
+      pollInterval = setInterval(refreshMySalon, 30_000);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [user, mySalon?.status]);
+
   // Validate session on load
   useEffect(() => {
     let mounted = true;
