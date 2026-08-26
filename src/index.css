@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-gold: #D4AF37;
+    --color-gold-hover: #B8962D;
+    --color-gold-light: #F3E5AB;
+    --color-dark-bg: #0A0A0A;
+    --color-bento-card: #141414;
+    --color-bento-border: #262626;
+  }
+
+  body {
+    background-color: #0A0A0A;
+    color: #FFFFFF;
+    font-family: 'Cairo', 'Tajawal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0A0A0A;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #262626;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #D4AF37;
+  }
+}
+
+/* Bento Grid System Utilities */
+.bento-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.bento-card {
+  background-color: #141414;
+  border: 1px solid #262626;
+  border-radius: 1rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bento-card:hover {
+  border-color: rgba(212, 175, 55, 0.4);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8), 0 0 15px rgba(212, 175, 55, 0.15);
+}
+
+.bento-card-featured {
+  background-color: #141414;
+  border: 1px solid #D4AF37;
+  border-radius: 1rem;
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+}
+
+.bento-gold {
+  background-color: #D4AF37;
+  color: #000000;
+  border: 1px solid #D4AF37;
+  border-radius: 1rem;
+  transition: all 0.25s ease;
+}
+
+.bento-gold:hover {
+  background-color: #B8962D;
+  border-color: #B8962D;
+}
+
+.gold-glow {
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.25);
+}
+
+.glass-panel {
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #262626;
+}

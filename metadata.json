@@ -1,0 +1,6 @@
+{
+  "name": "حلاقي | HALAQI - منصة حجز صالونات الحلاقة والتجميل",
+  "description": "منصة وتطبيق فاخر لحجز مواعيد صالونات الحلاقة الرجالية والنسائية في العراق مع خرائط تفاعلية وإدارة متكاملة للحجوزات والصالونات",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

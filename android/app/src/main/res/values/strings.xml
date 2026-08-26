@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">حلاقي</string>
+    <string name="title_activity_main">حلاقي</string>
+    <string name="package_name">com.halaqi.app</string>
+    <string name="custom_url_scheme">com.halaqi.app</string>
+</resources>
