@@ -896,6 +896,177 @@ class DatabaseStore {
   // Neon salon operations
   // Find an existing pending/approved salon directly in Neon.
   // This prevents duplicate requests even after refresh/restart.
+
+
+  async getAllSalonsFromNeon(): Promise<Salon[]> {
+    const rows = await sql`
+      SELECT *
+      FROM salons
+      ORDER BY created_at DESC
+    `;
+
+    return rows.map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      nameEn: s.name_en,
+      slug: s.slug,
+      type: s.type,
+      city: s.city,
+      area: s.area,
+      address: s.address,
+      lat: Number(s.lat || 0),
+      lng: Number(s.lng || 0),
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      description: s.description,
+      descriptionEn: s.description_en,
+      rating: Number(s.rating || 0),
+      reviewCount: Number(s.review_count || 0),
+      startingPrice: Number(s.starting_price || 0),
+      coverImage: s.cover_image,
+      gallery: s.gallery || [],
+      isVerified: s.is_verified ?? false,
+      isFeatured: s.is_featured ?? false,
+      status: s.status,
+      ownerId: s.owner_id,
+      workingHours: s.working_hours || defaultWorkingHours,
+      features: s.features || [],
+      createdAt: new Date(s.created_at).toISOString(),
+    }));
+  }
+
+  async getServicesBySalonFromNeon(salonId: string): Promise<Service[]> {
+    const rows = await sql`
+      SELECT *
+      FROM services
+      WHERE salon_id = ${salonId}
+      ORDER BY created_at ASC
+    `;
+
+    return rows.map((sv: any) => ({
+      id: sv.id,
+      salonId: sv.salon_id,
+      name: sv.name,
+      nameEn: sv.name_en,
+      category: sv.category,
+      categoryEn: sv.category_en,
+      description: sv.description,
+      price: Number(sv.price || 0),
+      durationMinutes: Number(sv.duration_minutes || 0),
+      image: sv.image || undefined,
+      barberIds: sv.barber_ids || [],
+      isPopular: sv.is_popular ?? false,
+    }));
+  }
+
+  async getServiceByIdFromNeon(serviceId: string): Promise<Service | undefined> {
+    const rows = await sql`
+      SELECT *
+      FROM services
+      WHERE id = ${serviceId}
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const sv: any = rows[0];
+
+    return {
+      id: sv.id,
+      salonId: sv.salon_id,
+      name: sv.name,
+      nameEn: sv.name_en,
+      category: sv.category,
+      categoryEn: sv.category_en,
+      description: sv.description,
+      price: Number(sv.price || 0),
+      durationMinutes: Number(sv.duration_minutes || 0),
+      image: sv.image || undefined,
+      barberIds: sv.barber_ids || [],
+      isPopular: sv.is_popular ?? false,
+    };
+  }
+
+  async getSalonByIdFromNeon(salonId: string): Promise<Salon | undefined> {
+    const rows = await sql`
+      SELECT *
+      FROM salons
+      WHERE id = ${salonId}
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const s: any = rows[0];
+
+    return {
+      id: s.id,
+      name: s.name,
+      nameEn: s.name_en,
+      slug: s.slug,
+      type: s.type,
+      city: s.city,
+      area: s.area,
+      address: s.address,
+      lat: Number(s.lat || 0),
+      lng: Number(s.lng || 0),
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      description: s.description,
+      descriptionEn: s.description_en,
+      rating: Number(s.rating || 0),
+      reviewCount: Number(s.review_count || 0),
+      startingPrice: Number(s.starting_price || 0),
+      coverImage: s.cover_image,
+      gallery: s.gallery || [],
+      isVerified: s.is_verified ?? false,
+      isFeatured: s.is_featured ?? false,
+      status: s.status,
+      ownerId: s.owner_id,
+      workingHours: s.working_hours || defaultWorkingHours,
+      features: s.features || [],
+      createdAt: new Date(s.created_at).toISOString(),
+    };
+  }
+
+  async getApprovedSalonsFromNeon(): Promise<Salon[]> {
+    const rows = await sql`
+      SELECT *
+      FROM salons
+      WHERE status = 'approved'
+      ORDER BY created_at DESC
+    `;
+
+    return rows.map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      nameEn: s.name_en,
+      slug: s.slug,
+      type: s.type,
+      city: s.city,
+      area: s.area,
+      address: s.address,
+      lat: Number(s.lat || 0),
+      lng: Number(s.lng || 0),
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      description: s.description,
+      descriptionEn: s.description_en,
+      rating: Number(s.rating || 0),
+      reviewCount: Number(s.review_count || 0),
+      startingPrice: Number(s.starting_price || 0),
+      coverImage: s.cover_image,
+      gallery: s.gallery || [],
+      isVerified: s.is_verified ?? false,
+      isFeatured: s.is_featured ?? false,
+      status: s.status,
+      ownerId: s.owner_id,
+      workingHours: s.working_hours || defaultWorkingHours,
+      features: s.features || [],
+      createdAt: new Date(s.created_at).toISOString(),
+    }));
+  }
+
   async getSalonByOwnerFromNeon(userId: string): Promise<Salon | undefined> {
     const rows = await sql`
       SELECT *

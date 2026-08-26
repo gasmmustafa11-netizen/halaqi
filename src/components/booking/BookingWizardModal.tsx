@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useBooking, getTomorrowDate } from '../../context/BookingContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Service, Barber, PaymentMethod } from '../../types';
+import { api } from '../../services/api';
 import {
   X,
   Calendar,
@@ -68,6 +69,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
   const { t, isRtl } = useLanguage();
   const [couponInput, setCouponInput] = useState<string>('');
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [realServices, setRealServices] = useState<Service[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(false);
 
   // Generate 14 upcoming selectable days
   const upcomingDates = Array.from({ length: 14 }).map((_, i) => {
@@ -104,6 +107,45 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
       fetchOccupiedSlots(selectedBarber.id, selectedDate);
     }
   }, [selectedBarber, selectedDate]);
+
+
+    // Load actual salon services from the Neon-backed API.
+    useEffect(() => {
+      if (!activeSalon?.id) {
+        setRealServices([]);
+        return;
+      }
+
+      let cancelled = false;
+
+      const loadServices = async () => {
+        setIsLoadingServices(true);
+
+        try {
+          const services = await api.getServices(activeSalon.id);
+
+          if (!cancelled) {
+            setRealServices(services);
+          }
+        } catch (error) {
+          console.error('[BOOKING SERVICES] Failed to load:', error);
+
+          if (!cancelled) {
+            setRealServices([]);
+          }
+        } finally {
+          if (!cancelled) {
+            setIsLoadingServices(false);
+          }
+        }
+      };
+
+      loadServices();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [activeSalon?.id]);
 
   if (!isBookingOpen || !activeSalon) return null;
 
@@ -204,94 +246,82 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
           )}
 
           {/* STEP 1: Select Service */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <h4 className="font-bold text-lg text-white flex items-center gap-2">
-                <Scissors className="w-5 h-5 text-[#d4af37]" />
-                {t('selectService')}
-              </h4>
-              <p className="text-xs text-slate-400">
-                {isRtl ? 'اختر الخدمة المطلوبة لحجز موعد مع خبير التصفيف المناسب' : 'Choose the service you want to book'}
-              </p>
+            {/* STEP 1: Select Service */}
+            {step === 1 && (
+              <div className="space-y-4">
+                <h4 className="font-bold text-lg text-white flex items-center gap-2">
+                  <Scissors className="w-5 h-5 text-[#d4af37]" />
+                  {t('selectService')}
+                </h4>
 
-              <div className="grid grid-cols-1 gap-3">
-                {activeSalon &&
-                  // Render services (mocked or loaded)
-                  [
-                    {
-                      id: 'srv_1',
-                      name: 'قص شعر ملكي + استشوار + غسيل',
-                      category: 'haircut',
-                      price: activeSalon.startingPrice || 15000,
-                      durationMinutes: 30,
-                      description: 'قص شعر احترافي مع تدريج دقيق وغسيل وتصفيف بالاستشوار.',
-                    },
-                    {
-                      id: 'srv_2',
-                      name: 'حلاقة وتشذيب اللحية بالمنشفة الساخنة',
-                      category: 'beard',
-                      price: 8000,
-                      durationMinutes: 20,
-                      description: 'تحديد اللحية بدقة فائقة مع مساج بالزيوت الطبيعية والمنشفة الساخنة.',
-                    },
-                    {
-                      id: 'srv_3',
-                      name: 'باقة شاملة (قص + ذقن + تنظيف بشرة هيدرافيشل)',
-                      category: 'packages',
-                      price: 30000,
-                      durationMinutes: 60,
-                      description: 'الباقة المتكاملة: قص شعر + حلاقة ذقن + ماسك وجه للرؤوس السوداء.',
-                    },
-                    {
-                      id: 'srv_4',
-                      name: 'جلسة صبغة وتغطية الشيب مع بروتين',
-                      category: 'color',
-                      price: 20000,
-                      durationMinutes: 40,
-                      description: 'صبغة طبيعية بلون مطابق تماماً تدوم طويلاً خالية من الأمونيا.',
-                    },
-                  ].map((srv) => {
-                    const isSelected = selectedService?.name === srv.name;
-                    return (
-                      <div
-                        key={srv.id}
-                        onClick={() => {
-                          setSelectedService(srv as Service);
-                          setStep(2);
-                        }}
-                        className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-4 ${
-                          isSelected
-                            ? 'bg-[#d4af37]/15 border-[#d4af37] ring-1 ring-[#d4af37]'
-                            : 'bg-[#181b27] border-white/5 hover:border-[#d4af37]/40 hover:bg-[#1f2333]'
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <h5 className="font-bold text-white text-sm sm:text-base">{srv.name}</h5>
-                          <p className="text-xs text-slate-400 line-clamp-1">{srv.description}</p>
-                          <div className="flex items-center gap-3 text-xs text-slate-300">
-                            <span className="flex items-center gap-1 text-slate-400">
-                              <Clock className="w-3.5 h-3.5 text-[#d4af37]" />
-                              {srv.durationMinutes} {t('minutes')}
+                <p className="text-xs text-slate-400">
+                  {isRtl
+                    ? 'اختر الخدمة المطلوبة لحجز موعد مع خبير التصفيف المناسب'
+                    : 'Choose the service you want to book'}
+                </p>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {isLoadingServices ? (
+                    <div className="p-6 text-center text-slate-400 text-sm">
+                      {isRtl ? 'جاري تحميل الخدمات...' : 'Loading services...'}
+                    </div>
+                  ) : realServices.length === 0 ? (
+                    <div className="p-6 text-center rounded-2xl border border-white/5 bg-[#181b27] text-slate-400 text-sm">
+                      {isRtl
+                        ? 'لا توجد خدمات متاحة لهذا الصالون حالياً.'
+                        : 'No services are currently available for this salon.'}
+                    </div>
+                  ) : (
+                    realServices.map((srv) => {
+                      const isSelected = selectedService?.id === srv.id;
+
+                      return (
+                        <div
+                          key={srv.id}
+                          onClick={() => {
+                            setSelectedService(srv);
+                            setStep(2);
+                          }}
+                          className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-4 ${
+                            isSelected
+                              ? 'bg-[#d4af37]/15 border-[#d4af37] ring-1 ring-[#d4af37]'
+                              : 'bg-[#181b27] border-white/5 hover:border-[#d4af37]/40 hover:bg-[#1f2333]'
+                          }`}
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <h5 className="font-bold text-white text-sm sm:text-base">
+                              {isRtl ? srv.name : (srv.nameEn || srv.name)}
+                            </h5>
+
+                            <p className="text-xs text-slate-400 line-clamp-1">
+                              {srv.description || ''}
+                            </p>
+
+                            <div className="flex items-center gap-3 text-xs text-slate-300">
+                              <span className="flex items-center gap-1 text-slate-400">
+                                <Clock className="w-3.5 h-3.5 text-[#d4af37]" />
+                                {srv.durationMinutes} {t('minutes')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-end shrink-0">
+                            <span className="font-bold text-base sm:text-lg text-[#d4af37] block font-mono">
+                              {Number(srv.price || 0).toLocaleString()} {t('iqd')}
+                            </span>
+
+                            <span className="text-[11px] text-slate-400 underline">
+                              {isSelected ? 'محدد ✓' : 'اختيار'}
                             </span>
                           </div>
                         </div>
-
-                        <div className="text-end shrink-0">
-                          <span className="font-bold text-base sm:text-lg text-[#d4af37] block font-mono">
-                            {srv.price.toLocaleString()} {t('iqd')}
-                          </span>
-                          <span className="text-[11px] text-slate-400 underline">
-                            {isSelected ? 'محدد ✓' : 'اختيار'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* STEP 2: Select Barber */}
           {step === 2 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
