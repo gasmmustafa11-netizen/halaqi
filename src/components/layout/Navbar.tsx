@@ -128,17 +128,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>لوحة الصالون</span>
           </button>
 
-          <button
-            onClick={() => onNavigate('admin')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-              currentView === 'admin'
-                ? 'bg-[#D4AF37] text-black shadow-md'
-                : 'text-red-400/80 hover:text-red-300 hover:bg-white/5'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>الإدارة</span>
-          </button>
+          {role === 'admin' && (
+            <button
+              onClick={() => onNavigate('admin')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === 'admin'
+                  ? 'bg-[#D4AF37] text-black shadow-md'
+                  : 'text-red-400/80 hover:text-red-300 hover:bg-white/5'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>الإدارة</span>
+            </button>
+          )}
         </nav>
 
         {/* Right Section: Location Pill + User Controls */}

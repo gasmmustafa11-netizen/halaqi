@@ -22,6 +22,12 @@ function AppContent() {
   const { isRtl } = useLanguage();
   const { role } = useAuth();
   const [currentView, setCurrentView] = useState<string>('explore');
+
+  useEffect(() => {
+    if (role === 'admin') {
+      setCurrentView('admin');
+    }
+  }, [role]);
   const [selectedSalon, setSelectedSalon] = useState<Salon | null>(null);
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
