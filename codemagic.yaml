@@ -1,4 +1,3 @@
-
 workflows:
   android-workflow:
     name: Android Workflow
@@ -19,5 +18,6 @@ workflows:
           chmod +x gradlew
           ./gradlew clean assembleDebug
     publishing:
-      artifacts:
-        - android/app/build/outputs/apk/debug/*.apk
+      android:
+        artifacts:
+          - android/app/build/outputs/apk/debug/*.apk
