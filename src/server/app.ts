@@ -256,12 +256,23 @@ app.put(
    SALONS
 ========================================================= */
 
-app.get('/api/salons', async (_req: Request, res: Response) => {
+app.get('/api/salons', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const salons =
-      typeof (db as any).getAllSalonsFromNeon === 'function'
-        ? await (db as any).getAllSalonsFromNeon()
-        : db.getState().salons;
+    const isAdmin = req.user?.role === 'admin';
+    const wantsPending = req.query.includePending === 'true';
+
+    let salons;
+    if (isAdmin && wantsPending) {
+      salons =
+        typeof (db as any).getAllSalonsFromNeon === 'function'
+          ? await (db as any).getAllSalonsFromNeon()
+          : db.getState().salons;
+    } else {
+      salons =
+        typeof (db as any).getApprovedSalonsFromNeon === 'function'
+          ? await (db as any).getApprovedSalonsFromNeon()
+          : db.getState().salons.filter((s: any) => s.status === 'approved');
+    }
 
     return res.json({
       success: true,
@@ -296,7 +307,7 @@ app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: 
   }
 });
 
-app.get('/api/salons/:id', async (req: Request, res: Response) => {
+app.get('/api/salons/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const salon =
       typeof (db as any).getSalonByIdFromNeon === 'function'
@@ -304,6 +315,14 @@ app.get('/api/salons/:id', async (req: Request, res: Response) => {
         : db.getSalonById(req.params.id);
 
     if (!salon) {
+      return res.status(404).json({
+        success: false,
+        error: 'الصالون غير موجود.',
+      });
+    }
+
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && salon.status !== 'approved') {
       return res.status(404).json({
         success: false,
         error: 'الصالون غير موجود.',
