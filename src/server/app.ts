@@ -278,6 +278,24 @@ app.get('/api/salons', async (_req: Request, res: Response) => {
   }
 });
 
+app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const salon = await db.getSalonByOwnerFromNeon(req.user!.id);
+
+    return res.json({
+      success: true,
+      salon: salon || null,
+    });
+  } catch (error: any) {
+    console.error('[MY SALON CHECK] Neon check failed:', error?.message || error);
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+    });
+  }
+});
+
 app.get('/api/salons/:id', async (req: Request, res: Response) => {
   try {
     const salon =
@@ -302,24 +320,6 @@ app.get('/api/salons/:id', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'تعذر جلب الصالون.',
-    });
-  }
-});
-
-app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const salon = await db.getSalonByOwnerFromNeon(req.user!.id);
-
-    return res.json({
-      success: true,
-      salon: salon || null,
-    });
-  } catch (error: any) {
-    console.error('[MY SALON CHECK] Neon check failed:', error?.message || error);
-
-    return res.status(503).json({
-      success: false,
-      error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
     });
   }
 });

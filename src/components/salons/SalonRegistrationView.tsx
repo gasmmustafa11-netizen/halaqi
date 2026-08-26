@@ -122,7 +122,7 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
 
     console.log('[SALON REGISTER RESULT]', res);
 
-    if (res.success || res.salon) {
+    if (res.success) {
       setIsSubmitted(true);
     } else {
       alert(res.error || 'فشل تسجيل الصالون');
