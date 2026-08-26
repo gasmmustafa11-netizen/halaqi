@@ -1,12 +1,16 @@
+
 workflows:
-  halaqi-android:
+  android-workflow:
+    name: Android Workflow
+    max_build_duration: 60
+    instance_type: mac_mini_m1
     environment:
-      java: 21
+      java: 17
     scripts:
-      - name: Install dependencies
-        script: npm install
       - name: Build Web Assets
         script: npm run build
+      - name: Install dependencies
+        script: npm install
       - name: Sync Capacitor
         script: npx cap sync android
       - name: Build Android
@@ -14,3 +18,6 @@ workflows:
           cd android
           chmod +x gradlew
           ./gradlew clean assembleDebug
+    publishing:
+      artifacts:
+        - android/app/build/outputs/apk/debug/*.apk
