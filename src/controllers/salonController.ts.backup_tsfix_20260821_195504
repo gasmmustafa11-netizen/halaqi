@@ -1,0 +1,65 @@
+import { Request, Response } from 'express';
+import Salon from '../models/Salon';
+import User from '../models/User';
+import { db } from '../server/db';
+
+export const registerSalon = async (req: Request, res: Response) => {
+  try {
+    const applicantUserId = (req as any).user?.id || (req as any).user?._id;
+    const { name, ownerName, type, city, district, addressDetails, phoneNumber } = req.body;
+
+    // 1. حفظ الصالون
+    const newSalon = new Salon({
+      ownerUserId: applicantUserId,
+      name,
+      ownerName,
+      type,
+      city,
+      district,
+      addressDetails,
+      phoneNumber,
+      isApproved: false,
+      isPublished: false
+    });
+
+    await newSalon.save();
+
+    // 2. إرسال إشعار طلب الصالون إلى نظام إشعارات الأدمن
+    // الإشعار مرتبط مباشرة بـ salonId حتى يستطيع الأدمن فتح بيانات الطلب.
+    const adminUsers = await User.find({
+      $or: [
+        { role: { $regex: /admin/i } },
+        { isSuperAdmin: true },
+        { isAdmin: true }
+      ]
+    }).select('_id');
+
+    if (adminUsers.length > 0) {
+      for (const admin of adminUsers) {
+        const adminId = admin._id.toString();
+
+        await db.createNotification({
+          userId: adminId,
+          title: 'طلب انضمام صالون جديد 💈',
+          titleEn: 'New Salon Join Request',
+          message: `قدم صالون "${name}" طلباً جديداً للانضمام للمنصة.`,
+          messageEn: `Salon "${name}" submitted a new request to join the platform.`,
+          type: 'SALON_JOIN_REQUEST',
+          link: `/admin/salons/${newSalon._id.toString()}`,
+          salonId: newSalon._id.toString()
+        });
+      }
+    } else {
+      console.warn('[Halaqi] لم يتم العثور على أي حساب Admin لإرسال طلب الصالون إليه.');
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'تم تقديم طلب الانضمام بنجاح',
+      data: newSalon
+    });
+  } catch (error) {
+    console.error('[Halaqi Debug Error]:', error);
+    return res.status(500).json({ success: false, message: 'خطأ أثناء حفظ الطلب' });
+  }
+};

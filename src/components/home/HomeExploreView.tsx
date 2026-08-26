@@ -58,6 +58,7 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
           type: selectedType,
         });
         setSalons(data);
+      console.log('SALONS IMAGES:', data.map(s => ({ name: s.name, coverImage: s.coverImage })));
       } catch (err) {
         console.error('HomeExploreView: failed to load salons', err);
         setSalons([]);

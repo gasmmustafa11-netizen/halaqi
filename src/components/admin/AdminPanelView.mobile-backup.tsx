@@ -55,7 +55,6 @@ export const AdminPanelView: React.FC = () => {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [salonPosts, setSalonPosts] = useState<SalonPost[]>([]);
   const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
   const [isLoadingPosts, setIsLoadingPosts] = useState<boolean>(false);
@@ -109,22 +108,6 @@ export const AdminPanelView: React.FC = () => {
   useEffect(() => {
     loadAdminData();
   }, [user]);
-
-  // تحديث إشعارات الأدمن تلقائياً
-  useEffect(() => {
-    if (!isUserAdmin) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const latestNotifications = await api.getNotifications(user?.id);
-        setNotifications(latestNotifications);
-      } catch (error) {
-        console.error('Error refreshing admin notifications:', error);
-      }
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [user, isUserAdmin]);
 
   const loadSalonPosts = async () => {
     if (!isUserAdmin) return;
@@ -455,10 +438,9 @@ export const AdminPanelView: React.FC = () => {
           </div>
         </div>
 
-        <div className="relative">
+        <div className="relative group">
               <button
                 type="button"
-                onClick={() => setIsNotificationsOpen((prev) => !prev)}
                 className="relative p-3 rounded-xl bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-300 hover:text-white transition-all"
               >
                 <Bell className="w-5 h-5" />
@@ -469,7 +451,7 @@ export const AdminPanelView: React.FC = () => {
                 )}
               </button>
 
-              <div className={`absolute left-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] bg-[#141414] border border-[#333] rounded-2xl shadow-2xl p-3 z-50 ${isNotificationsOpen ? 'block' : 'hidden'}`}>
+              <div className="absolute left-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] bg-[#141414] border border-[#333] rounded-2xl shadow-2xl p-3 z-50 hidden group-hover:block">
                 <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
                   <span className="font-bold text-white text-sm">الإشعارات</span>
                   <span className="text-[10px] text-gray-500">
@@ -483,76 +465,24 @@ export const AdminPanelView: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-80 overflow-y-auto">
-{notifications.map((notification) => {
-  const salonId =
-    notification.type === 'SALON_JOIN_REQUEST' && notification.salonId
-      ? notification.salonId
-      : undefined;
-
-  return (
-    <div
-      key={notification.id}
-      className="p-3 rounded-xl bg-[#1A1A1A] border border-white/5"
-    >
-      <div className="flex items-start gap-2">
-        <Bell className="w-4 h-4 text-[#D4AF37] mt-0.5 shrink-0" />
-
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold text-white">
-            {notification.title}
-          </p>
-
-          <p className="text-[11px] text-gray-400 mt-1">
-            {notification.message}
-          </p>
-
-          {notification.type === 'SALON_JOIN_REQUEST' && salonId && (
-            <div className="flex gap-2 mt-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await api.updateSalonStatus(salonId, {
-                    status: 'approved',
-                    isVerified: true,
-                  });
-
-                  if (ok) {
-                    await api.markNotificationAsRead(notification.id);
-                    await loadAdminData();
-                  } else {
-                    alert('فشلت الموافقة على الصالون');
-                  }
-                }}
-                className="flex-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 transition"
-              >
-                موافقة
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await api.updateSalonStatus(salonId, {
-                    status: 'rejected',
-                  });
-
-                  if (ok) {
-                    await api.markNotificationAsRead(notification.id);
-                    await loadAdminData();
-                  } else {
-                    alert('فشل رفض الصالون');
-                  }
-                }}
-                className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 transition"
-              >
-                رفض وحذف
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-})}
+                    {notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        className="p-3 rounded-xl bg-[#1A1A1A] border border-white/5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Bell className="w-4 h-4 text-[#D4AF37] mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-xs font-bold text-white">
+                              {notification.title}
+                            </p>
+                            <p className="text-[11px] text-gray-400 mt-1">
+                              {notification.message}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -612,7 +542,7 @@ export const AdminPanelView: React.FC = () => {
       </div>
 
       {/* Main Tabs */}
-      <div className="flex items-center gap-2 border-b border-[#262626] pb-2 overflow-x-auto scrollbar-hide -mx-1 px-1 snap-x">
+      <div className="flex items-center gap-2 border-b border-[#262626] pb-2 overflow-x-auto">
         {[
           { id: 'analytics', label: 'التحليلات والمؤشرات', icon: TrendingUp },
           { id: 'salons', label: 'إدارة الصالونات والاعتمادات', icon: Store, count: pendingSalons.length ? pendingSalons.length : undefined },
@@ -628,7 +558,7 @@ export const AdminPanelView: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-shrink-0 snap-start flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-[11px] sm:text-sm font-bold whitespace-nowrap transition-all ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-[#D4AF37] text-black shadow-md shadow-[#D4AF37]/20'
                   : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -835,8 +765,7 @@ export const AdminPanelView: React.FC = () => {
         </div>
       )}
 
-
-{/* TAB 2: Salons Management */}
+      {/* TAB 2: Salons Management */}
       {activeTab === 'salons' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
@@ -1174,84 +1103,127 @@ export const AdminPanelView: React.FC = () => {
       )}
 
       {/* TAB 6: Security Verification Matrix (10 Tests) */}
-        {activeTab === 'security_tests' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141414] border border-[#262626]">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-[#D4AF37]" />
-                  مصفوفة الاختبارات الأمنية العشر
-                </h3>
-
-                <p className="text-xs text-gray-400 mt-1">
-                  فحص آلي مباشر للتحقق من آليات الحماية والـ RBAC على مستوى السيرفر
-                </p>
-              </div>
-
-              <button
-                onClick={runSecurityTests}
-                disabled={isRunningAllTests}
-                className="px-5 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#c49f2e] text-black font-black text-xs flex items-center gap-2"
-              >
-                <Play className="w-3.5 h-3.5 fill-black" />
-                <span>
-                  {isRunningAllTests
-                    ? 'جاري تنفيذ الفحص...'
-                    : 'تشغيل الاختبارات العشرة الآن'}
-                </span>
-              </button>
+      {activeTab === 'security_tests' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141414] border border-[#262626]">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#D4AF37]" />
+                مصفوفة الاختبارات الأمنية العشر (10 Core Security Test Cases)
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                فحص آلي مباشر للتحقق من أن جميع آليات الحماية والتشفير والـ RBAC مفعلة ومؤكدة على مستوى السيرفر
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                ['test_1_admin_protection', '1. حماية مسارات الـ Admin'],
-                ['test_2_atomic_booking', '2. منع الحجز المزدوج'],
-                ['test_3_admin_register_block', '3. منع إنشاء Admin عبر التسجيل'],
-                ['test_4_server_pricing', '4. حساب الأسعار على السيرفر'],
-                ['test_5_password_hashing', '5. تشفير كلمات المرور'],
-                ['test_6_audit_trail', '6. تسجيل العمليات الحساسة'],
-                ['test_7_salon_isolation', '7. عزل بيانات الصالونات'],
-                ['test_8_banned_user_check', '8. حظر الحسابات المعطلة'],
-                ['test_9_data_sanitization', '9. تجريد البيانات الحساسة'],
-                ['test_10_secret_isolation', '10. حماية المفاتيح السرية'],
-              ].map(([id, title]) => {
-                const res = testResults[id];
+            <button
+              onClick={runSecurityTests}
+              disabled={isRunningAllTests}
+              className="px-5 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#c49f2e] text-black font-black text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20 transition-all shrink-0"
+            >
+              <Play className="w-3.5 h-3.5 fill-black" />
+              <span>{isRunningAllTests ? 'جاري تنفيذ الفحص...' : 'تشغيل الاختبارات العشرة الآن'}</span>
+            </button>
+          </div>
 
-                return (
-                  <div
-                    key={id}
-                    className="p-4 rounded-2xl bg-[#141414] border border-[#262626] space-y-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <h4 className="text-xs font-bold text-white">{title}</h4>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              {
+                id: 'test_1_admin_protection',
+                title: '1. حماية مسارات الـ Admin من وصول الزبون',
+                desc: 'التحقق من أن استدعاء /api/admin/* بدون رتبة Admin يُرجع فوراً 403 Forbidden ويُسجل في الـ Audit Log.',
+              },
+              {
+                id: 'test_2_atomic_booking',
+                title: '2. منع الحجز المزدوج (Atomic Lock)',
+                desc: 'التحقق من أن حجز نفس الحلاق في نفس الدقيقة يرفض الطلب الثاني ذرياً على السيرفر.',
+              },
+              {
+                id: 'test_3_admin_register_block',
+                title: '3. منع إنشاء حساب Admin عبر التسجيل العام',
+                desc: 'التحقق من رفض الخادم لأي محاولة تسجيل تحدد role="admin" وإرجاع 403.',
+              },
+              {
+                id: 'test_4_server_pricing',
+                title: '4. حساب الأسعار والخصومات على السيرفر حصراً',
+                desc: 'التحقق من عدم الاعتماد على السعر المرسل من المتصفح وحسابه من قاعدة البيانات.',
+              },
+              {
+                id: 'test_5_password_hashing',
+                title: '5. تشفير كلمات المرور (PBKDF2 + Salt)',
+                desc: 'التأكد من عدم حفظ أي كلمة مرور نصية في قاعدة البيانات واستخدام 1000 دورة SHA-512.',
+              },
+              {
+                id: 'test_6_audit_trail',
+                title: '6. تسجيل العمليات الحساسة في الـ Audit Log',
+                desc: 'التحقق من حفظ سجل المراقبة مع IP والتوقيت لكل عملية دخول وتعديل وحظر.',
+              },
+              {
+                id: 'test_7_salon_isolation',
+                title: '7. عزل بيانات أصحاب الصالونات (Cross-Salon Block)',
+                desc: 'التحقق من منع صاحب صالون A من تعديل بيانات أو خدمات صالون B.',
+              },
+              {
+                id: 'test_8_banned_user_check',
+                title: '8. حظر الحسابات المعطلة فوراً (Banned User Guard)',
+                desc: 'التحقق من منع المستخدم المحظور من إجراء أي طلب API حتى لو كان يملك Token سليم.',
+              },
+              {
+                id: 'test_9_data_sanitization',
+                title: '9. تجريد البيانات الحساسة (Data Sanitization)',
+                desc: 'التحقق من حذف passwordHash و salt من كافة الـ Responses المرسلة للواجهة.',
+              },
+              {
+                id: 'test_10_secret_isolation',
+                title: '10. حماية المفاتيح السرية في الخادم (Backend Secrets)',
+                desc: 'التأكد من حفظ مفاتيح التوقيع وإعدادات المنصة في بيئة الخادم دون تسريبها للـ Bundle.',
+              },
+            ].map((tc) => {
+              const res = testResults[tc.id];
+              return (
+                <div
+                  key={tc.id}
+                  className="p-4 rounded-2xl bg-[#141414] border border-[#262626] space-y-2 flex flex-col justify-between"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-white">{tc.title}</h4>
                       {res?.status === 'passed' ? (
-                        <span className="text-[10px] text-emerald-400 font-bold">
-                          ✓ ناجح
+                        <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-500/40">
+                          <CheckCircle2 className="w-3 h-3" />
+                          ناجح (Passed)
                         </span>
                       ) : res?.status === 'failed' ? (
-                        <span className="text-[10px] text-red-400 font-bold">
-                          ✕ فشل
+                        <span className="flex items-center gap-1 text-[10px] text-red-400 font-bold bg-red-950 px-2 py-0.5 rounded-full border border-red-500/40">
+                          <XCircle className="w-3 h-3" />
+                          فشل (Failed)
                         </span>
                       ) : (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[10px] text-gray-500 bg-[#1A1A1A] px-2 py-0.5 rounded-full">
                           بانتظار الفحص
                         </span>
                       )}
                     </div>
-
-                    {res && (
-                      <div className="p-2 rounded-xl text-[11px] font-mono border border-white/10 text-gray-300">
-                        {res.message}
-                      </div>
-                    )}
+                    <p className="text-[11px] text-gray-400 leading-relaxed">{tc.desc}</p>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
-      </div>
-    );
-  };
+                  {res && (
+                    <div
+                      className={`p-2 rounded-xl text-[11px] font-mono border ${
+                        res.status === 'passed'
+                          ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                          : 'bg-red-950/40 border-red-500/30 text-red-300'
+                      }`}
+                    >
+                      {res.message}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

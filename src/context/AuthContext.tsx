@@ -38,10 +38,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         return JSON.parse(saved);
       } catch {
-        return defaultCustomerUser;
+        return null;
       }
     }
-    return defaultCustomerUser;
+    return null;
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);

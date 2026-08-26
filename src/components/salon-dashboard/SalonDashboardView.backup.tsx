@@ -140,22 +140,11 @@ export const SalonDashboardView: React.FC = () => {
 
   const loadDashboardData = async () => {
     setIsLoading(true);
-    // Only use a salon owned by the current user.
-    // Salon owners can access the dashboard only after admin approval.
+    // Find owner's salon or default to Salon 1 (Royal Lounge)
     const allSalons = await api.getSalons({ includePending: true });
-    const mySalon = allSalons.find((s) => s.ownerId === user?.id);
+    const mySalon = allSalons.find((s) => s.ownerId === user?.id) || allSalons[0];
 
-    if (!mySalon || mySalon.status !== 'approved') {
-      setSalon(null);
-      setServices([]);
-      setBarbers([]);
-      setBookings([]);
-      setSalonPosts([]);
-      setIsLoading(false);
-      return;
-    }
-
-    {
+    if (mySalon) {
       setSalon(mySalon);
       const salonDetails = await api.getSalonById(mySalon.id);
       if (salonDetails) {

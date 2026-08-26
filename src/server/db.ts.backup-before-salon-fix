@@ -894,147 +894,6 @@ class DatabaseStore {
   }
 
   // Neon salon operations
-  // Find an existing pending/approved salon directly in Neon.
-  // This prevents duplicate requests even after refresh/restart.
-  async getSalonByOwnerFromNeon(userId: string): Promise<Salon | undefined> {
-    const rows = await sql`
-      SELECT *
-      FROM salons
-      WHERE owner_id = ${userId}
-        AND status IN ('pending', 'approved')
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-
-    if (!rows.length) return undefined;
-
-    const s: any = rows[0];
-
-    return {
-      id: s.id,
-      name: s.name,
-      nameEn: s.name_en,
-      slug: s.slug,
-      type: s.type,
-      city: s.city,
-      area: s.area,
-      address: s.address,
-      lat: Number(s.lat || 0),
-      lng: Number(s.lng || 0),
-      phone: s.phone,
-      whatsapp: s.whatsapp,
-      description: s.description,
-      descriptionEn: s.description_en,
-      rating: Number(s.rating || 0),
-      reviewCount: Number(s.review_count || 0),
-      startingPrice: Number(s.starting_price || 0),
-      coverImage: s.cover_image,
-      gallery: s.gallery || [],
-      isVerified: s.is_verified ?? false,
-      isFeatured: s.is_featured ?? false,
-      status: s.status,
-      ownerId: s.owner_id,
-      workingHours: s.working_hours || defaultWorkingHours,
-      features: s.features || [],
-      createdAt: new Date(s.created_at).toISOString(),
-    };
-  }
-
-  async createSalonInNeon(salon: Salon): Promise<Salon | undefined> {
-    const rows = await sql`
-      INSERT INTO salons (
-        id,
-        name,
-        name_en,
-        slug,
-        type,
-        city,
-        area,
-        address,
-        lat,
-        lng,
-        phone,
-        whatsapp,
-        description,
-        description_en,
-        rating,
-        review_count,
-        starting_price,
-        cover_image,
-        gallery,
-        is_verified,
-        is_featured,
-        status,
-        owner_id,
-        working_hours,
-        features,
-        created_at
-      )
-      VALUES (
-        ${salon.id},
-        ${salon.name},
-        ${salon.nameEn},
-        ${salon.slug},
-        ${salon.type},
-        ${salon.city},
-        ${salon.area},
-        ${salon.address},
-        ${salon.lat},
-        ${salon.lng},
-        ${salon.phone},
-        ${salon.whatsapp},
-        ${salon.description},
-        ${salon.descriptionEn},
-        ${salon.rating},
-        ${salon.reviewCount},
-        ${salon.startingPrice},
-        ${salon.coverImage},
-        ${JSON.stringify(salon.gallery || [])}::jsonb,
-        ${salon.isVerified},
-        ${salon.isFeatured ?? false},
-        ${salon.status},
-        ${salon.ownerId},
-        ${JSON.stringify(salon.workingHours || defaultWorkingHours)}::jsonb,
-        ${JSON.stringify(salon.features || [])}::jsonb,
-        ${salon.createdAt}
-      )
-      RETURNING *
-    `;
-
-    if (!rows.length) return undefined;
-
-    const s: any = rows[0];
-
-    return {
-      id: s.id,
-      name: s.name,
-      nameEn: s.name_en,
-      slug: s.slug,
-      type: s.type,
-      city: s.city,
-      area: s.area,
-      address: s.address,
-      lat: Number(s.lat || 0),
-      lng: Number(s.lng || 0),
-      phone: s.phone,
-      whatsapp: s.whatsapp,
-      description: s.description,
-      descriptionEn: s.description_en,
-      rating: Number(s.rating || 0),
-      reviewCount: Number(s.review_count || 0),
-      startingPrice: Number(s.starting_price || 0),
-      coverImage: s.cover_image,
-      gallery: s.gallery || [],
-      isVerified: s.is_verified ?? false,
-      isFeatured: s.is_featured ?? false,
-      status: s.status,
-      ownerId: s.owner_id,
-      workingHours: s.working_hours || defaultWorkingHours,
-      features: s.features || [],
-      createdAt: new Date(s.created_at).toISOString(),
-    };
-  }
-
   async updateSalonStatusInNeon(
     salonId: string,
     status: string,
@@ -1091,15 +950,6 @@ class DatabaseStore {
     return result.length > 0;
   }
 
-  // Returns true when the owner already has a pending/approved salon.
-  hasActiveSalonForOwner(userId: string): boolean {
-    return this.state.salons.some(
-      (salon) =>
-        salon.ownerId === userId &&
-        (salon.status === 'pending' || salon.status === 'approved')
-    );
-  }
-
   // Getters
   getState(): DatabaseState {
     return this.state;
@@ -1112,12 +962,6 @@ class DatabaseStore {
   }
 
   // Find user by ID
-  getAdminUsers(): UserWithAuth[] {
-    return this.state.users.filter(
-      (u) => u.role === 'admin' && u.isActive !== false && !u.isBanned
-    );
-  }
-
   getUserById(id: string): UserWithAuth | undefined {
     return this.state.users.find((u) => u.id === id);
   }
@@ -1626,10 +1470,7 @@ class DatabaseStore {
       return { success: false, error: 'غير مصرح لك بإلغاء حجز لا يخصك.' };
     }
 
-    if (
-      requestingUser.role === 'salon_owner' &&
-      !this.isApprovedSalonOwner(requestingUser.id, booking.salonId)
-    ) {
+    if (requestingUser.role === 'salon_owner' && salon.status !== 'approved' || requestingUser.role === 'salon_owner' && !this.isSalonOwner(requestingUser.id, booking.salonId)) {
       return { success: false, error: 'غير مصرح لك بإلغاء حجز لصالون آخر.' };
     }
 
@@ -1821,10 +1662,8 @@ class DatabaseStore {
 
     const allowed =
       requestingUser.role === 'admin' ||
-      (
-        requestingUser.role === 'salon_owner' &&
-        this.isApprovedSalonOwner(requestingUser.id, post.salonId)
-      );
+      (requestingUser.role === 'salon_owner' && salon.status !== 'approved' || requestingUser.role === 'salon_owner' &&
+        post.ownerId === requestingUser.id);
 
     if (!allowed) {
       return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
@@ -1959,11 +1798,8 @@ class DatabaseStore {
     const allowed =
       requestingUser.role === 'admin' ||
       comment.userId === requestingUser.id ||
-      (
-        requestingUser.role === 'salon_owner' &&
-        !!post?.salonId &&
-        this.isApprovedSalonOwner(requestingUser.id, post.salonId)
-      );
+      (requestingUser.role === 'salon_owner' && salon.status !== 'approved' || requestingUser.role === 'salon_owner' &&
+        post?.ownerId === requestingUser.id);
 
     if (!allowed) {
       return { success: false, error: 'غير مسموح لك بحذف هذا التعليق.' };
@@ -2024,18 +1860,6 @@ export async function getNotificationsFromNeon(userId: string): Promise<Notifica
 }
 
 export const db = new DatabaseStore();
-
-export async function updateUserSalonOwnerInNeon(
-  userId: string,
-  salonId: string
-): Promise<void> {
-  await sql`
-    UPDATE users
-    SET role = 'salon_owner',
-        salon_id = ${salonId}
-    WHERE id = ${userId}
-  `;
-}
 
 export async function loadUsersFromNeon(): Promise<void> {
   try {

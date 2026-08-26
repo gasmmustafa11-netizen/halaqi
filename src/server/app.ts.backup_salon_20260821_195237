@@ -313,60 +313,6 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
   const data = req.body;
   const ip = req.ip || '127.0.0.1';
 
-  // ============================================================
-  // DUPLICATE SALON REQUEST PROTECTION
-  // ============================================================
-  // Check memory first.
-  const existingSalonMemory = db.getState().salons.find(
-    (s) =>
-      s.ownerId === req.user!.id &&
-      (s.status === 'pending' || s.status === 'approved')
-  );
-
-  if (existingSalonMemory) {
-    return res.status(409).json({
-      success: false,
-      duplicate: true,
-      salon: existingSalonMemory,
-      error:
-        existingSalonMemory.status === 'approved'
-          ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
-          : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
-    });
-  }
-
-  // Check Neon too, so refresh/restart cannot bypass the protection.
-  try {
-    const existingSalonNeon =
-      await db.getSalonByOwnerFromNeon(req.user!.id);
-
-    if (existingSalonNeon) {
-      // Keep memory synchronized if the salon exists in Neon.
-      const existsInMemory = db
-        .getState()
-        .salons.some((s) => s.id === existingSalonNeon.id);
-
-      if (!existsInMemory) {
-        db.getState().salons.push(existingSalonNeon);
-      }
-
-      return res.status(409).json({
-        success: false,
-        duplicate: true,
-        salon: existingSalonNeon,
-        error:
-          existingSalonNeon.status === 'approved'
-            ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
-            : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
-      });
-    }
-  } catch (error: any) {
-    console.error(
-      '[SALON DUPLICATE CHECK] Neon check failed:',
-      error?.message || error
-    );
-  }
-
   const newSalon = {
     ...data,
     id: `salon_${Date.now()}`,
@@ -380,56 +326,6 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
   };
 
   db.getState().salons.push(newSalon);
-
-    // Persist the new salon in Neon.
-    try {
-      const savedSalon = await db.createSalonInNeon(newSalon);
-
-      if (!savedSalon) {
-        const memoryIndex = db.getState().salons.findIndex(
-          (s) => s.id === newSalon.id
-        );
-
-        if (memoryIndex !== -1) {
-          db.getState().salons.splice(memoryIndex, 1);
-        }
-
-        return res.status(500).json({
-          success: false,
-          error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-        });
-      }
-
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons[memoryIndex] = savedSalon;
-      }
-
-      console.log(
-        `[SALON CREATE] Neon synchronized: ${savedSalon.id}`
-      );
-    } catch (error: any) {
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons.splice(memoryIndex, 1);
-      }
-
-      console.error(
-        '[SALON CREATE] Neon INSERT failed:',
-        error?.message || error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-      });
-    }
 
   // Notify all active admins about the new salon
   const admins = db.getState().users.filter(
@@ -621,53 +517,6 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
     }
   }
 
-  // ============================================================
-  // PERSIST SALON STATUS IN NEON
-  // ============================================================
-  // The old code changed only the in-memory object.
-  // That caused approval to disappear after refresh/restart.
-  if (status) {
-    try {
-      const savedSalon =
-        await db.updateSalonStatusInNeon(
-          salon.id,
-          status,
-          typeof isVerified === 'boolean'
-            ? isVerified
-            : undefined
-        );
-
-      if (!savedSalon) {
-        console.error(
-          `[SALON APPROVAL] Salon ${salon.id} was not found in Neon`
-        );
-
-        return res.status(500).json({
-          success: false,
-          error: 'تعذر حفظ حالة الصالون في قاعدة البيانات.',
-        });
-      }
-
-      // Keep memory synchronized with the Neon result.
-      salon.status = savedSalon.status;
-      salon.isVerified = savedSalon.isVerified;
-
-      console.log(
-        `[SALON APPROVAL] Neon synchronized: ${salon.id} -> ${salon.status}`
-      );
-    } catch (error: any) {
-      console.error(
-        '[SALON APPROVAL] Neon synchronization failed:',
-        error?.message || error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حفظ حالة الصالون في قاعدة البيانات.',
-      });
-    }
-  }
-
   if (typeof isVerified === 'boolean') salon.isVerified = isVerified;
   if (typeof commissionRate === 'number') salon.commissionRate = commissionRate;
 
@@ -702,27 +551,15 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
         notificationType = 'salon_rejected';
       }
 
-      try {
-        await db.createNotification({
-          userId: owner.id,
-          title,
-          titleEn,
-          message,
-          messageEn,
-          type: notificationType,
-          link: '/profile',
-          salonId: salon.id,
-        });
-
-        console.log(
-          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
-        );
-      } catch (error: any) {
-        console.error(
-          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
-          error?.message || error
-        );
-      }
+      db.createNotification({
+        userId: owner.id,
+        title,
+        titleEn,
+        message,
+        messageEn,
+        type: notificationType,
+        link: '/profile',
+      });
     }
   }
 

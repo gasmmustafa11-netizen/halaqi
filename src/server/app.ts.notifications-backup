@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 import { neon } from "@neondatabase/serverless";
 const sql = neon(process.env.DATABASE_URL!);
 import express, { Request, Response } from 'express';
@@ -6,7 +5,6 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { db, getNotificationsFromNeon } from './db';
-import { updateUserSalonOwnerInNeon } from './db';
 import {
   AuthenticatedRequest,
   generateToken,
@@ -19,20 +17,7 @@ import {
 dotenv.config();
 
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_PUBLISHABLE_KEY!
-);
-
 const app = express();
-
-app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://images.unsplash.com data: blob:; frame-ancestors 'self';");
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
 
 
 app.use(express.json({ limit: '10mb' }));
@@ -196,7 +181,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/auth/register', async (req: Request, res: Response) => {
+app.post('/api/auth/register', (req: Request, res: Response) async => {
   const { name, email, phone, password, role, city } = req.body;
   const ip = req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1';
 
@@ -309,63 +294,9 @@ app.get('/api/salons/:id', (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/salons', requireAuth, requireRole('salon_owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
   const data = req.body;
   const ip = req.ip || '127.0.0.1';
-
-  // ============================================================
-  // DUPLICATE SALON REQUEST PROTECTION
-  // ============================================================
-  // Check memory first.
-  const existingSalonMemory = db.getState().salons.find(
-    (s) =>
-      s.ownerId === req.user!.id &&
-      (s.status === 'pending' || s.status === 'approved')
-  );
-
-  if (existingSalonMemory) {
-    return res.status(409).json({
-      success: false,
-      duplicate: true,
-      salon: existingSalonMemory,
-      error:
-        existingSalonMemory.status === 'approved'
-          ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
-          : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
-    });
-  }
-
-  // Check Neon too, so refresh/restart cannot bypass the protection.
-  try {
-    const existingSalonNeon =
-      await db.getSalonByOwnerFromNeon(req.user!.id);
-
-    if (existingSalonNeon) {
-      // Keep memory synchronized if the salon exists in Neon.
-      const existsInMemory = db
-        .getState()
-        .salons.some((s) => s.id === existingSalonNeon.id);
-
-      if (!existsInMemory) {
-        db.getState().salons.push(existingSalonNeon);
-      }
-
-      return res.status(409).json({
-        success: false,
-        duplicate: true,
-        salon: existingSalonNeon,
-        error:
-          existingSalonNeon.status === 'approved'
-            ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
-            : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
-      });
-    }
-  } catch (error: any) {
-    console.error(
-      '[SALON DUPLICATE CHECK] Neon check failed:',
-      error?.message || error
-    );
-  }
 
   const newSalon = {
     ...data,
@@ -374,90 +305,28 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
     slug: data.nameEn ? data.nameEn.toLowerCase().replace(/\s+/g, '-') : `salon-${Date.now()}`,
     rating: 5.0,
     reviewCount: 0,
-    status: 'pending', // كل طلب صالون يحتاج موافقة الأدمن
-    isVerified: false,
+    status: req.user!.role === 'admin' ? 'approved' : 'pending', // Requires admin approval for owners
+    isVerified: req.user!.role === 'admin',
     createdAt: new Date().toISOString(),
   };
 
   db.getState().salons.push(newSalon);
 
-    // Persist the new salon in Neon.
-    try {
-      const savedSalon = await db.createSalonInNeon(newSalon);
-
-      if (!savedSalon) {
-        const memoryIndex = db.getState().salons.findIndex(
-          (s) => s.id === newSalon.id
-        );
-
-        if (memoryIndex !== -1) {
-          db.getState().salons.splice(memoryIndex, 1);
-        }
-
-        return res.status(500).json({
-          success: false,
-          error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-        });
-      }
-
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons[memoryIndex] = savedSalon;
-      }
-
-      console.log(
-        `[SALON CREATE] Neon synchronized: ${savedSalon.id}`
-      );
-    } catch (error: any) {
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons.splice(memoryIndex, 1);
-      }
-
-      console.error(
-        '[SALON CREATE] Neon INSERT failed:',
-        error?.message || error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-      });
-    }
-
-  // Notify all active admins about the new salon
+  // Notify admins about the new salon awaiting approval
   const admins = db.getState().users.filter(
-    (u) => u.role === 'admin' && u.isActive && !u.isBanned
+    (u) => u.role === 'admin' && u.isActive
   );
 
   for (const admin of admins) {
-    try {
-      await db.createNotification({
-        userId: admin.id,
-        title: 'صالون جديد بانتظار الموافقة',
-        titleEn: 'New Salon Awaiting Approval',
-        message: `تم تسجيل صالون جديد باسم ${newSalon.name} ويحتاج إلى موافقة المدير قبل نشره في الموقع.`,
-        messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
-        type: 'new_salon',
-        link: `/admin/salons/${newSalon.id}`,
-        salonId: newSalon.id,
-      });
-
-      console.log(
-        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
-      );
-    } catch (error) {
-      console.error(
-        `[NOTIFICATION] Failed for admin ${admin.id}:`,
-        error
-      );
-    }
+    await db.createNotification({
+      userId: admin.id,
+      title: 'صالون جديد بانتظار الموافقة',
+      titleEn: 'New Salon Awaiting Approval',
+      message: `تم تسجيل صالون جديد باسم ${newSalon.name} ويحتاج إلى موافقة المدير قبل نشره في الموقع.`,
+      messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
+      type: 'new_salon',
+      link: `/admin/salons/${newSalon.id}`,
+    });
   }
 
   // If creator is salon_owner, link salonId to user
@@ -596,75 +465,6 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
       delete salon.suspensionReason;
       delete salon.suspensionStartedAt;
       delete salon.suspensionEndsAt;
-
-      // تحويل صاحب الطلب إلى صاحب صالون وربطه بالصالون في Neon
-      if (salon.ownerId) {
-        const owner = db.getUserById(salon.ownerId);
-
-        if (owner) {
-          owner.role = 'salon_owner';
-          owner.salonId = salon.id;
-
-          try {
-            await updateUserSalonOwnerInNeon(owner.id, salon.id);
-            console.log(
-              `[SALON APPROVED] User ${owner.id} أصبح salon_owner وربط بالصالون ${salon.id}`
-            );
-          } catch (error: any) {
-            console.error(
-              '[SALON APPROVED] فشل تحديث صلاحيات صاحب الصالون في Neon:',
-              error.message
-            );
-          }
-        }
-      }
-    }
-  }
-
-  // ============================================================
-  // PERSIST SALON STATUS IN NEON
-  // ============================================================
-  // The old code changed only the in-memory object.
-  // That caused approval to disappear after refresh/restart.
-  if (status) {
-    try {
-      const savedSalon =
-        await db.updateSalonStatusInNeon(
-          salon.id,
-          status,
-          typeof isVerified === 'boolean'
-            ? isVerified
-            : undefined
-        );
-
-      if (!savedSalon) {
-        console.error(
-          `[SALON APPROVAL] Salon ${salon.id} was not found in Neon`
-        );
-
-        return res.status(500).json({
-          success: false,
-          error: 'تعذر حفظ حالة الصالون في قاعدة البيانات.',
-        });
-      }
-
-      // Keep memory synchronized with the Neon result.
-      salon.status = savedSalon.status;
-      salon.isVerified = savedSalon.isVerified;
-
-      console.log(
-        `[SALON APPROVAL] Neon synchronized: ${salon.id} -> ${salon.status}`
-      );
-    } catch (error: any) {
-      console.error(
-        '[SALON APPROVAL] Neon synchronization failed:',
-        error?.message || error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حفظ حالة الصالون في قاعدة البيانات.',
-      });
     }
   }
 
@@ -702,27 +502,15 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
         notificationType = 'salon_rejected';
       }
 
-      try {
-        await db.createNotification({
-          userId: owner.id,
-          title,
-          titleEn,
-          message,
-          messageEn,
-          type: notificationType,
-          link: '/profile',
-          salonId: salon.id,
-        });
-
-        console.log(
-          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
-        );
-      } catch (error: any) {
-        console.error(
-          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
-          error?.message || error
-        );
-      }
+      db.createNotification({
+        userId: owner.id,
+        title,
+        titleEn,
+        message,
+        messageEn,
+        type: notificationType,
+        link: '/profile',
+      });
     }
   }
 

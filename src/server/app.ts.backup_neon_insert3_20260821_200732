@@ -381,56 +381,6 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
 
   db.getState().salons.push(newSalon);
 
-    // Persist the new salon in Neon.
-    try {
-      const savedSalon = await db.createSalonInNeon(newSalon);
-
-      if (!savedSalon) {
-        const memoryIndex = db.getState().salons.findIndex(
-          (s) => s.id === newSalon.id
-        );
-
-        if (memoryIndex !== -1) {
-          db.getState().salons.splice(memoryIndex, 1);
-        }
-
-        return res.status(500).json({
-          success: false,
-          error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-        });
-      }
-
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons[memoryIndex] = savedSalon;
-      }
-
-      console.log(
-        `[SALON CREATE] Neon synchronized: ${savedSalon.id}`
-      );
-    } catch (error: any) {
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons.splice(memoryIndex, 1);
-      }
-
-      console.error(
-        '[SALON CREATE] Neon INSERT failed:',
-        error?.message || error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
-      });
-    }
-
   // Notify all active admins about the new salon
   const admins = db.getState().users.filter(
     (u) => u.role === 'admin' && u.isActive && !u.isBanned

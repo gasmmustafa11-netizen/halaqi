@@ -79,7 +79,7 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
       description: description.trim() || 'صالون راقٍ يقدم أفضل خدمات الحلاقة والتجميل بأعلى معايير النظافة والاحترافية.',
       isVerified: false,
       isFeatured: false,
-      status: 'approved' as const,
+      status: 'pending' as const,
       features: selectedFeatures,
       commissionRate: 10,
     };
@@ -87,8 +87,12 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
     const res = await api.registerSalon(newSalonData);
     setIsSubmitting(false);
 
-    if (res.success) {
+    console.log('[SALON REGISTER RESULT]', res);
+
+    if (res.success || res.salon) {
       setIsSubmitted(true);
+    } else {
+      alert(res.error || 'فشل تسجيل الصالون');
     }
   };
 
@@ -101,7 +105,7 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
 
         <h3 className="text-2xl font-extrabold text-white">تم استلام طلب تسجيل صالونك بنجاح!</h3>
         <p className="text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
-          أهلاً بك في شبكة حلاقي. تم تسجيل صالون <strong className="text-[#d4af37]">{salonName}</strong> بنجاح وتفعيله في المنصة للبدء باستقبال حجوزات الزبائن.
+          أهلاً بك في شبكة حلاقي. تم استلام طلب صالون <strong className="text-[#d4af37]">{salonName}</strong> بنجاح، وسيتم مراجعته من إدارة حلاقي قبل تفعيله ونشره لاستقبال حجوزات الزبائن.
         </p>
 
         <button

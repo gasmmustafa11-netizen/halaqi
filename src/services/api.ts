@@ -42,15 +42,31 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
     headers.set('Content-Type', 'application/json');
   }
 
-  const token = getAuthToken();
+  const token =
+    currentAuthToken ||
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('halaqi_auth_token')
+      : null);
+
   if (token) {
+    currentAuthToken = token;
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  return fetch(url, {
+  const response = await fetch(url, {
     ...options,
     headers,
   });
+
+  if (response.status === 401) {
+    console.error('[AUTH 401]', {
+      url,
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+    });
+  }
+
+  return response;
 }
 
 export const api = {
@@ -144,15 +160,39 @@ export const api = {
 
   async registerSalon(salonData: Partial<Salon>): Promise<{ success: boolean; salon?: Salon; error?: string }> {
     try {
+      console.log('[SALON AUTH CHECK]', {
+        hasToken: !!getAuthToken(),
+        tokenLength: getAuthToken()?.length || 0,
+        user: typeof window !== 'undefined' ? localStorage.getItem('halaqi_user') : null
+      });
+
       const res = await fetchWithAuth('/api/salons', {
         method: 'POST',
         body: JSON.stringify(salonData),
       });
       const data = await res.json();
-      return { success: res.ok, salon: data.salon, error: data.error };
+      console.log('[REGISTER SALON]', {
+        status: res.status,
+        ok: res.ok,
+        data,
+        hasToken: !!getAuthToken()
+      });
+      return { success: res.ok && data.success !== false, salon: data.salon, error: data.error };
     } catch (err) {
       console.error('API Error [registerSalon]:', err);
       return { success: false, error: 'تعذر تسجيل الصالون' };
+    }
+  },
+
+  async rejectSalon(salonId: string): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/salons/${salonId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'rejected' }),
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
   },
 

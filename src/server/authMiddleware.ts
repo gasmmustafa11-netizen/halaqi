@@ -202,7 +202,7 @@ export function requireSalonOwnerOrAdmin(req: AuthenticatedRequest, res: Respons
   const targetSalonId = req.params.salonId || req.params.id || req.body.salonId || (req.query.salonId as string);
 
   if (targetSalonId) {
-    const isOwner = db.isSalonOwner(req.user.id, targetSalonId);
+    const isOwner = db.isApprovedSalonOwner(req.user.id, targetSalonId);
     if (!isOwner) {
       db.addAuditLog({
         userId: req.user.id,

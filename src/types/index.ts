@@ -188,6 +188,7 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   link?: string;
+  salonId?: string;
 }
 
 export interface City {
