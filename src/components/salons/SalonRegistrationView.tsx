@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -42,6 +42,39 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
   ]);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isCheckingExistingSalon, setIsCheckingExistingSalon] = useState<boolean>(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkExistingSalon = async () => {
+      if (!user?.id) {
+        if (!cancelled) setIsCheckingExistingSalon(false);
+        return;
+      }
+
+      try {
+        const result = await api.getMySalon();
+
+        if (cancelled) return;
+
+        if (result.success && result.salon) {
+          setSalonName(result.salon.name || '');
+          setIsSubmitted(true);
+        }
+      } catch (error) {
+        console.error('[SALON EXISTING CHECK]', error);
+      } finally {
+        if (!cancelled) setIsCheckingExistingSalon(false);
+      }
+    };
+
+    checkExistingSalon();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const toggleFeature = (feature: string) => {
     if (selectedFeatures.includes(feature)) {
@@ -95,6 +128,15 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
       alert(res.error || 'فشل تسجيل الصالون');
     }
   };
+
+  if (isCheckingExistingSalon) {
+    return (
+      <div className="max-w-2xl mx-auto py-16 text-center p-8 rounded-3xl bg-[#141721] border border-white/10 shadow-2xl">
+        <div className="w-10 h-10 rounded-full border-4 border-[#d4af37]/30 border-t-[#d4af37] animate-spin mx-auto mb-4" />
+        <p className="text-sm text-slate-300">جاري التحقق من طلب الصالون...</p>
+      </div>
+    );
+  }
 
   if (isSubmitted) {
     return (

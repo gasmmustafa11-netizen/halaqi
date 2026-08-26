@@ -1122,6 +1122,89 @@ class DatabaseStore {
     return this.state.users.find((u) => u.id === id);
   }
 
+
+  async getUserByIdFromNeon(id: string): Promise<UserWithAuth | undefined> {
+    const rows = await sql`
+      SELECT id, name, email, phone, role, city, salon_id, avatar,
+             password_hash, salt, is_active, is_banned, created_at
+      FROM users
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+
+    if (!rows.length) return undefined;
+
+    const u: any = rows[0];
+
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone,
+      role: u.role,
+      city: u.city || 'baghdad',
+      salonId: u.salon_id || undefined,
+      avatar: u.avatar || undefined,
+      passwordHash: u.password_hash || undefined,
+      salt: u.salt || undefined,
+      isActive: u.is_active ?? true,
+      isBanned: u.is_banned ?? false,
+      createdAt: new Date(u.created_at).toISOString(),
+    };
+  }
+
+  async persistUserToNeon(userId: string): Promise<boolean> {
+    const user = this.state.users.find((u) => u.id === userId);
+    if (!user) return false;
+
+    await sql`
+      INSERT INTO users (
+        id,
+        name,
+        email,
+        phone,
+        role,
+        city,
+        salon_id,
+        avatar,
+        password_hash,
+        salt,
+        is_active,
+        is_banned,
+        created_at
+      )
+      VALUES (
+        ${user.id},
+        ${user.name},
+        ${user.email},
+        ${user.phone},
+        ${user.role},
+        ${user.city},
+        ${user.salonId || null},
+        ${user.avatar || null},
+        ${user.passwordHash || null},
+        ${user.salt || null},
+        ${user.isActive},
+        ${user.isBanned},
+        ${user.createdAt}
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        email = EXCLUDED.email,
+        phone = EXCLUDED.phone,
+        role = EXCLUDED.role,
+        city = EXCLUDED.city,
+        salon_id = EXCLUDED.salon_id,
+        avatar = EXCLUDED.avatar,
+        password_hash = EXCLUDED.password_hash,
+        salt = EXCLUDED.salt,
+        is_active = EXCLUDED.is_active,
+        is_banned = EXCLUDED.is_banned
+    `;
+
+    return true;
+  }
+
   // Find user by Email or Phone
   findUserByEmailOrPhone(identifier: string): UserWithAuth | undefined {
     const normalized = identifier.trim().toLowerCase();
@@ -1196,6 +1279,11 @@ class DatabaseStore {
     };
 
     this.state.users.push(newUser);
+
+    // Persist newly registered user to Neon so refresh/restart does not lose the account.
+    void this.persistUserToNeon(newUser.id).catch((error) => {
+      console.error('[REGISTER] Failed to persist new user to Neon:', error?.message || error);
+    });
 
     // Notify all admins about the new registration
     const admins = this.state.users.filter((u) => u.role === 'admin' && u.isActive);
