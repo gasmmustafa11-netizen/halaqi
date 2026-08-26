@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   ArrowLeft,
   CalendarDays,
@@ -50,6 +50,22 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [followLoading, setFollowLoading] = useState(false);
+  const [showBadgeTooltip, setShowBadgeTooltip] = useState(false);
+  const badgeRef = useRef<HTMLDivElement>(null);
+
+  // Click-outside handler to close badge tooltip
+  useEffect(() => {
+    if (!showBadgeTooltip) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (badgeRef.current && !badgeRef.current.contains(e.target as Node)) {
+        setShowBadgeTooltip(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showBadgeTooltip]);
 
   useEffect(() => {
     let mounted = true;
@@ -237,13 +253,10 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
                 )}
 
                 {user.role === 'admin' && (
-  <div className="relative inline-flex items-center">
+  <div ref={badgeRef} className="relative inline-flex items-center">
     <button
       type="button"
-      onClick={() => {
-        const el = document.getElementById('halaqi-admin-verified-info');
-        if (el) el.classList.toggle('hidden');
-      }}
+      onClick={() => setShowBadgeTooltip(prev => !prev)}
       aria-label="الحساب موثق"
       className="inline-flex items-center justify-center cursor-pointer"
     >
@@ -263,12 +276,21 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
       </svg>
     </button>
 
-    <div
-      id="halaqi-admin-verified-info"
-      className="hidden fixed left-1/2 top-20 z-[9999] w-[calc(100vw-32px)] max-w-[300px] -translate-x-1/2 rounded-xl border border-white/20 bg-white/[0.08] px-3 py-2.5 text-center text-[11px] font-medium leading-5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-2xl"
-    >
-      هذا الحساب موثّق رسميًا من حلاقي ويتمتع بمزايا خاصة.
-    </div>
+    {!showBadgeTooltip && (
+      <div
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-white/[0.08] border border-white/20 text-[10px] text-white/70 whitespace-nowrap backdrop-blur-2xl pointer-events-none"
+      >
+        ✓ موثق رسمياً
+      </div>
+    )}
+
+    {showBadgeTooltip && (
+      <div
+        className="fixed left-1/2 top-20 z-[9999] w-[calc(100vw-32px)] max-w-[300px] -translate-x-1/2 rounded-xl border border-white/20 bg-white/[0.08] px-3 py-2.5 text-center text-[11px] font-medium leading-5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-2xl"
+      >
+        هذا الحساب موثّق رسميًا من حلاقي ويتمتع بمزايا خاصة.
+      </div>
+    )}
   </div>
 )}
 

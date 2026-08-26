@@ -1,0 +1,283 @@
+================================================================================
+  HALAQI INVESTIGATION REPORT: Likes, Comments & Notifications
+  Generated: 2026-08-26
+================================================================================
+
+Project:   Halaqi — Salon Booking & Social Platform
+Stack:     React 19 + TypeScript 5.8.3 + Vite 6.4.3 + Express 4.22.2
+           + Neon (PostgreSQL serverless) + Capacitor (Android) + Vercel
+Node:      24.18.0
+Status:    Fixes implemented and verified locally. NOT deployed.
+
+================================================================================
+1. ROOT CAUSES IDENTIFIED
+================================================================================
+
+ROOT CAUSE 1 (Critical) — Users never loaded to memory on Vercel
+----------------------------------------------------------------------
+File:    src/server/db.ts:4779 (loadAllFromNeon)
+Impact:  Likes appear broken in feed on Vercel
+
+loadAllFromNeon() loads 14 tables into db.getState() but omits the users
+table. The function loadUsersFromNeon() exists at line 4747 but is never
+called from loadAllFromNeon() or from ensureNeonDataLoaded() in app.ts.
+
+On Vercel, ensureNeonDataLoaded() calls loadAllFromNeon() per cold start,
+so db.getState().users is ALWAYS empty. This causes optionalAuthMiddleware
+(which calls db.getUserById() against in-memory users) to silently fail
+for every request, setting req.user = undefined even for authenticated users.
+
+The /api/posts/feed endpoint uses optionalAuthMiddleware (global), NOT
+requireAuth. So req.user?.id is always undefined, viewerUserId is always
+empty string, and the SQL check pl.user_id = '' never matches. Result:
+liked_by_me is FALSE for ALL posts regardless of actual like state.
+
+
+ROOT CAUSE 2 (Major) — Salon post like notifications never fire
+----------------------------------------------------------------------
+File:    src/server/db.ts:3614-3655 (togglePostLike, salon branch)
+Impact:  Salon post owners are never notified when someone likes their post
+
+The salon post branch of togglePostLike only selects 'id' from salon_posts
+in its post_check CTE (line 3615-3619). The final SELECT returns
+NULL AS post_owner_id (line 3650).
+
+The notification condition at line 3666-3682 requires BOTH:
+  - postType === 'user' (explicitly blocks salon posts)
+  - toggleRow.post_owner_id to be truthy (is NULL for salon posts)
+
+Since both conditions fail for salon posts, no notification is ever created.
+
+
+ROOT CAUSE 3 (Moderate) — Comment notifications use wrong type
+----------------------------------------------------------------------
+File:    src/server/db.ts:3900
+Impact:  Comment notifications are indistinguishable from system notifications
+
+Comment notifications are created with type: 'system' instead of a distinct
+'post_comment' type. The Notification type in types/index.ts does not even
+include 'post_comment' as a valid union member.
+
+
+ROOT CAUSE 4 (Moderate) — optionalAuthMiddleware has no Neon fallback
+----------------------------------------------------------------------
+File:    src/server/authMiddleware.ts:76-94
+Impact:  Even with valid token, optional auth silently drops user context
+
+optionalAuthMiddleware only checks in-memory state via db.getUserById().
+Unlike requireAuth (which queries Neon directly via getUserByIdFromNeon),
+optionalAuthMiddleware has no fallback. On Vercel where users are never
+loaded to memory, this always fails silently.
+
+
+================================================================================
+2. FIXES IMPLEMENTED
+================================================================================
+
+FIX 1 — Add loadUsersFromNeon() to loadAllFromNeon()
+----------------------------------------------------------------------
+File:           src/server/db.ts:5089-5090
+Change type:    1 insertion (3 lines including comment)
+Lines changed:  +3
+
+Old code:
+  (end of loadAllFromNeon, before the console.log)
+
+New code:
+  // Load users into memory so optionalAuthMiddleware can resolve them.
+  await loadUsersFromNeon();
+
+Effect:   db.getState().users is now populated during cold start on Vercel.
+          optionalAuthMiddleware can find users. liked_by_me in feed works.
+
+
+FIX 2 — Add owner_id to salon post like CTE + update notification condition
+----------------------------------------------------------------------
+File:           src/server/db.ts:3615-3616, 3649-3650, 3665-3670
+Change type:    3 edits in same function (togglePostLike)
+Lines changed:  +6 / -6
+
+Edit 2a — CTE (line 3615-3616):
+  Old: SELECT id FROM salon_posts WHERE id = ${postId} LIMIT 1
+  New: SELECT id, owner_id AS post_owner_id FROM salon_posts WHERE id = ${postId} LIMIT 1
+
+Edit 2b — SELECT (line 3649-3650):
+  Old: NULL AS post_owner_id,
+  New: pc.post_owner_id,
+
+Edit 2c — Notification condition (line 3665-3670):
+  Old: if (liked && postType === 'user' && toggleRow.post_owner_id && toggleRow.post_owner_id !== requestingUser.id)
+  New: if (liked && toggleRow.post_owner_id && String(toggleRow.post_owner_id) !== String(requestingUser.id))
+
+Effect:   Salon post like notifications now fire. User post like
+          notifications continue to work identically. String() comparison
+          prevents type mismatch between Neon column types.
+
+
+FIX 3 — Add 'post_comment' notification type
+----------------------------------------------------------------------
+File 3a:         src/server/db.ts:3900
+Change type:     1 line edit
+Lines changed:   +1 / -1
+
+  Old: type: 'system',
+  New: type: 'post_comment',
+
+File 3b:         src/types/index.ts:196
+Change type:     1 line edit (union extension)
+Lines changed:   +1 / -1
+
+  Old: ... | 'post_like';
+  New: ... | 'post_like' | 'post_comment';
+
+Effect:   Comment notifications are now semantically distinct. The
+          notifications table has no CHECK constraint on 'type', so
+          existing 'system' notifications are unaffected. Frontend
+          currently does not filter by type, so no visual change yet.
+
+
+FIX 4 — Add Neon fallback to optionalAuthMiddleware
+----------------------------------------------------------------------
+File:           src/server/authMiddleware.ts:76-94
+Change type:    Function signature change + 20 lines added
+Lines changed:  +24 / -2
+
+Old: function optionalAuthMiddleware(...) — sync, in-memory only
+New: async function optionalAuthMiddleware(...) — in-memory first, Neon fallback
+
+Effect:   Defense-in-depth on top of Fix 1. If in-memory lookup fails
+          (partial cold start failure, new user not yet cached, stale
+          instance), the middleware queries Neon directly and syncs back
+          to in-memory state for future requests.
+
+
+================================================================================
+3. FILES CHANGED
+================================================================================
+
+  src/server/db.ts              15 lines changed (Fixes 1, 2, 3a)
+  src/server/authMiddleware.ts  24 lines changed (Fix 4)
+  src/types/index.ts            1 line changed  (Fix 3b)
+
+  Total: 3 files, +34 insertions, -9 deletions
+
+  No other files modified.
+  No backup files created, modified, or deleted.
+  No previous Posts fixes reverted.
+  No environment variables changed.
+  No Vercel config changed.
+
+
+================================================================================
+4. EXPRESS 4.22.2 AND ASYNC MIDDLEWARE SAFETY
+================================================================================
+
+Express version: 4.22.2
+
+Fix 4 changes optionalAuthMiddleware from sync to async. Analysis:
+
+- Express 4.x does NOT natively handle async middleware errors. If an
+  async middleware throws an unhandled rejection, Express will NOT catch
+  it — the request hangs or crashes.
+
+- HOWEVER, the new optionalAuthMiddleware wraps its async Neon call in
+  try/catch with an empty catch block:
+    try { user = await db.getUserByIdFromNeon(payload.userId); ... }
+    catch { /* proceed without user context */ }
+
+- The catch block means no unhandled rejection can escape. The middleware
+  ALWAYS calls next(), whether the Neon query succeeds, fails, or the
+  user is not found. The request always continues.
+
+- This is the same pattern already used by requireAuth (line 97-174 in
+  authMiddleware.ts), which is also async and wraps its Neon call in
+  try/catch.
+
+- Express 5.x (not used here) would handle async rejections natively,
+  but the explicit try/catch makes this safe on Express 4.x.
+
+Conclusion: The async middleware is safe on Express 4.22.2 because:
+  1. All paths call next()
+  2. The async Neon query is fully wrapped in try/catch
+  3. The pattern matches existing code (requireAuth)
+
+
+================================================================================
+5. VERIFICATION RESULTS
+================================================================================
+
+TypeScript check (tsc --noEmit):
+  Result: PASS — 0 errors, 0 warnings
+  Duration: ~8 seconds
+
+Vite build (vite build):
+  Result: PASS — built in 25.20s
+  Output:
+    dist/index.html                     1.55 kB
+    dist/assets/index-DSgFeBog.css    111.94 kB
+    dist/assets/index-D5WOfKhJ.js   1,038.94 kB
+  Note: "Some chunks are larger than 500 kB" warning is pre-existing,
+        not caused by these changes.
+
+No tests exist in this project (no test framework configured in
+package.json scripts — only dev, build, start, preview, clean, lint,
+cap:build, cap:sync, cap:open).
+
+
+================================================================================
+6. GIT STATE
+================================================================================
+
+Checkpoint commit:  e7e6938
+  Message: "checkpoint: pre-likes-comments-notifications-fix - save current
+           state before implementing bugfixes"
+  Created BEFORE any fix changes were made.
+
+Uncommitted changes: Fix 1-4 (3 files, +34/-9)
+  These are working tree modifications, NOT committed.
+
+Current HEAD: e7e6938 (checkpoint commit)
+
+
+================================================================================
+7. REMAINING CONCERNS
+================================================================================
+
+7a. No automated tests
+    The project has no test framework. All verification is manual via
+    tsc and vite build. Functional testing (actual Like/Comment/Notification
+    behavior) must be done manually in browser after deployment.
+
+7b. Express 4 async middleware
+    While safe due to try/catch, Express 4 does not propagate async
+    errors. If future changes remove the try/catch, unhandled rejections
+    would silently break. A comment in the code warns about this.
+
+7c. Notification type backward compatibility
+    Existing notifications in Neon with type='system' will remain as
+    'system'. Only new comment notifications get 'post_comment'. If the
+    frontend needs to distinguish them, a one-time migration or filter
+    logic would be needed.
+
+7d. Neon cold start latency
+    Fix 4 adds a potential Neon query to optionalAuthMiddleware if the
+    user is not in memory. On Vercel cold start, this adds ~50-200ms
+    latency to the first request per user per instance. Subsequent
+    requests on the same instance use in-memory cache.
+
+7e. User cache staleness
+    optionalAuthMiddleware caches Neon users back into db.getState().users.
+    If a user changes their name, role, or ban status, the in-memory
+    cache becomes stale until the next cold start. This is a pre-existing
+    pattern (requireAuth already has the same behavior at line 127-134).
+
+7f. loadUsersFromNeon() is called LAST in loadAllFromNeon()
+    If any earlier table query fails (e.g., salons), the entire
+    loadAllFromNeon catches and logs the error, but loadUsersFromNeon
+    at the end may not be reached. However, the Neon initialization
+    in app.ts uses a Promise that resets on failure, so the next
+    request will retry.
+
+================================================================================
+  END OF REPORT
+================================================================================

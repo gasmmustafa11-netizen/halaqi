@@ -22,7 +22,9 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   bookingCount = 0,
 }) => {
   const { t, isRtl } = useLanguage();
-  const { user, openAuthModal } = useAuth();
+  const { user, openAuthModal, mySalon } = useAuth();
+
+  const salonStatus = mySalon?.status ?? null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#141414] border-t border-[#262626] h-16 flex items-center justify-around px-4 sm:px-8 shadow-2xl backdrop-blur-lg">
@@ -68,15 +70,34 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         <span className="text-[10px]">{t('myBookings')}</span>
       </button>
 
-      {/* Join as Salon / Services */}
+      {/* Salon Button: 3-way conditional based on salon application status */}
       <button
-        onClick={() => onNavigate('register_salon')}
+        onClick={() => {
+          if (salonStatus === 'approved') {
+            onNavigate('salon_dashboard');
+          } else if (salonStatus === 'pending') {
+            onNavigate('salon_status');
+          } else {
+            onNavigate('register_salon');
+          }
+        }}
         className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
-          currentView === 'register_salon' ? 'text-[#D4AF37]' : 'text-gray-400 hover:text-white'
+          currentView === 'register_salon' || currentView === 'salon_status'
+            ? 'text-[#D4AF37]'
+            : currentView === 'salon_dashboard'
+            ? 'text-[#D4AF37]'
+            : 'text-gray-400 hover:text-white'
         }`}
       >
         <Scissors className="w-5 h-5" />
-        <span className="text-[10px]">{isRtl ? 'انضم كصالون' : 'Join'}</span>
+        <span className="text-[10px]">
+          {salonStatus === 'approved'
+            ? (isRtl ? 'صالونك' : 'Your Salon')
+            : salonStatus === 'pending'
+            ? (isRtl ? 'قيد المراجعة' : 'Reviewing')
+            : (isRtl ? 'انضم كصالون' : 'Join')
+          }
+        </span>
       </button>
 
       {/* Profile */}

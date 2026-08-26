@@ -423,47 +423,53 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
     createdAt: new Date().toISOString(),
   };
 
-  db.getState().salons.push(newSalon);
+    // Final atomic check: query Neon one more time right before INSERT
+    // to close any race window between the earlier check and this write.
+    try {
+      const lastCheck = await db.getSalonByOwnerFromNeon(req.user!.id);
 
-    // Persist the new salon in Neon.
+      if (lastCheck) {
+        return res.status(409).json({
+          success: false,
+          duplicate: true,
+          salon: lastCheck,
+          error:
+            lastCheck.status === 'approved'
+              ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
+              : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
+        });
+      }
+    } catch (error: any) {
+      console.error(
+        '[SALON FINAL CHECK] Neon check failed:',
+        error?.message || error
+      );
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر التحقق من طلب الصالون الحالي. حاول مرة أخرى.',
+      });
+    }
+
+    // Persist the new salon in Neon FIRST, before adding to memory.
     try {
       const savedSalon = await db.createSalonInNeon(newSalon);
 
       if (!savedSalon) {
-        const memoryIndex = db.getState().salons.findIndex(
-          (s) => s.id === newSalon.id
-        );
-
-        if (memoryIndex !== -1) {
-          db.getState().salons.splice(memoryIndex, 1);
-        }
-
         return res.status(500).json({
           success: false,
           error: 'تعذر حفظ طلب الصالون في قاعدة البيانات.',
         });
       }
 
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
+      // Only now add to in-memory state (after Neon confirms success)
+      db.getState().salons.push(savedSalon);
 
-      if (memoryIndex !== -1) {
-        db.getState().salons[memoryIndex] = savedSalon;
-      }
+      Object.assign(newSalon, savedSalon);
 
       console.log(
         `[SALON CREATE] Neon synchronized: ${savedSalon.id}`
       );
     } catch (error: any) {
-      const memoryIndex = db.getState().salons.findIndex(
-        (s) => s.id === newSalon.id
-      );
-
-      if (memoryIndex !== -1) {
-        db.getState().salons.splice(memoryIndex, 1);
-      }
-
       console.error(
         '[SALON CREATE] Neon INSERT failed:',
         error?.message || error
@@ -1290,6 +1296,192 @@ app.get('/api/cities', async (_req: Request, res: Response) => {
     });
   }
 });
+
+/* =========================================================
+   AUTH: TOKEN REFRESH
+   Re-issue a fresh 365-day token so the session stays alive
+   as long as the user is active.
+========================================================= */
+
+app.post('/api/auth/refresh', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'غير مصرح.' });
+    }
+
+    const newToken = generateToken(req.user);
+
+    return res.json({
+      success: true,
+      token: newToken,
+      user: req.user,
+    });
+  } catch (error) {
+    console.error('[TOKEN REFRESH ERROR]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تجديد الجلسة.' });
+  }
+});
+
+/* =========================================================
+   ADMIN: SALON STATUS UPDATE
+   Handles approve / reject / suspend / banned / toggle-verified
+   and commission rate updates.
+========================================================= */
+
+app.put(
+  '/api/admin/salons/:id/status',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const salonId = req.params.id;
+      const {
+        status,
+        isVerified,
+        commissionRate,
+        suspensionReason,
+        suspensionHours,
+      } = req.body || {};
+
+      // Validate status if provided
+      const validStatuses = ['approved', 'rejected', 'pending', 'suspended', 'banned'];
+      if (status !== undefined && !validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: 'حالة الصالون غير صحيحة.',
+        });
+      }
+
+      // Update status in Neon
+      if (status !== undefined) {
+        const updatedSalon = await db.updateSalonStatusInNeon(
+          salonId,
+          status,
+          isVerified
+        );
+
+        if (!updatedSalon) {
+          return res.status(404).json({
+            success: false,
+            error: 'الصالون غير موجود.',
+          });
+        }
+
+        // Also update in-memory state
+        const memSalon = db.getState().salons.find((s) => s.id === salonId);
+        if (memSalon) {
+          memSalon.status = status as any;
+          if (isVerified !== undefined) memSalon.isVerified = isVerified;
+          if (suspensionReason) memSalon.suspensionReason = suspensionReason;
+          if (suspensionHours && status === 'suspended') {
+            memSalon.suspensionStartedAt = new Date().toISOString();
+            memSalon.suspensionEndsAt = new Date(
+              Date.now() + suspensionHours * 60 * 60 * 1000
+            ).toISOString();
+          }
+        }
+
+        // Notify salon owner about approval
+        if (status === 'approved') {
+          db.createNotification({
+            userId: updatedSalon.ownerId,
+            title: 'تم اعتماد صالونك!',
+            titleEn: 'Your Salon Has Been Approved!',
+            message: `تهانينا! تم اعتماد صالون "${updatedSalon.name}" وهو الآن ظاهر للزبائن.`,
+            messageEn: `Congratulations! Your salon "${updatedSalon.name}" has been approved and is now visible to customers.`,
+            type: 'salon_approved',
+            link: '/salon_dashboard',
+            salonId: salonId,
+          }).catch(() => {});
+        }
+
+        // Notify salon owner about rejection
+        if (status === 'rejected') {
+          db.createNotification({
+            userId: updatedSalon.ownerId,
+            title: 'تم رفض طلب الصالون',
+            titleEn: 'Salon Application Rejected',
+            message: `نعتذر، تم رفض طلب تسجيل صالون "${updatedSalon.name}". يمكنك التواصل مع الدعم لمزيد من التفاصيل.`,
+            messageEn: `Unfortunately, your salon registration for "${updatedSalon.name}" was rejected. Please contact support for more details.`,
+            type: 'salon_rejected',
+            salonId: salonId,
+          }).catch(() => {});
+        }
+
+        // Audit log
+        db.addAuditLog({
+          userId: req.user!.id,
+          userEmail: req.user!.email,
+          userRole: 'admin',
+          action: `SALON_${status.toUpperCase()}`,
+          targetType: 'salon',
+          targetId: salonId,
+          details: `تغيير حالة الصالون "${updatedSalon.name}" إلى ${status}`,
+          ip: req.ip || '127.0.0.1',
+          status: 'success',
+        });
+
+        return res.json({
+          success: true,
+          salon: updatedSalon,
+        });
+      }
+
+      // Update isVerified without changing status
+      if (isVerified !== undefined) {
+        const memSalon = db.getState().salons.find((s) => s.id === salonId);
+        if (memSalon) {
+          memSalon.isVerified = isVerified;
+        }
+
+        // Also persist to Neon
+        await followSql`
+          UPDATE salons
+          SET is_verified = ${isVerified}
+          WHERE id = ${salonId}
+        `;
+
+        db.addAuditLog({
+          userId: req.user!.id,
+          userEmail: req.user!.email,
+          userRole: 'admin',
+          action: isVerified ? 'SALON_VERIFY' : 'SALON_UNVERIFY',
+          targetType: 'salon',
+          targetId: salonId,
+          details: `${isVerified ? 'توثيق' : 'إلغاء توثيق'} الصالون ${salonId}`,
+          ip: req.ip || '127.0.0.1',
+          status: 'success',
+        });
+
+        return res.json({ success: true });
+      }
+
+      // Update commission rate
+      if (commissionRate !== undefined) {
+        const memSalon = db.getState().salons.find((s) => s.id === salonId);
+        if (memSalon) {
+          memSalon.commissionRate = commissionRate;
+        }
+
+        await followSql`
+          UPDATE salons
+          SET commission_rate = ${commissionRate}
+          WHERE id = ${salonId}
+        `;
+
+        return res.json({ success: true });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN SALON STATUS ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر تحديث حالة الصالون.',
+      });
+    }
+  }
+);
 
 /* =========================================================
    ADMIN SANCTION
