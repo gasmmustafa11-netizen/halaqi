@@ -1,7 +1,7 @@
 workflows:
   halaqi-android:
     environment:
-      java: 17
+      java: 21
     scripts:
       - name: Install dependencies
         script: npm install
