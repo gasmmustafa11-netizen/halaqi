@@ -115,27 +115,33 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     });
   }
 
-  let user = db.getUserById(payload.userId);
+  // Neon هو مصدر الحقيقة لبيانات المستخدم الحالية.
+  // لا نعتمد على نسخة state.users القديمة حتى ينعكس تغيير الاسم
+  // والهاتف والمدينة فوراً في المصادقة والملف الشخصي والبحث.
+  let user: any = undefined;
 
-  if (!user) {
-    try {
-      user = await db.getUserByIdFromNeon(payload.userId);
+  try {
+    user = await db.getUserByIdFromNeon(payload.userId);
 
-      if (user) {
-        const existsInMemory = db.getState().users.some(
-          (u) => u.id === user!.id
-        );
-
-        if (!existsInMemory) {
-          db.getState().users.push(user);
-        }
-      }
-    } catch (error: any) {
-      console.error(
-        '[AUTH NEON FALLBACK] Failed to load user:',
-        error?.message || error
+    if (user) {
+      const stateUser = db.getState().users.find(
+        (u) => u.id === user!.id
       );
+
+      if (stateUser) {
+        Object.assign(stateUser, user);
+      } else {
+        db.getState().users.push(user);
+      }
     }
+  } catch (error: any) {
+    console.error(
+      '[AUTH NEON LOAD] Failed to load current user:',
+      error?.message || error
+    );
+
+    // Fallback فقط إذا تعذر الوصول إلى Neon.
+    user = db.getUserById(payload.userId);
   }
 
   if (!user) {

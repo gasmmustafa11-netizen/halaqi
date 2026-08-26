@@ -187,11 +187,13 @@ export interface Coupon {
 export interface Notification {
   id: string;
   userId: string;
+  actorUserId?: string;
+  actorName?: string;
   title: string;
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like';
   read: boolean;
   createdAt: string;
   link?: string;
@@ -240,6 +242,19 @@ export interface SalonPost {
   salonId: string;
   ownerId: string;
   salonName: string;
+  imageUrl: string;
+  caption: string;
+  createdAt: string;
+  updatedAt?: string;
+  likeCount: number;
+  commentCount: number;
+}
+
+export interface UserPost {
+  id: string;
+  userId: string;
+  userName?: string;
+  userAvatar?: string;
   imageUrl: string;
   caption: string;
   createdAt: string;

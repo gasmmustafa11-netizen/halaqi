@@ -50,8 +50,29 @@ const toggleLanguage = () => {
 
     try {
       const items = await api.getNotifications(user.id);
-      setNotifications(items);
-      return items;
+
+      // حماية إضافية:
+      // لا نعرض أي إشعار لا يخص المستخدم الحالي.
+      const ownItems = items.filter(
+        (item) => String(item.userId) === String(user.id)
+      );
+
+      // نحافظ على read=true الموجود في الواجهة
+      // حتى لا يرجع الإشعار مؤقتاً إلى unread أثناء الـ polling.
+      setNotifications((current) => {
+        const currentReadIds = new Set(
+          current
+            .filter((item) => item.read)
+            .map((item) => item.id)
+        );
+
+        return ownItems.map((item) => ({
+          ...item,
+          read: Boolean(item.read) || currentReadIds.has(item.id),
+        }));
+      });
+
+      return ownItems;
     } catch (error) {
       console.error('[NAVBAR NOTIFICATIONS]', error);
       return [];
@@ -62,22 +83,44 @@ const toggleLanguage = () => {
     setIsNotificationsOpen(true);
     setIsProfileDropdownOpen(false);
 
+    if (!user?.id) return;
+
     try {
-      const items = await loadNotifications();
-      const unreadItems = items.filter((item) => !item.read);
+      // نستخدم الحالة الحالية أولاً.
+      // لا نعيد تحميل الإشعارات عدة مرات عند كل فتح.
+      const unreadItems = notifications.filter(
+        (item) => !item.read
+      );
 
-      if (unreadItems.length > 0) {
-        await Promise.all(
-          unreadItems.map((item) =>
-            api.markNotificationAsRead(item.id)
-          )
-        );
+      if (unreadItems.length === 0) {
+        return;
+      }
 
+      // تعليم الإشعارات غير المقروءة كمقروءة في السيرفر.
+      const results = await Promise.all(
+        unreadItems.map(async (item) => {
+          const ok = await api.markNotificationAsRead(item.id);
+          return {
+            id: item.id,
+            ok,
+          };
+        })
+      );
+
+      const successfullyReadIds = new Set(
+        results
+          .filter((result) => result.ok)
+          .map((result) => result.id)
+      );
+
+      // تحديث الواجهة فقط للإشعارات التي أكد السيرفر قراءتها.
+      if (successfullyReadIds.size > 0) {
         setNotifications((current) =>
-          current.map((item) => ({
-            ...item,
-            read: true,
-          }))
+          current.map((item) =>
+            successfullyReadIds.has(item.id)
+              ? { ...item, read: true }
+              : item
+          )
         );
       }
     } catch (error) {
@@ -90,7 +133,7 @@ const toggleLanguage = () => {
 
       if (!user?.id) return;
 
-      const timer = setInterval(loadNotifications, 10000);
+      const timer = setInterval(loadNotifications, 15000);
 
       return () => clearInterval(timer);
     }, [user?.id]);
@@ -203,6 +246,24 @@ const toggleLanguage = () => {
         {/* Right Section: Location Pill + User Controls */}
         <div className="flex items-center gap-3 shrink-0">
 
+            {user && (
+              <div>
+                {/* Mobile Search */}
+                <button
+                  type="button"
+                  onClick={() => onNavigate('search')}
+                  title={isRtl ? 'البحث' : 'Search'}
+                  className={`lg:hidden flex items-center justify-center w-10 h-10 rounded-xl border transition-all ${
+                    currentView === 'search'
+                      ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
+                      : 'bg-[#262626] text-[#D4AF37] border-[#333] hover:bg-[#333]'
+                  }`}
+                >
+                  <Search className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
             {/* Notifications */}
             {user && (
               <div className="relative">
@@ -228,17 +289,52 @@ const toggleLanguage = () => {
                 </button>
 
                 {isNotificationsOpen && (
-                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-2 w-auto sm:w-[360px] max-w-none bg-[#141414] border border-[#333] rounded-2xl shadow-2xl z-[100] overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[#262626]">
-                      <p className="font-black text-white">
-                        {isRtl ? 'الإشعارات' : 'Notifications'}
-                      </p>
+                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-3 w-auto sm:w-[390px] max-w-[calc(100vw-1.5rem)] bg-[#111111]/95 backdrop-blur-xl border border-white/[0.08] rounded-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.65)] z-[100] overflow-hidden ring-1 ring-[#D4AF37]/5">
+
+                    {/* Header */}
+                    <div className="px-5 py-4 border-b border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-[#D4AF37]/20 to-[#D4AF37]/5 border border-[#D4AF37]/20 flex items-center justify-center shadow-inner">
+                            <span className="text-lg">♢</span>
+                            {unreadCount > 0 && (
+                              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#D4AF37] ring-2 ring-[#111111] shadow-[0_0_12px_rgba(212,175,55,0.55)]" />
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="text-[15px] font-black text-white tracking-tight">
+                              {isRtl ? 'الإشعارات' : 'Notifications'}
+                            </p>
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                              {unreadCount > 0
+                                ? (isRtl ? `${unreadCount} إشعار غير مقروء` : `${unreadCount} unread`)
+                                : (isRtl ? 'كل الإشعارات مقروءة' : 'All caught up')}
+                            </p>
+                          </div>
+                        </div>
+
+                        {unreadCount > 0 && (
+                          <span className="shrink-0 px-2.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[9px] font-black text-[#D4AF37]">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="max-h-[65vh] sm:max-h-[420px] overflow-y-auto">
+                    {/* Notifications list */}
+                    <div className="max-h-[65vh] sm:max-h-[430px] overflow-y-auto">
                       {notifications.length === 0 ? (
-                        <div className="px-5 py-10 text-center text-sm text-gray-500">
-                          {isRtl ? 'لا توجد إشعارات' : 'No notifications'}
+                        <div className="px-6 py-14 text-center">
+                          <div className="mx-auto w-14 h-14 rounded-2xl bg-white/[0.035] border border-white/[0.06] flex items-center justify-center mb-4">
+                            <span className="text-xl text-gray-500">♢</span>
+                          </div>
+                          <p className="text-sm font-bold text-gray-300">
+                            {isRtl ? 'لا توجد إشعارات' : 'No notifications'}
+                          </p>
+                          <p className="text-[10px] text-gray-600 mt-1.5">
+                            {isRtl ? 'سنخبرك عندما يحدث شيء جديد' : 'We will let you know when something happens'}
+                          </p>
                         </div>
                       ) : (
                         notifications.map((notification) => (
@@ -264,8 +360,28 @@ const toggleLanguage = () => {
 
                               if (notification.link === '/bookings') {
                                 onNavigate('bookings');
+                              } else if (
+                                notification.link === '/posts' ||
+                                notification.link?.startsWith('/posts?postId=')
+                              ) {
+                                const postId = notification.link.startsWith('/posts?postId=')
+                                  ? new URLSearchParams(
+                                      notification.link.split('?')[1] || ''
+                                    ).get('postId')
+                                  : null;
+
+                                onNavigate(
+                                  postId
+                                    ? `posts:${postId}`
+                                    : 'posts'
+                                );
                               } else if (notification.link === '/profile') {
                                 onNavigate('profile');
+                              } else if (notification.link?.startsWith('/profile/')) {
+                                const userId = notification.link.slice('/profile/'.length).trim();
+                                if (userId) {
+                                  onNavigate(`user:${userId}`);
+                                }
                               } else if (
                                 notification.link?.startsWith('/admin/') &&
                                 role === 'admin'
@@ -273,27 +389,67 @@ const toggleLanguage = () => {
                                 onNavigate('admin');
                               }
                             }}
-                            className={`w-full text-start px-4 py-3 border-b border-[#262626] hover:bg-white/5 transition-colors ${
-                              notification.read ? 'opacity-70' : 'bg-[#D4AF37]/5'
+                            className={`group relative w-full text-start px-4 py-3.5 border-b border-white/[0.055] transition-all duration-200 hover:bg-white/[0.045] active:bg-white/[0.07] ${
+                              notification.read ? 'opacity-70' : 'bg-[#D4AF37]/[0.035]'
                             }`}
                           >
-                            <p className="text-xs font-bold text-white">
-                              {isRtl ? notification.title : notification.titleEn}
-                            </p>
+                            {/* Unread indicator */}
+                            {!notification.read && (
+                              <span className="absolute top-4 right-3 w-1.5 h-1.5 rounded-full bg-[#D4AF37] shadow-[0_0_10px_rgba(212,175,55,0.7)]" />
+                            )}
 
-                            <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
-                              {isRtl ? notification.message : notification.messageEn}
-                            </p>
+                            <div className="flex items-start gap-3">
+                              {/* Notification icon */}
+                              <div className={`shrink-0 w-10 h-10 rounded-[14px] flex items-center justify-center border transition-all duration-200 ${
+                                notification.read
+                                  ? 'bg-white/[0.035] border-white/[0.06] text-gray-500'
+                                  : 'bg-gradient-to-br from-[#D4AF37]/20 to-[#D4AF37]/5 border-[#D4AF37]/20 text-[#D4AF37] shadow-[0_0_20px_rgba(212,175,55,0.08)]'
+                              }`}>
+                                <span className="text-sm">✦</span>
+                              </div>
 
-                            <p className="text-[9px] text-gray-600 mt-2">
-                              {new Date(notification.createdAt).toLocaleString(
-                                isRtl ? 'ar-IQ' : 'en-US'
-                              )}
-                            </p>
+                              <div className="min-w-0 flex-1 pe-2">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-[12px] font-black text-white truncate">
+                                    {isRtl ? notification.title : notification.titleEn}
+                                  </p>
+                                </div>
+
+                                <p className="text-[11px] text-gray-400 mt-1 leading-[1.65] line-clamp-2">
+                                  {isRtl ? notification.message : notification.messageEn}
+                                </p>
+
+                                <p className="text-[9px] text-gray-600 mt-2.5">
+                                  {new Date(notification.createdAt).toLocaleString(
+                                    isRtl ? 'ar-IQ' : 'en-US',
+                                    {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      hour: 'numeric',
+                                      minute: '2-digit'
+                                    }
+                                  )}
+                                </p>
+                              </div>
+
+                              {/* Arrow */}
+                              <span className="shrink-0 self-center text-gray-700 group-hover:text-[#D4AF37] group-hover:translate-x-[-2px] transition-all text-sm">
+                                {isRtl ? '‹' : '›'}
+                              </span>
+                            </div>
                           </button>
                         ))
                       )}
                     </div>
+
+                    {/* Footer */}
+                    {notifications.length > 0 && (
+                      <div className="px-4 py-2.5 bg-white/[0.018] border-t border-white/[0.055]">
+                        <p className="text-center text-[9px] text-gray-600">
+                          {isRtl ? 'اضغط على الإشعار لعرض التفاصيل' : 'Tap a notification to view details'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -15,13 +15,17 @@ import { SalonDashboardView } from './components/salon-dashboard/SalonDashboardV
 import { AdminPanelView } from './components/admin/AdminPanelView';
 import { SalonRegistrationView } from './components/salons/SalonRegistrationView';
 import { UserProfileView } from './components/profile/UserProfileView';
+import { PublicUserProfileView } from './components/profile/PublicUserProfileView';
 import { TermsPrivacyView } from './components/legal/TermsPrivacyView';
 import { BookingWizardModal } from './components/booking/BookingWizardModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { SearchView } from './components/search/SearchView';
+import { PostsView } from './components/posts/PostsView';
+
 
 function AppContent() {
   const { isRtl } = useLanguage();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   const [currentView, setCurrentView] = useState<string>('explore');
 
   useEffect(() => {
@@ -30,6 +34,8 @@ function AppContent() {
     }
   }, [role]);
   const [selectedSalon, setSelectedSalon] = useState<Salon | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -59,6 +65,40 @@ function AppContent() {
       return;
     }
 
+    // Open salon from search
+    if (view.startsWith('salon:')) {
+      const salonId = view.slice('salon:'.length).trim();
+
+      if (salonId) {
+        handleSelectSalonById(salonId);
+        return;
+      }
+    }
+
+    // Open a specific post from a notification
+    if (view.startsWith('posts:')) {
+      const postId = view.slice('posts:'.length).trim();
+
+      if (postId) {
+        setSelectedPostId(postId);
+        setCurrentView('posts');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
+
+    // Open user profile from search
+    if (view.startsWith('user:')) {
+      const userId = view.slice('user:'.length).trim();
+
+      if (userId) {
+        setSelectedUserId(userId);
+        setCurrentView('user_profile');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
+
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -75,6 +115,10 @@ function AppContent() {
 
       {/* Main Body Content with Bento Spacing */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-20">
+        {currentView === 'search' && (
+          <SearchView onNavigate={handleNavigate} />
+        )}
+
         {currentView === 'explore' && (
           <HomeExploreView
             onSelectSalon={handleSelectSalon}
@@ -84,7 +128,16 @@ function AppContent() {
           />
         )}
 
-        {currentView === 'map' && (
+        {currentView === 'posts' && (
+        <PostsView
+          salons={allSalons}
+          selectedPostId={selectedPostId}
+          onSelectSalon={handleSelectSalon}
+          onNavigate={handleNavigate}
+        />
+      )}
+
+      {currentView === 'map' && (
           <div className="space-y-4">
             <div className="bg-[#141414] border border-[#262626] rounded-2xl p-5 flex items-center justify-between">
               <div>
@@ -138,8 +191,27 @@ function AppContent() {
           <TermsPrivacyView onBack={() => handleNavigate('explore')} />
         )}
 
+        {currentView === 'user_profile' && selectedUserId && (
+          user && selectedUserId === user.id ? (
+            <UserProfileView
+              onNavigate={handleNavigate}
+              onNavigateToRole={(r) => {
+                if (r === 'salon_owner') handleNavigate('salon_dashboard');
+                else if (r === 'admin') handleNavigate('admin');
+                else handleNavigate('explore');
+              }}
+            />
+          ) : (
+            <PublicUserProfileView
+              userId={selectedUserId}
+              onBack={() => handleNavigate('search')}
+            />
+          )
+        )}
+
         {currentView === 'profile' && (
           <UserProfileView
+            onNavigate={handleNavigate}
             onNavigateToRole={(r) => {
               if (r === 'salon_owner') handleNavigate('salon_dashboard');
               else if (r === 'admin') handleNavigate('admin');
