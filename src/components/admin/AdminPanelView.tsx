@@ -128,7 +128,7 @@ export const AdminPanelView: React.FC = () => {
 
   useEffect(() => {
     loadAdminData();
-  }, [user]);
+  }, [user?.id]);
 
   // تحديث إشعارات الأدمن تلقائياً
   useEffect(() => {

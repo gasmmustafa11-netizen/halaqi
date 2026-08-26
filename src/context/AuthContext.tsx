@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchMySalon();
 
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user?.id]);
 
   const refreshMySalon = async () => {
     try {
@@ -198,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (user) {
@@ -209,7 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The token must only be cleared via explicit logout or a 401 from verifySession().
       // Clearing it here causes a feedback loop: server error → user=null → token destroyed → session lost.
     }
-  }, [user]);
+  }, [user?.id]);
 
   const refreshUser = async () => {
     const meRes = await api.getMe();

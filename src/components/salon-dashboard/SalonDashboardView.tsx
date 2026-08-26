@@ -181,7 +181,7 @@ export const SalonDashboardView: React.FC = () => {
 
   useEffect(() => {
     loadDashboardData();
-  }, [user]);
+  }, [user?.id]);
 
   const stopQrScanner = async () => {
     try {
