@@ -869,18 +869,16 @@ export const api = {
     }
   },
 
-  async createService(serviceData: Partial<Service>): Promise<Service | null> {
-    try {
-      const res = await fetchWithAuth('/api/services', {
-        method: 'POST',
-        body: JSON.stringify(serviceData),
-      });
-      const data = await res.json();
-      return data.service || null;
-    } catch (err) {
-      console.error('API Error [createService]:', err);
-      return null;
+  async createService(serviceData: Partial<Service>): Promise<Service> {
+    const res = await fetchWithAuth('/api/services', {
+      method: 'POST',
+      body: JSON.stringify(serviceData),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.service) {
+      throw new Error(data.error || 'فشل إضافة الخدمة');
     }
+    return data.service;
   },
 
   async updateService(id: string, updates: Partial<Service>): Promise<Service | null> {
