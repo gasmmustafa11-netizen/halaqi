@@ -193,7 +193,7 @@ export interface Notification {
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like';
+  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment';
   read: boolean;
   createdAt: string;
   link?: string;

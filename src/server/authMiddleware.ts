@@ -73,7 +73,7 @@ export function verifyToken(token: string): TokenPayload | null {
 }
 
 // Middleware: Extract & verify user if token exists (non-blocking)
-export function optionalAuthMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function optionalAuthMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return next();
@@ -83,7 +83,29 @@ export function optionalAuthMiddleware(req: AuthenticatedRequest, res: Response,
   const payload = verifyToken(token);
 
   if (payload) {
-    const user = db.getUserById(payload.userId);
+    // Try in-memory first (fast), fall back to Neon if user not loaded yet.
+    let user: any = db.getUserById(payload.userId);
+
+    if (!user) {
+      try {
+        user = await db.getUserByIdFromNeon(payload.userId);
+
+        if (user) {
+          const stateUser = db.getState().users.find(
+            (u) => u.id === user!.id
+          );
+
+          if (stateUser) {
+            Object.assign(stateUser, user);
+          } else {
+            db.getState().users.push(user);
+          }
+        }
+      } catch {
+        // Neon unavailable — proceed without user context.
+      }
+    }
+
     if (user && !user.isBanned && user.isActive) {
       req.rawUser = user;
       req.user = db.sanitizeUser(user);

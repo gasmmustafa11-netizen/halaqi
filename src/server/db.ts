@@ -3613,7 +3613,7 @@ class DatabaseStore {
           `
         : await sql`
             WITH post_check AS (
-              SELECT id
+              SELECT id, owner_id AS post_owner_id
               FROM salon_posts
               WHERE id = ${postId}
               LIMIT 1
@@ -3647,7 +3647,7 @@ class DatabaseStore {
               RETURNING 'liked' AS action
             )
             SELECT
-              NULL AS post_owner_id,
+              pc.post_owner_id,
               COALESCE(t.action, i.action) AS action
             FROM post_check pc
             LEFT JOIN toggled t ON true
@@ -3662,12 +3662,12 @@ class DatabaseStore {
 
       const liked = toggleRow.action === 'liked';
 
-      // Notify user post owner on like (not on unlike, not self-notify).
+      // Notify post owner on like (not on unlike, not self-notify).
+      // Works for both salon and user posts now that salon CTE returns owner_id.
       if (
         liked &&
-        postType === 'user' &&
         toggleRow.post_owner_id &&
-        toggleRow.post_owner_id !== requestingUser.id
+        String(toggleRow.post_owner_id) !== String(requestingUser.id)
       ) {
         this.createNotification({
           userId: toggleRow.post_owner_id,
@@ -3897,7 +3897,7 @@ class DatabaseStore {
           titleEn: `${requestingUser.name} commented on your post`,
           message: `${requestingUser.name} علّق على منشورك`,
           messageEn: `${requestingUser.name} commented on your post`,
-          type: 'system',
+          type: 'post_comment',
           link: `/posts?postId=${data.postId}`,
         }).catch(() => {});
       }
@@ -5085,6 +5085,9 @@ export async function loadAllFromNeon(): Promise<void> {
         refundEn: s.refund_en || '',
       };
     }
+
+    // Load users into memory so optionalAuthMiddleware can resolve them.
+    await loadUsersFromNeon();
 
     console.log(
       `تم تحميل بيانات Neon: salons=${salons.length}, barbers=${barbers.length}, services=${services.length}, bookings=${bookings.length}`
