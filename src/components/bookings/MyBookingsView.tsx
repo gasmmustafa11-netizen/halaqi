@@ -55,7 +55,7 @@ export const MyBookingsView: React.FC<MyBookingsViewProps> = ({ onSelectSalonId 
 
   useEffect(() => {
     loadBookings();
-  }, [user]);
+  }, [user?.id]);
 
   const handleConfirmCancel = async () => {
     if (!bookingToCancel) return;
