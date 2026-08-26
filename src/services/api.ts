@@ -15,6 +15,9 @@ import {
   PostComment,
 } from '../types';
 
+const API_BASE =
+  import.meta.env.VITE_API_URL || '';
+
 let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halaqi_auth_token') : null;
 
 export function setAuthToken(token: string | null) {
@@ -61,7 +64,17 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
     authorizationHeader: headers.get('Authorization') ? 'PRESENT' : 'MISSING',
   });
 
-  const response = await fetch(url, {
+  const fullUrl =
+    url.startsWith('http://') || url.startsWith('https://')
+      ? url
+      : `${API_BASE}${url}`;
+
+  console.log('[API REQUEST]', {
+    url: fullUrl,
+    method: options.method || 'GET',
+  });
+
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
   });
