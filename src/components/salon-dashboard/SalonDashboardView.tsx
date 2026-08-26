@@ -290,17 +290,22 @@ export const SalonDashboardView: React.FC = () => {
     e.preventDefault();
     if (!editingService?.name || !editingService?.price || !salon) return;
 
-    if (editingService.id) {
-      await api.updateService(editingService.id, editingService);
-    } else {
-      await api.createService({
-        ...editingService,
-        salonId: salon.id,
-        category: editingService.category || 'haircut',
-        categoryEn: editingService.category || 'haircut',
-        price: Number(editingService.price),
-        durationMinutes: Number(editingService.durationMinutes) || 30,
-      });
+    try {
+      if (editingService.id) {
+        await api.updateService(editingService.id, editingService);
+      } else {
+        await api.createService({
+          ...editingService,
+          salonId: salon.id,
+          category: editingService.category || 'haircut',
+          categoryEn: editingService.category || 'haircut',
+          price: Number(editingService.price),
+          durationMinutes: Number(editingService.durationMinutes) || 30,
+        });
+      }
+    } catch (err: any) {
+      alert(err?.message || 'حدث خطأ أثناء حفظ الخدمة');
+      return;
     }
     setIsServiceModalOpen(false);
     setEditingService(null);
