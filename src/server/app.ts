@@ -287,37 +287,74 @@ app.get('/api/salons/mine', requireAuth, async (req: AuthenticatedRequest, res: 
   }
 });
 
-app.get('/api/salons', (req: AuthenticatedRequest, res: Response) => {
+app.get('/api/salons', async (req: AuthenticatedRequest, res: Response) => {
   const { type, city, query, includePending } = req.query;
-  let salons = db.getState().salons;
 
-  // Only Admin can see pending/rejected salons
   const isAdmin = req.user?.role === 'admin';
   const isOwner = req.user?.role === 'salon_owner';
+  const wantsPending = includePending === 'true';
 
-  if (includePending === 'true') {
-    if (isAdmin) {
-      // admin sees all
-    } else if (isOwner && req.user?.salonId) {
-      // owner sees approved + their own
-      salons = salons.filter((s) => s.status === 'approved' || s.id === req.user?.salonId || s.ownerId === req.user?.id);
+  let salons;
+
+  try {
+    if (isAdmin && wantsPending) {
+      // Admin must see ALL salon states from Neon:
+      // pending / approved / suspended / rejected
+      salons = await db.getAllSalonsFromNeon();
     } else {
-      salons = salons.filter((s) => s.status === 'approved');
+      // Public users see approved only.
+      const approvedSalons = await db.getApprovedSalonsFromNeon();
+
+      if (isOwner && wantsPending && req.user?.id) {
+        const ownSalon = await db.getSalonByOwnerFromNeon(req.user.id);
+
+        salons = ownSalon
+          ? [...approvedSalons, ownSalon].filter(
+              (salon, index, arr) =>
+                arr.findIndex((item) => item.id === salon.id) === index
+            )
+          : approvedSalons;
+      } else {
+        salons = approvedSalons;
+      }
     }
-  } else {
-    salons = salons.filter((s) => s.status === 'approved');
+  } catch (error: any) {
+    console.error(
+      '[SALONS] Neon load failed:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر تحميل قائمة الصالونات حالياً. حاول مرة أخرى.',
+    });
+  }
+
+  // Only non-admin public requests are restricted to approved salons.
+  // Admin + includePending keeps all statuses.
+  if (!(isAdmin && wantsPending)) {
+    salons = salons.filter(
+      (s) =>
+        s.status === 'approved' ||
+        (isOwner && wantsPending && s.ownerId === req.user?.id)
+    );
   }
 
   if (type && type !== 'all') {
-    salons = salons.filter((s) => s.type === type || s.type === 'unisex');
+    salons = salons.filter(
+      (s) => s.type === type || s.type === 'unisex'
+    );
   }
 
   if (city && city !== 'all') {
-    salons = salons.filter((s) => s.city.toLowerCase() === (city as string).toLowerCase());
+    salons = salons.filter(
+      (s) => s.city.toLowerCase() === (city as string).toLowerCase()
+    );
   }
 
   if (query && typeof query === 'string' && query.trim()) {
     const q = query.toLowerCase().trim();
+
     salons = salons.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
@@ -328,7 +365,10 @@ app.get('/api/salons', (req: AuthenticatedRequest, res: Response) => {
     );
   }
 
-  res.json({ success: true, salons });
+  res.json({
+    success: true,
+    salons,
+  });
 });
 
 app.get('/api/salons/:id', (req: Request, res: Response) => {
@@ -789,12 +829,32 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
 // ==========================================
 // SERVICES ENDPOINTS
 // ==========================================
-app.get('/api/services', (req: Request, res: Response) => {
+app.get('/api/services', async (req: Request, res: Response) => {
   const { salonId } = req.query;
+
   if (salonId) {
-    return res.json({ success: true, services: db.getServicesBySalon(salonId as string) });
+    try {
+      const neonServices = await db.getServicesBySalonFromNeon(salonId as string);
+
+      return res.json({
+        success: true,
+        services: neonServices,
+      });
+    } catch (error: any) {
+      console.error('[SERVICES API] Neon lookup failed:', error?.message || error);
+
+      return res.status(500).json({
+        success: false,
+        services: [],
+        error: 'تعذر تحميل خدمات الصالون حالياً.',
+      });
+    }
   }
-  res.json({ success: true, services: db.getState().services });
+
+  res.json({
+    success: true,
+    services: db.getState().services,
+  });
 });
 
 app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, (req: AuthenticatedRequest, res: Response) => {
@@ -938,7 +998,7 @@ app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
   res.json({ success: true, occupiedSlots: slots });
 });
 
-app.post('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const bookingPayload = req.body;
   const ip = req.ip || '127.0.0.1';
 
@@ -962,12 +1022,148 @@ app.post('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response
     return res.status(400).json({ success: false, error: 'يرجى إكمال جميع بيانات الحجز المطلوبة' });
   }
 
+  // ============================================================
+  // BOOKING SALON SYNC
+  // Vercel serverless memory may not contain salons loaded in Neon.
+  // Sync the selected salon before validating the booking.
+  // ============================================================
+  const salonInMemory = db.getState().salons.find(
+    (salon) => salon.id === securePayload.salonId
+  );
+
+  if (!salonInMemory) {
+    try {
+      const salonFromNeon = await db.getSalonByIdFromNeon(
+        securePayload.salonId
+      );
+
+      if (!salonFromNeon) {
+        return res.status(404).json({
+          success: false,
+          error: 'الصالون المحدد غير موجود.',
+        });
+      }
+
+      db.getState().salons.push(salonFromNeon);
+
+      console.log(
+        `[BOOKING SALON SYNC] Salon ${salonFromNeon.id} loaded from Neon`
+      );
+    } catch (error: any) {
+      console.error(
+        '[BOOKING SALON SYNC] Failed to load salon from Neon:',
+        error?.message || error
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر التحقق من الصالون حالياً. حاول مرة أخرى.',
+      });
+    }
+  }
+
+  // ============================================================
+  // BOOKING SERVICE NEON SYNC FINAL
+  // ============================================================
+  const serviceInMemory = db.getState().services.find(
+    (service) =>
+      service.id === securePayload.serviceId &&
+      service.salonId === securePayload.salonId
+  );
+
+  if (!serviceInMemory) {
+    try {
+      const serviceFromNeon = await db.getServiceByIdFromNeon(
+        securePayload.serviceId
+      );
+
+      if (!serviceFromNeon) {
+        return res.status(404).json({
+          success: false,
+          error: 'الخدمة المطلوبة غير موجودة.',
+        });
+      }
+
+      if (serviceFromNeon.salonId !== securePayload.salonId) {
+        return res.status(400).json({
+          success: false,
+          error: 'الخدمة المطلوبة لا تنتمي إلى هذا الصالون.',
+        });
+      }
+
+      db.getState().services.push(serviceFromNeon);
+
+      console.log(
+        `[BOOKING SERVICE SYNC] Service ${serviceFromNeon.id} loaded from Neon`
+      );
+    } catch (error: any) {
+      console.error(
+        '[BOOKING SERVICE SYNC] Failed:',
+        error?.message || error
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر التحقق من الخدمة حالياً. حاول مرة أخرى.',
+      });
+    }
+  }
+
   const result = db.createBookingAtomic(securePayload, req.body.couponCode, ip);
-  if (!result.success) {
+  if (!result.success || !result.booking) {
     return res.status(409).json({ success: false, error: result.error });
   }
 
-  res.status(201).json({ success: true, booking: result.booking });
+  // Notify the salon owner from the server after a successful booking.
+  // The recipient is resolved from the authoritative salon ownerId,
+  // not from any client-supplied userId.
+  try {
+    const salon = db.getState().salons.find(
+      (s) => s.id === result.booking!.salonId
+    );
+
+    if (salon?.ownerId) {
+      let owner =
+        db.getUserById(salon.ownerId) ||
+        await db.getUserByIdFromNeon(salon.ownerId);
+
+      if (owner) {
+        await db.createNotification({
+          userId: owner.id,
+          title: 'حجز جديد 🎉',
+          titleEn: 'New Booking 🎉',
+          message: `لديك حجز جديد من ${result.booking.customerName} يوم ${result.booking.date} الساعة ${result.booking.timeSlot}. الخدمة: ${result.booking.serviceName}، المبلغ: ${result.booking.finalPrice.toLocaleString()} د.ع.`,
+          messageEn: `You have a new booking from ${result.booking.customerName} on ${result.booking.date} at ${result.booking.timeSlot}. Service: ${result.booking.serviceName}. Amount: ${result.booking.finalPrice.toLocaleString()} IQD.`,
+          type: 'booking_created',
+          link: '/bookings',
+          salonId: result.booking.salonId,
+        });
+
+        console.log(
+          `[BOOKING NOTIFICATION] New booking ${result.booking.id} notified salon owner ${owner.id}`
+        );
+      } else {
+        console.error(
+          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+        );
+      }
+    } else {
+      console.error(
+        `[BOOKING NOTIFICATION] Salon ${result.booking.salonId} has no ownerId`
+      );
+    }
+  } catch (error: any) {
+    // Do not fail an already-created booking because notification delivery failed.
+    console.error(
+      '[BOOKING NOTIFICATION] Failed to create owner notification:',
+      error?.message || error
+    );
+  }
+
+  res.status(201).json({
+    success: true,
+    booking: result.booking,
+  });
 });
 
 app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
