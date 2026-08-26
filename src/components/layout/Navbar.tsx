@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../services/api';
+import { Notification as AppNotification } from '../../types';
 import {
   Scissors,
   MapPin,
@@ -9,14 +11,12 @@ import {
   ShieldCheck,
   Globe,
   Store,
-  Menu,
-  X,
   LogOut,
   Sparkles,
   Search,
   Heart,
-  Download
-} from 'lucide-react';
+    Bell
+  } from 'lucide-react';
 
 interface NavbarProps {
   currentView: string;
@@ -33,12 +33,70 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { t, language, setLanguage, isRtl } = useLanguage();
   const { user, role, logout, openAuthModal, switchRoleDemo } = useAuth();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState<boolean>(false);
 
-  const toggleLanguage = () => {
+
+    const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+    const [notifications, setNotifications] = useState<AppNotification[]>([]);
+const toggleLanguage = () => {
     setLanguage(language === 'ar' ? 'en' : 'ar');
   };
+
+    const loadNotifications = async () => {
+    if (!user?.id) {
+      setNotifications([]);
+      return [];
+    }
+
+    try {
+      const items = await api.getNotifications(user.id);
+      setNotifications(items);
+      return items;
+    } catch (error) {
+      console.error('[NAVBAR NOTIFICATIONS]', error);
+      return [];
+    }
+  };
+
+  const openNotifications = async () => {
+    setIsNotificationsOpen(true);
+    setIsProfileDropdownOpen(false);
+
+    try {
+      const items = await loadNotifications();
+      const unreadItems = items.filter((item) => !item.read);
+
+      if (unreadItems.length > 0) {
+        await Promise.all(
+          unreadItems.map((item) =>
+            api.markNotificationAsRead(item.id)
+          )
+        );
+
+        setNotifications((current) =>
+          current.map((item) => ({
+            ...item,
+            read: true,
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('[OPEN NOTIFICATIONS]', error);
+    }
+  };
+
+  useEffect(() => {
+      loadNotifications();
+
+      if (!user?.id) return;
+
+      const timer = setInterval(loadNotifications, 10000);
+
+      return () => clearInterval(timer);
+    }, [user?.id]);
+
+    const unreadCount = notifications.filter((item) => !item.read).length;
+
 
   const navItems = [
     { id: 'explore', label: isRtl ? 'الرئيسية' : 'Home', icon: Scissors },
@@ -54,7 +112,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div
           onClick={() => {
             onNavigate('explore');
-            setIsMobileMenuOpen(false);
           }}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
@@ -145,19 +202,104 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Section: Location Pill + User Controls */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Direct ZIP Source Code Download Button */}
-          <a
-            href="/api/download-project-zip"
-            download="HALAQI-Android-Project.zip"
-            title="تحميل كود المشروع الكامل (ZIP)"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] hover:text-white text-xs font-bold transition-all shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">تحميل كود المشروع ZIP</span>
-            <span className="lg:hidden">ZIP</span>
-          </a>
 
-          {/* Current Location Badge */}
+            {/* Notifications */}
+            {user && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isNotificationsOpen) {
+                    setIsNotificationsOpen(false);
+                  } else {
+                    openNotifications();
+                  }
+                  }}
+                  title={isRtl ? 'الإشعارات' : 'Notifications'}
+                  className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#262626] hover:bg-[#333] border border-[#333] text-[#D4AF37] transition-all"
+                >
+                  <Bell className="w-5 h-5" />
+
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center border-2 border-[#141414]">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {isNotificationsOpen && (
+                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-2 w-auto sm:w-[360px] max-w-none bg-[#141414] border border-[#333] rounded-2xl shadow-2xl z-[100] overflow-hidden">
+                    <div className="px-4 py-3 border-b border-[#262626]">
+                      <p className="font-black text-white">
+                        {isRtl ? 'الإشعارات' : 'Notifications'}
+                      </p>
+                    </div>
+
+                    <div className="max-h-[65vh] sm:max-h-[420px] overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="px-5 py-10 text-center text-sm text-gray-500">
+                          {isRtl ? 'لا توجد إشعارات' : 'No notifications'}
+                        </div>
+                      ) : (
+                        notifications.map((notification) => (
+                          <button
+                            key={notification.id}
+                            type="button"
+                            onClick={async () => {
+                              if (!notification.read) {
+                                const ok = await api.markNotificationAsRead(notification.id);
+
+                                if (ok) {
+                                  setNotifications((current) =>
+                                    current.map((item) =>
+                                      item.id === notification.id
+                                        ? { ...item, read: true }
+                                        : item
+                                    )
+                                  );
+                                }
+                              }
+
+                              setIsNotificationsOpen(false);
+
+                              if (notification.link === '/bookings') {
+                                onNavigate('bookings');
+                              } else if (notification.link === '/profile') {
+                                onNavigate('profile');
+                              } else if (
+                                notification.link?.startsWith('/admin/') &&
+                                role === 'admin'
+                              ) {
+                                onNavigate('admin');
+                              }
+                            }}
+                            className={`w-full text-start px-4 py-3 border-b border-[#262626] hover:bg-white/5 transition-colors ${
+                              notification.read ? 'opacity-70' : 'bg-[#D4AF37]/5'
+                            }`}
+                          >
+                            <p className="text-xs font-bold text-white">
+                              {isRtl ? notification.title : notification.titleEn}
+                            </p>
+
+                            <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                              {isRtl ? notification.message : notification.messageEn}
+                            </p>
+
+                            <p className="text-[9px] text-gray-600 mt-2">
+                              {new Date(notification.createdAt).toLocaleString(
+                                isRtl ? 'ar-IQ' : 'en-US'
+                              )}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+{/* Current Location Badge */}
           <div className="hidden sm:flex flex-col items-end px-3 py-1 bg-[#262626]/60 rounded-xl border border-[#333]">
             <span className="text-[9px] text-gray-400 uppercase tracking-widest flex items-center gap-1">
               <MapPin className="w-2.5 h-2.5 text-[#D4AF37]" />
@@ -198,7 +340,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* Dropdown Menu */}
               {isProfileDropdownOpen && (
-                <div className="absolute left-0 sm:right-0 mt-2 w-56 bg-[#141414] border border-[#262626] rounded-2xl p-2 shadow-2xl z-50 text-xs space-y-1 animate-in fade-in zoom-in-95">
+                <div className="fixed left-3 right-3 top-[76px] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-56 w-auto bg-[#141414] border border-[#262626] rounded-2xl p-2 shadow-2xl z-[100] text-xs space-y-1 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-2 border-b border-[#262626]">
                     <p className="font-bold text-white truncate">{user.name}</p>
                     <p className="text-[10px] text-gray-400 font-mono" dir="ltr">
@@ -252,65 +394,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>{t('login')}</span>
             </button>
           )}
-
-          {/* Mobile Menu Hamburger Button */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden p-2 rounded-xl bg-[#262626] text-gray-300 hover:text-white"
-          >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </div>
       </div>
-
-      {/* Mobile Drawer Menu */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden bg-[#141414] border-t border-[#262626] mt-3 pt-3 px-2 pb-2 space-y-2 animate-in slide-in-from-top-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentView === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onNavigate(item.id);
-                  setIsMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                  isActive ? 'bg-[#D4AF37] text-black shadow-md' : 'text-gray-300 hover:bg-white/5'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-
-          <div className="pt-2 border-t border-[#262626] grid grid-cols-2 gap-2">
-            <button
-              onClick={() => {
-                onNavigate('salon_dashboard');
-                setIsMobileMenuOpen(false);
-              }}
-              className="p-2.5 rounded-xl bg-[#262626] text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5"
-            >
-              <Store className="w-3.5 h-3.5" />
-              <span>لوحة الصالون</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onNavigate('admin');
-                setIsMobileMenuOpen(false);
-              }}
-              className="p-2.5 rounded-xl bg-[#262626] text-red-400 text-xs font-bold flex items-center justify-center gap-1.5"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>لوحة الإدارة</span>
-            </button>
-          </div>
-        </div>
-      )}
     </header>
   );
 };

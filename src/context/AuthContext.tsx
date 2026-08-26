@@ -50,25 +50,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Validate session on load
   useEffect(() => {
+    let mounted = true;
+
     async function verifySession() {
       const token = getAuthToken();
-      if (token) {
+
+      if (!token) {
+        return;
+      }
+
+      try {
         const meRes = await api.getMe();
-        if (meRes.success && meRes.user) {
+
+        if (mounted && meRes.success && meRes.user) {
           setUser(meRes.user);
           localStorage.setItem('halaqi_user', JSON.stringify(meRes.user));
-        } else {
-          // Token expired or invalid
+        } else if (mounted) {
+          // Token is invalid/expired.
           setAuthToken(null);
-          // If was custom logged in, reset or re-login default
+          localStorage.removeItem('halaqi_user');
+          setUser(null);
         }
-      } else if (user) {
-        // Generate demo token for default user if none exists
-        login(user.email || user.phone, user.role);
+      } catch (error) {
+        console.error('[AUTH SESSION VERIFY]', error);
       }
     }
+
     verifySession();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  // Rolling session:
+  // Renew the 1-year token automatically every 24 hours
+  // while the user remains logged in.
+  useEffect(() => {
+    if (!user || !getAuthToken()) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshSession = async () => {
+      if (cancelled || !getAuthToken()) {
+        return;
+      }
+
+      try {
+        const result = await api.refreshToken();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (result.success && result.user) {
+          setUser(result.user);
+          localStorage.setItem('halaqi_user', JSON.stringify(result.user));
+          console.log('[AUTH] Session renewed for another 365 days');
+        } else {
+          console.warn('[AUTH] Automatic session refresh failed:', result.error);
+        }
+      } catch (error) {
+        console.error('[AUTH] Automatic session refresh error:', error);
+      }
+    };
+
+    // Refresh immediately when the authenticated session becomes active.
+    refreshSession();
+
+    // Then refresh every 24 hours.
+    const interval = window.setInterval(
+      refreshSession,
+      24 * 60 * 60 * 1000
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (user) {

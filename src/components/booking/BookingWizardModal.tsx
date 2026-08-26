@@ -35,7 +35,6 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
     isBookingOpen,
     activeSalon,
     selectedService,
-    selectedBarber,
     selectedDate,
     selectedTimeSlot,
     customerName,
@@ -100,13 +99,6 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
     '20:00', '20:30', '21:00', '21:30',
     '22:00', '22:30',
   ];
-
-  // Fetch occupied slots whenever barber or date changes
-  useEffect(() => {
-    if (selectedBarber && selectedDate) {
-      fetchOccupiedSlots(selectedBarber.id, selectedDate);
-    }
-  }, [selectedBarber, selectedDate]);
 
 
     // Load actual salon services from the Neon-backed API.
@@ -207,22 +199,21 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
         {step <= 5 && (
           <div className="px-4 sm:px-6 py-3 bg-[#11131b] border-b border-white/5 flex items-center justify-between text-xs overflow-x-auto gap-2">
             {[
-              { num: 1, label: t('selectService') },
-              { num: 2, label: t('selectBarber') },
-              { num: 3, label: t('selectDate') },
-              { num: 4, label: t('selectTime') },
-              { num: 5, label: t('customerInfo') },
+              { num: 1, step: 1, label: t('selectService') },
+              { num: 2, step: 2, label: t('selectDate') },
+              { num: 3, step: 3, label: t('selectTime') },
+              { num: 4, step: 4, label: t('customerInfo') },
             ].map((st) => (
               <button
                 key={st.num}
                 onClick={() => {
-                  if (st.num < step) setStep(st.num);
+                  if (st.step < step) setStep(st.step);
                 }}
-                disabled={st.num > step}
+                disabled={st.step > step}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full whitespace-nowrap transition-all ${
-                  step === st.num
+                  step === st.step
                     ? 'bg-[#d4af37] text-black font-bold shadow-md'
-                    : step > st.num
+                    : step > st.step
                     ? 'bg-[#d4af37]/20 text-[#d4af37] font-semibold cursor-pointer'
                     : 'text-slate-500 opacity-50 cursor-not-allowed'
                 }`}
@@ -322,135 +313,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
               </div>
             )}
 
+          {/* STEP 2: Select Date */}
           {step === 2 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="font-bold text-lg text-white flex items-center gap-2">
-                  <User className="w-5 h-5 text-[#d4af37]" />
-                  {t('selectBarber')}
-                </h4>
-                <button
-                  onClick={() => setStep(1)}
-                  className="text-xs text-[#d4af37] hover:underline flex items-center gap-1"
-                >
-                  {isRtl ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-                  {t('selectService')} ({selectedService?.name?.slice(0, 15)}...)
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Default "Any Barber" option */}
-                <div
-                  onClick={() => {
-                    setSelectedBarber({
-                      id: 'barber_any',
-                      salonId: activeSalon.id,
-                      name: 'أي حلاق متاح',
-                      nameEn: 'Any Available Barber',
-                      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-                      title: 'أول خبير متاح في الصالون',
-                      titleEn: 'First Available Stylist',
-                      experienceYears: 5,
-                      rating: 4.9,
-                      reviewCount: 200,
-                      specializations: ['جميع الخدمات'],
-                      isAvailable: true,
-                    });
-                    setStep(3);
-                  }}
-                  className={`p-4 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${
-                    selectedBarber?.id === 'barber_any'
-                      ? 'bg-[#d4af37]/15 border-[#d4af37] ring-1 ring-[#d4af37]'
-                      : 'bg-[#181b27] border-white/5 hover:border-[#d4af37]/40'
-                  }`}
-                >
-                  <div className="w-12 h-12 rounded-full bg-[#d4af37]/20 border border-[#d4af37] flex items-center justify-center text-[#d4af37] font-bold text-lg shrink-0">
-                    <Sparkles className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h5 className="font-bold text-white text-sm">{t('anyAvailableBarber')}</h5>
-                    <p className="text-xs text-slate-400">
-                      {isRtl ? 'حجز الموعد مع أول خبير متاح لتوفير وقتك' : 'Book with first available specialist'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Specific Barbers */}
-                {[
-                  {
-                    id: 'barber_1',
-                    name: 'حيدر الكوافير',
-                    title: 'ماستر باربر وخبير VIP',
-                    experience: '12 سنة خبرة',
-                    rating: 4.95,
-                    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    id: 'barber_2',
-                    name: 'عمر التميمي',
-                    title: 'أخصائي قص ولحية وبشرة',
-                    experience: '8 سنوات خبرة',
-                    rating: 4.88,
-                    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-                  },
-                  {
-                    id: 'barber_3',
-                    name: 'علي السامرائي',
-                    title: 'مصفف شعر العرسان',
-                    experience: '6 سنوات خبرة',
-                    rating: 4.9,
-                    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&auto=format&fit=crop&q=80',
-                  },
-                ].map((b) => {
-                  const isSelected = selectedBarber?.id === b.id;
-                  return (
-                    <div
-                      key={b.id}
-                      onClick={() => {
-                        setSelectedBarber({
-                          id: b.id,
-                          salonId: activeSalon.id,
-                          name: b.name,
-                          nameEn: b.name,
-                          avatar: b.avatar,
-                          title: b.title,
-                          titleEn: b.title,
-                          experienceYears: 8,
-                          rating: b.rating,
-                          reviewCount: 80,
-                          specializations: [],
-                          isAvailable: true,
-                        });
-                        setStep(3);
-                      }}
-                      className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center gap-3 ${
-                        isSelected
-                          ? 'bg-[#d4af37]/15 border-[#d4af37] ring-1 ring-[#d4af37]'
-                          : 'bg-[#181b27] border-white/5 hover:border-[#d4af37]/40'
-                      }`}
-                    >
-                      <img
-                        src={b.avatar}
-                        alt={b.name}
-                        className="w-12 h-12 rounded-full object-cover border border-white/10 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h5 className="font-bold text-white text-sm truncate">{b.name}</h5>
-                          <span className="text-amber-400 font-bold text-xs">★ {b.rating}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-400 truncate">{b.title}</p>
-                        <span className="text-[10px] text-[#d4af37]">{b.experience}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: Select Date */}
-          {step === 3 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="font-bold text-lg text-white flex items-center gap-2">
@@ -458,10 +322,10 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                   {t('selectDate')}
                 </h4>
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(1)}
                   className="text-xs text-[#d4af37] hover:underline"
                 >
-                  {t('selectBarber')}: {selectedBarber?.name}
+                  {t('selectService')}
                 </button>
               </div>
 
@@ -473,7 +337,7 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                       key={item.dateStr}
                       onClick={() => {
                         setSelectedDate(item.dateStr);
-                        setStep(4);
+                        setStep(3);
                       }}
                       className={`p-3 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                         isSelected
@@ -495,8 +359,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
             </div>
           )}
 
-          {/* STEP 4: Select Time Slot (Atomic Concurrency Prevention) */}
-          {step === 4 && (
+          {/* STEP 3: Select Time Slot (Atomic Concurrency Prevention) */}
+          {step === 3 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="font-bold text-lg text-white flex items-center gap-2">
@@ -504,7 +368,7 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                   {t('selectTime')} ({selectedDate})
                 </h4>
                 <button
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(2)}
                   className="text-xs text-[#d4af37] hover:underline"
                 >
                   تغيير التاريخ
@@ -528,7 +392,7 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                       disabled={isOccupied}
                       onClick={() => {
                         setSelectedTimeSlot(slot);
-                        setStep(5);
+                        setStep(4);
                       }}
                       className={`p-3 rounded-xl border text-center font-mono text-sm transition-all flex flex-col items-center justify-center ${
                         isOccupied
@@ -549,8 +413,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
             </div>
           )}
 
-          {/* STEP 5: Customer Details, Coupon & Payment Method */}
-          {step === 5 && (
+          {/* STEP 4: Customer Details, Coupon & Payment Method */}
+          {step === 4 && (
             <div className="space-y-4">
               <h4 className="font-bold text-lg text-white flex items-center gap-2">
                 <FileText className="w-5 h-5 text-[#d4af37]" />
@@ -562,10 +426,6 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                 <div className="flex justify-between">
                   <span className="text-slate-400">الخدمة:</span>
                   <span className="font-bold text-white">{selectedService?.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">الحلاق:</span>
-                  <span className="font-bold text-[#d4af37]">{selectedBarber?.name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">الموعد:</span>
@@ -630,7 +490,7 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                     type="text"
                     value={customerNotes}
                     onChange={(e) => setCustomerNotes(e.target.value)}
-                    placeholder="أي متطلبات خاصة أو استفسار للحلاق..."
+                    placeholder="أي متطلبات خاصة أو استفسار للصالون..."
                     className="w-full bg-[#181b27] border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-[#d4af37]"
                   />
                 </div>
@@ -721,8 +581,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
             </div>
           )}
 
-          {/* STEP 6: Booking Confirmed Screen */}
-          {step === 6 && confirmedBooking && (
+          {/* STEP 5: Booking Confirmed Screen */}
+          {step === 5 && confirmedBooking && (
             <div className="py-4 text-center space-y-5 animate-in zoom-in-95 duration-200">
               <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 mx-auto">
                 <CheckCircle className="w-10 h-10" />
@@ -840,9 +700,8 @@ export const BookingWizardModal: React.FC<BookingWizardModalProps> = ({ onGoToBo
                 type="button"
                 disabled={
                   (step === 1 && !selectedService) ||
-                  (step === 2 && !selectedBarber) ||
-                  (step === 3 && !selectedDate) ||
-                  (step === 4 && !selectedTimeSlot)
+                  (step === 2 && !selectedDate) ||
+                  (step === 3 && !selectedTimeSlot)
                 }
                 onClick={() => setStep(step + 1)}
                 className="px-6 py-2.5 rounded-xl bg-[#d4af37] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold text-black shadow-lg shadow-[#d4af37]/20 transition-all flex items-center gap-1.5"

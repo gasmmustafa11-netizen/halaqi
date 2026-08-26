@@ -212,7 +212,9 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
     async function loadData() {
       const data = await api.getSalonById(salon.id);
       if (data) {
-        setServices(data.services || []);
+        // Load live services directly from the Neon-backed API
+        const liveServices = await api.getServices(salon.id);
+        setServices(liveServices);
         setBarbers(data.barbers || []);
         setReviews(data.reviews || []);
 

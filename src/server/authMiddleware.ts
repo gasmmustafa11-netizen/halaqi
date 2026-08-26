@@ -4,7 +4,11 @@ import { db, UserWithAuth } from './db';
 import { User, UserRole } from '../types';
 
 // Server-side signing secret
-const AUTH_SECRET = process.env.HALAQI_AUTH_SECRET || 'halaqi_super_secret_jwt_hmac_key_2026';
+const AUTH_SECRET = process.env.HALAQI_AUTH_SECRET;
+
+if (!AUTH_SECRET) {
+  throw new Error('HALAQI_AUTH_SECRET is required');
+}
 
 export interface TokenPayload {
   userId: string;
@@ -22,7 +26,7 @@ export interface AuthenticatedRequest extends Request {
 }
 
 // Generate signed HMAC token
-export function generateToken(user: User, expiresInDays: number = 7): string {
+export function generateToken(user: User, expiresInDays: number = 365): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload: TokenPayload = {
     userId: user.id,
@@ -199,8 +203,17 @@ export function requireRole(...allowedRoles: UserRole[]) {
 }
 
 // Middleware: Require Salon Owner or Admin
-export function requireSalonOwnerOrAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function requireSalonOwnerOrAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  console.error('[SERVICE_AUTH] ENTER', {
+    userId: req.user?.id,
+    role: req.user?.role,
+    bodySalonId: req.body?.salonId,
+    paramSalonId: req.params?.salonId,
+    querySalonId: req.query?.salonId,
+  });
+
   if (!req.user) {
+    console.error('[SERVICE_AUTH] REJECT_NO_USER');
     return res.status(401).json({
       success: false,
       code: 'UNAUTHORIZED',
@@ -209,6 +222,7 @@ export function requireSalonOwnerOrAdmin(req: AuthenticatedRequest, res: Respons
   }
 
   if (req.user.role === 'admin') {
+    console.error('[SERVICE_AUTH] ALLOW_ADMIN');
     return next();
   }
 
@@ -223,8 +237,23 @@ export function requireSalonOwnerOrAdmin(req: AuthenticatedRequest, res: Respons
   // Determine target salonId from params, body, or query
   const targetSalonId = req.params.salonId || req.params.id || req.body.salonId || (req.query.salonId as string);
 
+  console.error('[SERVICE_AUTH] TARGET', {
+    targetSalonId,
+    userId: req.user.id,
+    role: req.user.role,
+  });
+
   if (targetSalonId) {
-    const isOwner = db.isApprovedSalonOwner(req.user.id, targetSalonId);
+    const isOwner = await db.isApprovedSalonOwnerFromNeon(
+      req.user.id,
+      targetSalonId
+    );
+
+    console.error('[SERVICE_AUTH] OWNERSHIP_RESULT', {
+      targetSalonId,
+      userId: req.user.id,
+      isOwner,
+    });
     if (!isOwner) {
       db.addAuditLog({
         userId: req.user.id,

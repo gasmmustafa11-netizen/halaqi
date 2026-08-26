@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { neon } from "@neondatabase/serverless";
 const sql = neon(process.env.DATABASE_URL!);
 import express, { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -25,6 +26,17 @@ const supabase = createClient(
 );
 
 const app = express();
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'محاولات تسجيل دخول كثيرة. حاول مرة أخرى بعد 15 دقيقة.',
+  },
+});
+
 
 app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https://images.unsplash.com https://server.arcgisonline.com https://*.tile.openstreetmap.org data: blob:; frame-ancestors 'self';");
@@ -38,49 +50,151 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
-app.post('/api/uploads/image', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.put('/api/auth/me/avatar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { imageUrl } = req.body;
+
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'رابط الصورة مطلوب.',
+      });
+    }
+
+    if (imageUrl.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        error: 'رابط الصورة طويل جداً.',
+      });
+    }
+
+    const user = db.getUserById(req.user!.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'المستخدم غير موجود.',
+      });
+    }
+
+    user.avatar = imageUrl;
+
+    await db.persistUserToNeon(user.id);
+
+    const updatedUser =
+      (await db.getUserByIdFromNeon(user.id)) || user;
+
+    return res.json({
+      success: true,
+      user: db.sanitizeUser(updatedUser),
+    });
+  } catch (error) {
+    console.error('[Update Avatar Error]:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر حفظ الصورة الشخصية.',
+    });
+  }
+});
+
+app.post('/api/uploads/image', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { dataUrl } = req.body;
 
     if (!dataUrl || typeof dataUrl !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'الصورة مطلوبة.'
+        error: 'الصورة مطلوبة.',
       });
     }
 
-    const match = dataUrl.match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/);
+    const match = dataUrl.match(
+      /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/
+    );
 
     if (!match) {
       return res.status(400).json({
         success: false,
-        error: 'صيغة الصورة غير مدعومة.'
+        error: 'صيغة الصورة غير مدعومة.',
       });
     }
 
-    const extension = match[1] === 'jpeg' || match[1] === 'jpg' ? 'jpg' : match[1];
-    const fileName = `salon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-    const filePath = path.join(uploadDir, fileName);
+    const extension =
+      match[1] === 'jpeg' || match[1] === 'jpg'
+        ? 'jpg'
+        : match[1];
 
-    fs.mkdirSync(uploadDir, { recursive: true });
-    fs.writeFileSync(filePath, Buffer.from(match[2], 'base64'));
+    const contentType =
+      extension === 'jpg'
+        ? 'image/jpeg'
+        : `image/${extension}`;
 
-    const imageUrl = `/uploads/${fileName}`;
+    const fileName = `${req.user!.id}_${Date.now()}.${extension}`;
+    const fileBuffer = Buffer.from(match[2], 'base64');
+
+    const secretKey = process.env.SUPABASE_SECRET_KEY || '';
+
+    console.error('[Image Upload Debug]', {
+      hasUrl: !!process.env.SUPABASE_URL,
+      urlValid: /^https:\/\/.+\.supabase\.co$/.test(process.env.SUPABASE_URL || ''),
+      keyLength: secretKey.length,
+      keyPrefix: secretKey.slice(0, 11),
+      isSecretKey: secretKey.startsWith('sb_secret_'),
+    });
+
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL!,
+      secretKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    );
+
+    const avatarBucket = 'avatars';
+
+    const { error: uploadError } =
+      await supabaseAdmin.storage
+        .from(avatarBucket)
+        .upload(fileName, fileBuffer, {
+          contentType,
+          upsert: true,
+          cacheControl: '3600',
+        });
+
+    if (uploadError) {
+      console.error('[Image Upload] Supabase upload failed:', uploadError);
+
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر رفع الصورة.',
+      });
+    }
+
+    const { data: publicData } =
+      supabaseAdmin.storage
+        .from(avatarBucket)
+        .getPublicUrl(fileName);
+
+    const publicUrl = publicData.publicUrl;
 
     return res.status(201).json({
       success: true,
-      imageUrl
+      imageUrl: publicUrl,
     });
   } catch (error) {
     console.error('[Image Upload Error]:', error);
+
     return res.status(500).json({
       success: false,
-      error: 'تعذر رفع الصورة.'
+      error: 'تعذر رفع الصورة.',
     });
   }
 });
-
 
 // Attach optional auth extraction to all routes
 app.use(optionalAuthMiddleware);
@@ -127,7 +241,7 @@ app.put('/api/admin/salons/:id/lift-sanction', requireAuth, requireRole('admin')
 // ==========================================
 // AUTH ENDPOINTS
 // ==========================================
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+app.post('/api/auth/login', loginRateLimiter, async (req: Request, res: Response) => {
   const { emailOrPhone, password, role } = req.body;
   const ip = req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1';
 
@@ -135,7 +249,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'يرجى إدخال رقم الهاتف أو البريد الإلكتروني' });
   }
 
-  let authResult = db.authenticate(emailOrPhone || '', password);
+  let authResult = await db.authenticate(emailOrPhone || '', password);
 
 
   if (!authResult.success || !authResult.user) {
@@ -258,6 +372,46 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   });
 });
 
+
+// ==========================================
+// AUTH TOKEN REFRESH
+// Rolling 1-year session while user remains logged in
+// ==========================================
+app.post('/api/auth/refresh', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'جلسة تسجيل الدخول غير صالحة.'
+      });
+    }
+
+    const user = db.getUserById(req.user.id);
+
+    if (!user || user.isBanned || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        error: 'الحساب غير صالح أو غير فعال.'
+      });
+    }
+
+    const token = generateToken(user, 365);
+
+    return res.json({
+      success: true,
+      user: db.sanitizeUser(user),
+      token
+    });
+  } catch (error) {
+    console.error('[AUTH REFRESH ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تجديد جلسة تسجيل الدخول.'
+    });
+  }
+});
+
 app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   res.json({
     success: true,
@@ -371,22 +525,51 @@ app.get('/api/salons', async (req: AuthenticatedRequest, res: Response) => {
   });
 });
 
-app.get('/api/salons/:id', (req: Request, res: Response) => {
-  const salon = db.getSalonById(req.params.id);
-  if (!salon) {
-    return res.status(404).json({ success: false, error: 'الصالون غير موجود' });
-  }
-  const services = db.getServicesBySalon(salon.id);
-  const barbers = db.getBarbersBySalon(salon.id);
-  const reviews = db.getState().reviews.filter((r) => r.salonId === salon.id);
+app.get('/api/salons/:id', async (req: Request, res: Response) => {
+  const salon =
+    (await db.getSalonByIdFromNeon(req.params.id)) ||
+    db.getSalonById(req.params.id);
 
-  res.json({
-    success: true,
-    salon,
-    services,
-    barbers,
-    reviews,
-  });
+  if (!salon) {
+    return res.status(404).json({
+      success: false,
+      error: 'الصالون غير موجود',
+    });
+  }
+
+  // Permanently banned salons are invisible to public users.
+  if (salon.status === 'banned') {
+    return res.status(404).json({
+      success: false,
+      error: 'الصالون غير موجود',
+    });
+  }
+
+  try {
+    const services = await db.getServicesBySalonFromNeon(salon.id);
+    const barbers = db.getBarbersBySalon(salon.id);
+    const reviews = db.getState().reviews.filter(
+      (r) => r.salonId === salon.id
+    );
+
+    return res.json({
+      success: true,
+      salon,
+      services,
+      barbers,
+      reviews,
+    });
+  } catch (error: any) {
+    console.error(
+      '[SALON DETAIL] Failed to load services from Neon:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر تحميل خدمات الصالون حالياً.',
+    });
+  }
 });
 
 app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -412,6 +595,30 @@ app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Resp
         existingSalonMemory.status === 'approved'
           ? 'لديك صالون معتمد بالفعل ولا يمكنك تقديم طلب صالون جديد.'
           : 'لديك طلب صالون قيد المراجعة بالفعل. لا يمكنك إرسال طلب آخر.',
+    });
+  }
+
+  // Permanently banned salon owners cannot submit another salon.
+  try {
+    const bannedSalon = await db.getBannedSalonByOwnerFromNeon(req.user!.id);
+
+    if (bannedSalon) {
+      return res.status(403).json({
+        success: false,
+        banned: true,
+        salon: bannedSalon,
+        error: 'تم حظر صالونك نهائيًا ولا يمكنك تقديم طلب صالون جديد.',
+      });
+    }
+  } catch (error: any) {
+    console.error(
+      '[SALON BAN CHECK] Neon check failed:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر التحقق من حالة حساب الصالون. حاول مرة أخرى.',
     });
   }
 
@@ -626,11 +833,24 @@ app.delete('/api/salons/:id', requireAuth, requireRole('admin'), (req: Authentic
 // Admin approve/reject/suspend salon
 app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
   const { status, isVerified, commissionRate, suspensionReason, suspensionHours } = req.body;
-  const salon = db.getSalonById(req.params.id);
+  let salon =
+    (await db.getSalonByIdFromNeon(req.params.id)) ||
+    db.getSalonById(req.params.id);
 
-    if (!salon) {
-      return res.status(404).json({ success: false, error: 'الصالون غير موجود' });
-    }
+  if (!salon) {
+    return res.status(404).json({ success: false, error: 'الصالون غير موجود' });
+  }
+
+  // Keep in-memory state synchronized with Neon.
+  const existingMemoryIndex = db.getState().salons.findIndex(
+    (s) => s.id === salon!.id
+  );
+
+  if (existingMemoryIndex === -1) {
+    db.getState().salons.push(salon);
+  } else {
+    db.getState().salons[existingMemoryIndex] = salon;
+  }
 
     // رفض الصالون وحذفه نهائياً من Neon
     if (status === 'rejected') {
@@ -677,6 +897,27 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
       salon.suspensionReason = String(suspensionReason || 'مخالفة شروط المنصة');
       salon.suspensionStartedAt = new Date().toISOString();
       salon.suspensionEndsAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+    } else if (status === 'banned') {
+      // Permanent salon ban:
+      // 1) salon.status = banned (persisted below in Neon)
+      // 2) permanently ban the salon owner account in Neon
+      if (salon.ownerId) {
+        await sql`
+          UPDATE users
+          SET is_banned = true
+          WHERE id = ${salon.ownerId}
+        `;
+
+        const owner = db.getUserById(salon.ownerId);
+
+        if (owner) {
+          owner.isBanned = true;
+        }
+
+        console.log(
+          `[SALON BAN] Owner ${salon.ownerId} permanently banned with salon ${salon.id}`
+        );
+      }
     } else if (status === 'approved') {
       delete salon.suspensionReason;
       delete salon.suspensionStartedAt;
@@ -815,7 +1056,14 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async
     userId: req.user!.id,
     userEmail: req.user!.email,
     userRole: 'admin',
-    action: status === 'approved' ? 'SALON_APPROVE' : status === 'suspended' ? 'SALON_SUSPEND' : 'SALON_STATUS_CHANGE',
+    action:
+      status === 'approved'
+        ? 'SALON_APPROVE'
+        : status === 'suspended'
+        ? 'SALON_SUSPEND'
+        : status === 'banned'
+        ? 'SALON_BAN'
+        : 'SALON_STATUS_CHANGE',
     targetType: 'salon',
     targetId: salon.id,
     details: `تحديث حالة الصالون ${salon.name} إلى ${status || salon.status} (توثيق: ${salon.isVerified})`,
@@ -857,12 +1105,40 @@ app.get('/api/services', async (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  console.log('[SERVICE_ROUTE] ENTER', {
+    userId: req.user?.id,
+    role: req.user?.role,
+    body: req.body,
+  });
+
   const newService = {
     ...req.body,
     id: `srv_${Date.now()}`,
   };
-  db.getState().services.push(newService);
+
+  console.log('[SERVICE_ROUTE] BEFORE_NEON', newService);
+
+  let savedService;
+  try {
+    savedService = await db.createServiceInNeon(newService);
+    console.log('[SERVICE_ROUTE] AFTER_NEON', savedService);
+  } catch (error) {
+    console.error('[SERVICE_ROUTE] NEON_THROW', error);
+    return res.status(500).json({
+      success: false,
+      error: 'فشل حفظ الخدمة في قاعدة البيانات',
+    });
+  }
+
+  if (!savedService) {
+    return res.status(500).json({
+      success: false,
+      error: 'فشل حفظ الخدمة في قاعدة البيانات',
+    });
+  }
+
+  db.getState().services.push(savedService);
 
   db.addAuditLog({
     userId: req.user!.id,
@@ -876,7 +1152,7 @@ app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, (req: Authentic
     status: 'success',
   });
 
-  res.status(201).json({ success: true, service: newService });
+  res.status(201).json({ success: true, service: savedService });
 });
 
 app.put('/api/services/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -957,36 +1233,65 @@ app.delete('/api/barbers/:id', requireAuth, (req: AuthenticatedRequest, res: Res
 // ==========================================
 // BOOKINGS (STRICT SERVER-AUTHORITATIVE & RBAC)
 // ==========================================
-app.get('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.get('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { customerId, salonId, status } = req.query;
-  let bookings = db.getState().bookings;
   const user = req.user!;
 
-  // RBAC Data Isolation:
-  // Customer can ONLY view their own bookings
-  if (user.role === 'customer') {
-    bookings = bookings.filter((b) => b.customerId === user.id);
-  } else if (user.role === 'salon_owner' || user.role === 'staff') {
-    // Salon owner can ONLY view bookings for their salon(s)
-    const ownedSalonId = user.salonId;
-    bookings = bookings.filter(
-      (b) => (ownedSalonId && b.salonId === ownedSalonId) || db.isSalonOwner(user.id, b.salonId)
+  try {
+    // Always read authoritative booking data from Neon.
+    let bookings = await db.getAllBookingsFromNeon();
+
+    // RBAC Data Isolation
+    if (user.role === 'customer') {
+      bookings = bookings.filter((b) => b.customerId === user.id);
+    } else if (user.role === 'salon_owner') {
+      // Authoritative ownership lookup from Neon.
+      // Do not rely on user.salonId in a serverless instance.
+      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+    } else if (user.role === 'staff') {
+      const ownedSalonId = user.salonId;
+
+      bookings = bookings.filter(
+        (b) =>
+          (ownedSalonId && b.salonId === ownedSalonId) ||
+          db.isSalonOwner(user.id, b.salonId)
+      );
+    } else if (user.role === 'admin') {
+      if (customerId) {
+        bookings = bookings.filter(
+          (b) => b.customerId === customerId
+        );
+      }
+
+      if (salonId) {
+        bookings = bookings.filter(
+          (b) => b.salonId === salonId
+        );
+      }
+    }
+
+    if (status) {
+      bookings = bookings.filter(
+        (b) => b.status === status
+      );
+    }
+
+    return res.json({
+      success: true,
+      bookings,
+    });
+  } catch (error: any) {
+    console.error(
+      '[GET BOOKINGS NEON] Failed:',
+      error?.message || error
     );
-  } else if (user.role === 'admin') {
-    // Admin can filter by customerId or salonId if passed
-    if (customerId) {
-      bookings = bookings.filter((b) => b.customerId === customerId);
-    }
-    if (salonId) {
-      bookings = bookings.filter((b) => b.salonId === salonId);
-    }
-  }
 
-  if (status) {
-    bookings = bookings.filter((b) => b.status === status);
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر تحميل الحجوزات حالياً. حاول مرة أخرى.',
+      bookings: [],
+    });
   }
-
-  res.json({ success: true, bookings });
 });
 
 app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
@@ -1015,7 +1320,6 @@ app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Re
   if (
     !securePayload.salonId ||
     !securePayload.serviceId ||
-    !securePayload.barberId ||
     !securePayload.date ||
     !securePayload.timeSlot
   ) {
@@ -1109,39 +1413,54 @@ app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Re
     }
   }
 
-  const result = db.createBookingAtomic(securePayload, req.body.couponCode, ip);
+  // ============================================================
+  // BARBER IS OPTIONAL
+  // The customer books the salon/service/time directly.
+  // No barber is auto-assigned here.
+  // ============================================================
+
+  const bookingWithoutBarber = {
+    ...securePayload,
+    barberId: undefined,
+    barberName: undefined,
+  };
+
+  console.log(
+    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+  );
+
+  const result = await db.createBookingAtomic(
+    bookingWithoutBarber,
+    req.body.couponCode,
+    ip
+  );
+
   if (!result.success || !result.booking) {
-    return res.status(409).json({ success: false, error: result.error });
+    return res.status(409).json({
+      success: false,
+      error: result.error || 'تعذر إتمام الحجز.'
+    });
   }
 
-  // Notify the salon owner from the server after a successful booking.
-  // The recipient is resolved from the authoritative salon ownerId,
-  // not from any client-supplied userId.
+  // Notify both the salon owner and platform admins after a successful booking.
+  // IMPORTANT: notifications must never block the booking response.
+  void (async () => {
+  // Recipients are resolved server-side from authoritative user/salon data.
   try {
     const salon = db.getState().salons.find(
       (s) => s.id === result.booking!.salonId
     );
 
+    const recipients = new Map<string, any>();
+
+    // 1. Salon owner
     if (salon?.ownerId) {
       let owner =
         db.getUserById(salon.ownerId) ||
         await db.getUserByIdFromNeon(salon.ownerId);
 
       if (owner) {
-        await db.createNotification({
-          userId: owner.id,
-          title: 'حجز جديد 🎉',
-          titleEn: 'New Booking 🎉',
-          message: `لديك حجز جديد من ${result.booking.customerName} يوم ${result.booking.date} الساعة ${result.booking.timeSlot}. الخدمة: ${result.booking.serviceName}، المبلغ: ${result.booking.finalPrice.toLocaleString()} د.ع.`,
-          messageEn: `You have a new booking from ${result.booking.customerName} on ${result.booking.date} at ${result.booking.timeSlot}. Service: ${result.booking.serviceName}. Amount: ${result.booking.finalPrice.toLocaleString()} IQD.`,
-          type: 'booking_created',
-          link: '/bookings',
-          salonId: result.booking.salonId,
-        });
-
-        console.log(
-          `[BOOKING NOTIFICATION] New booking ${result.booking.id} notified salon owner ${owner.id}`
-        );
+        recipients.set(owner.id, owner);
       } else {
         console.error(
           `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
@@ -1149,38 +1468,149 @@ app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Re
       }
     } else {
       console.error(
-        `[BOOKING NOTIFICATION] Salon ${result.booking.salonId} has no ownerId`
+        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+      );
+    }
+
+    // 2. Platform admins
+    const admins = db.getAdminUsers();
+
+    for (const admin of admins) {
+      recipients.set(admin.id, admin);
+    }
+
+    // If admin is not currently in memory, try the authoritative Neon user.
+    if (!admins.length) {
+      const stateUsers = db.getState().users || [];
+
+      for (const user of stateUsers) {
+        if (user.role === 'admin') {
+          const admin =
+            db.getUserById(user.id) ||
+            await db.getUserByIdFromNeon(user.id);
+
+          if (admin) {
+            recipients.set(admin.id, admin);
+          }
+        }
+      }
+    }
+
+    const notificationPayload = {
+      title: 'حجز جديد 🎉',
+      titleEn: 'New Booking 🎉',
+      message: `لديك حجز جديد من ${result.booking!.customerName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}، المبلغ: ${result.booking!.finalPrice.toLocaleString()} د.ع.`,
+      messageEn: `You have a new booking from ${result.booking!.customerName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}. Amount: ${result.booking!.finalPrice.toLocaleString()} IQD.`,
+      type: 'booking_created' as const,
+      link: '/bookings',
+      salonId: result.booking!.salonId,
+    };
+
+    for (const recipient of recipients.values()) {
+      await db.createNotification({
+        userId: recipient.id,
+        ...notificationPayload,
+      });
+
+      console.log(
+        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
       );
     }
   } catch (error: any) {
-    // Do not fail an already-created booking because notification delivery failed.
+    // Never fail an already-created booking because notification delivery failed.
     console.error(
-      '[BOOKING NOTIFICATION] Failed to create owner notification:',
+      '[BOOKING NOTIFICATION] Failed to create notification:',
       error?.message || error
     );
   }
+  })();
 
-  res.status(201).json({
-    success: true,
-    booking: result.booking,
+    // Return successful booking immediately.
+    // Notification delivery is intentionally fire-and-forget.
+    return res.status(201).json({
+      success: true,
+      booking: result.booking,
+    });
   });
+
+
+app.post('/api/bookings/:id/complete-by-qr', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const { qrNonce } = req.body || {};
+
+    if (!qrNonce || typeof qrNonce !== 'string') {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_QR',
+        error: 'رمز QR غير صالح.',
+      });
+    }
+
+    const result = await db.completeBookingByQr(
+      req.params.id,
+      qrNonce,
+      user,
+      req.ip || '127.0.0.1'
+    );
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    return res.json({
+      success: true,
+      booking: result.booking,
+    });
+  } catch (error: any) {
+    console.error('[BOOKING_QR] Failed to complete booking:', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'حدث خطأ أثناء إكمال الحجز عبر QR.',
+    });
+  }
 });
 
 app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { status } = req.body;
   const user = req.user!;
-  const booking = db.getState().bookings.find((b) => b.id === req.params.id);
+
+  const allowedStatuses = ['confirmed', 'pending', 'completed', 'cancelled'];
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      error: 'حالة الحجز غير صالحة.',
+    });
+  }
+
+  const booking = db.getState().bookings.find(
+    (b) => b.id === req.params.id
+  );
 
   if (!booking) {
-    return res.status(404).json({ success: false, error: 'الحجز غير موجود' });
+    return res.status(404).json({
+      success: false,
+      error: 'الحجز غير موجود.',
+    });
   }
 
-  // Role check: Only the salon owner of this booking or Admin can update status
-  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
-    return res.status(403).json({ success: false, error: 'غير مصرح لك بتغيير حالة هذا الحجز.' });
+  // Only the salon owner of this booking or Admin can update status.
+  if (
+    user.role !== 'admin' &&
+    !db.isSalonOwner(user.id, booking.salonId)
+  ) {
+    return res.status(403).json({
+      success: false,
+      error: 'غير مصرح لك بتغيير حالة هذا الحجز.',
+    });
   }
 
-  booking.status = status;
+  booking.status = status as typeof booking.status;
 
   db.addAuditLog({
     userId: user.id,
@@ -1194,7 +1624,10 @@ app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res
     status: 'success',
   });
 
-  res.json({ success: true, booking });
+  return res.json({
+    success: true,
+    booking,
+  });
 });
 
 app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -1258,18 +1691,27 @@ app.post('/api/reviews', requireAuth, (req: AuthenticatedRequest, res: Response)
 // ==========================================
 
 // عرض المنشورات
-app.get('/api/salon-posts', (req: Request, res: Response) => {
-  const salonId = typeof req.query.salonId === 'string'
-    ? req.query.salonId
-    : undefined;
+app.get('/api/salon-posts', async (req: Request, res: Response) => {
+  try {
+    const salonId = typeof req.query.salonId === 'string'
+      ? req.query.salonId
+      : undefined;
 
-  const posts = db.getSalonPosts(salonId);
+    const posts = await db.getSalonPosts(salonId);
 
-  res.json({ success: true, posts });
+    res.json({ success: true, posts });
+  } catch (error) {
+    console.error('[Get Salon Posts Error]:', error);
+    res.status(500).json({
+      success: false,
+      posts: [],
+      error: 'تعذر جلب منشورات الصالون.',
+    });
+  }
 });
 
 // إنشاء منشور — صاحب الصالون أو الأدمن
-app.post('/api/salon-posts', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/salon-posts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { salonId, imageUrl, caption } = req.body;
 
   if (!salonId || !imageUrl) {
@@ -1279,7 +1721,7 @@ app.post('/api/salon-posts', requireAuth, (req: AuthenticatedRequest, res: Respo
     });
   }
 
-  const result = db.createSalonPost(
+  const result = await db.createSalonPost(
     {
       salonId,
       imageUrl,
@@ -1302,8 +1744,8 @@ app.post('/api/salon-posts', requireAuth, (req: AuthenticatedRequest, res: Respo
 });
 
 // حذف منشور — صاحب المنشور أو الأدمن
-app.delete('/api/salon-posts/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const result = db.deleteSalonPost(
+app.delete('/api/salon-posts/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const result = await db.deleteSalonPost(
     req.params.id,
     req.user!
   );
@@ -1319,8 +1761,8 @@ app.delete('/api/salon-posts/:id', requireAuth, (req: AuthenticatedRequest, res:
 });
 
 // ❤️ إعجاب / إزالة الإعجاب
-app.post('/api/salon-posts/:id/like', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const result = db.togglePostLike(
+app.post('/api/salon-posts/:id/like', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const result = await db.togglePostLike(
     req.params.id,
     req.user!
   );
@@ -1340,8 +1782,8 @@ app.post('/api/salon-posts/:id/like', requireAuth, (req: AuthenticatedRequest, r
 });
 
 // معرفة حالة ❤️ للمستخدم
-app.get('/api/salon-posts/:id/like', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const result = db.getPostLikeStatus(
+app.get('/api/salon-posts/:id/like', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const result = await db.getPostLikeStatus(
     req.params.id,
     req.user!.id
   );
@@ -1354,8 +1796,8 @@ app.get('/api/salon-posts/:id/like', requireAuth, (req: AuthenticatedRequest, re
 });
 
 // عرض التعليقات
-app.get('/api/salon-posts/:id/comments', (req: Request, res: Response) => {
-  const comments = db.getPostComments(req.params.id);
+app.get('/api/salon-posts/:id/comments', async (req: Request, res: Response) => {
+  const comments = await db.getPostComments(req.params.id);
 
   res.json({
     success: true,
@@ -1364,7 +1806,7 @@ app.get('/api/salon-posts/:id/comments', (req: Request, res: Response) => {
 });
 
 // إضافة تعليق
-app.post('/api/salon-posts/:id/comments', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/salon-posts/:id/comments', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { comment } = req.body;
 
   if (!comment?.trim()) {
@@ -1374,7 +1816,7 @@ app.post('/api/salon-posts/:id/comments', requireAuth, (req: AuthenticatedReques
     });
   }
 
-  const result = db.addPostComment(
+  const result = await db.addPostComment(
     {
       postId: req.params.id,
       comment,
@@ -1396,8 +1838,8 @@ app.post('/api/salon-posts/:id/comments', requireAuth, (req: AuthenticatedReques
 });
 
 // حذف تعليق — صاحبه أو صاحب الصالون أو الأدمن
-app.delete('/api/salon-posts/comments/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const result = db.deletePostComment(
+app.delete('/api/salon-posts/comments/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const result = await db.deletePostComment(
     req.params.id,
     req.user!
   );
@@ -1485,10 +1927,38 @@ app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res
   }
 });
 
-app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
-  if (notif) notif.read = true;
-  res.json({ success: true });
+app.put('/api/notifications/:id/read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Persist read state in Neon so the badge stays cleared after refresh
+    // and across Vercel/serverless instances.
+    await sql`
+      UPDATE notifications
+      SET read = true
+      WHERE id = ${req.params.id}
+        AND user_id = ${req.user!.id}
+    `;
+
+    // Keep the current server instance in sync as well.
+    const notif = db.getState().notifications.find(
+      (n) => n.id === req.params.id && n.userId === req.user!.id
+    );
+
+    if (notif) {
+      notif.read = true;
+    }
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error(
+      '[NOTIFICATION READ] Failed to persist read state:',
+      error?.message || error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تحديث حالة الإشعار.',
+    });
+  }
 });
 
 // ==========================================
@@ -1646,26 +2116,198 @@ app.get('/api/config/maps', (req: Request, res: Response) => {
   });
 });
 
-// ==========================================
-// DIRECT PROJECT ZIP DOWNLOAD ENDPOINTS
-// ==========================================
-const handleZipDownload = (req: Request, res: Response) => {
-  const zipPath = path.join(process.cwd(), 'HALAQI-Android-Project.zip');
-  const publicZipPath = path.join(process.cwd(), 'public', 'HALAQI-Android-Project.zip');
-  const targetPath = fs.existsSync(zipPath) ? zipPath : publicZipPath;
 
-  if (fs.existsSync(targetPath)) {
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="HALAQI-Android-Project.zip"');
-    res.download(targetPath, 'HALAQI-Android-Project.zip');
-  } else {
-    res.status(404).json({ error: 'ملف المشروع غير موجود حالياً' });
+
+
+// ==========================================
+// ADMIN SETTLEMENTS & COMMISSIONS
+// ==========================================
+
+app.get(
+  '/api/admin/settlements',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const year = Number(req.query.year);
+      const month = Number(req.query.month);
+
+      if (
+        !Number.isInteger(year) ||
+        !Number.isInteger(month) ||
+        month < 1 ||
+        month > 12
+      ) {
+        return res.status(400).json({
+          success: false,
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize: 50,
+          error: 'سنة أو شهر التسويات غير صالح.',
+        });
+      }
+
+      const result = await db.getAdminSettlementsForMonth(year, month, {
+        search: typeof req.query.search === 'string'
+          ? req.query.search
+          : '',
+        status: typeof req.query.status === 'string'
+          ? req.query.status
+          : '',
+        page: Number(req.query.page) || 1,
+        pageSize: Number(req.query.pageSize) || 50,
+      });
+
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error('[Admin Settlements GET Error]:', error);
+
+      return res.status(500).json({
+        success: false,
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر تحميل التسويات.',
+      });
+    }
   }
-};
+);
 
-app.get('/api/download-project-zip', handleZipDownload);
-app.get('/HALAQI-Android-Project.zip', handleZipDownload);
-app.get('/download', handleZipDownload);
+app.post(
+  '/api/admin/settlements/generate',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const year = Number(req.body?.year);
+      const month = Number(req.body?.month);
 
+      if (
+        !Number.isInteger(year) ||
+        !Number.isInteger(month) ||
+        month < 1 ||
+        month > 12 ||
+        year < 2020 ||
+        year > 2100
+      ) {
+        return res.status(400).json({
+          success: false,
+          settlements: [],
+          error: 'سنة أو شهر التسويات غير صالح.',
+        });
+      }
+
+      const result = await db.generateSettlementForMonth(year, month);
+
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error('[Admin Settlements Generate Error]:', error);
+
+      return res.status(500).json({
+        success: false,
+        settlements: [],
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر توليد التسويات.',
+      });
+    }
+  }
+);
+
+app.put(
+  '/api/admin/settlements/:id/paid',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const settlementId = String(req.params.id || '').trim();
+      const paidAmount = Number(req.body?.paidAmount);
+      const notes =
+        typeof req.body?.notes === 'string'
+          ? req.body.notes
+          : undefined;
+
+      if (!settlementId) {
+        return res.status(400).json({
+          success: false,
+          error: 'معرف التسوية مطلوب.',
+        });
+      }
+
+      if (!Number.isInteger(paidAmount) || paidAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'مبلغ الدفع غير صالح.',
+        });
+      }
+
+      const result = await db.recordSettlementPayment(
+        settlementId,
+        paidAmount,
+        req.user!.id,
+        notes
+      );
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error('[Admin Settlement Paid Error]:', error);
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر تسجيل الدفع.',
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/settlements/process-overdue',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.processSettlementEnforcement();
+
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error('[Admin Settlements Overdue Error]:', error);
+
+      return res.status(500).json({
+        success: false,
+        markedOverdue: 0,
+        suspended: 0,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'تعذر معالجة المستحقات المتأخرة.',
+      });
+    }
+  }
+);
 
 export default app;

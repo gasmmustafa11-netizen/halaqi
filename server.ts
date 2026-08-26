@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { db, loadUsersFromNeon } from './src/server/db';
+import { db, loadUsersFromNeon, loadAllFromNeon } from './src/server/db';
 import {
   AuthenticatedRequest,
   generateToken,
@@ -66,7 +66,7 @@ async function startServer() {
   // ==========================================
   // AUTH ENDPOINTS
   // ==========================================
-  app.post('/api/auth/login', (req: Request, res: Response) => {
+  app.post('/api/auth/login', async (req: Request, res: Response) => {
     const { emailOrPhone, password, role } = req.body;
     const ip = req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1';
 
@@ -74,7 +74,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'يرجى إدخال رقم الهاتف أو البريد الإلكتروني' });
     }
 
-    let authResult = db.authenticate(emailOrPhone || '', password);
+    let authResult = await db.authenticate(emailOrPhone || '', password);
 
 
     if (!authResult.success || !authResult.user) {
@@ -480,37 +480,93 @@ async function startServer() {
   // ==========================================
   // BOOKINGS (STRICT SERVER-AUTHORITATIVE & RBAC)
   // ==========================================
-  app.get('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { customerId, salonId, status } = req.query;
-    let bookings = db.getState().bookings;
     const user = req.user!;
 
-    // RBAC Data Isolation:
-    // Customer can ONLY view their own bookings
-    if (user.role === 'customer') {
-      bookings = bookings.filter((b) => b.customerId === user.id);
-    } else if (user.role === 'salon_owner' || user.role === 'staff') {
-      // Salon owner can ONLY view bookings for their salon(s)
-      const ownedSalonId = user.salonId;
-      bookings = bookings.filter(
-        (b) => (ownedSalonId && b.salonId === ownedSalonId) || db.isSalonOwner(user.id, b.salonId)
+    try {
+      // Always read authoritative booking data from Neon.
+      let bookings = await db.getAllBookingsFromNeon();
+
+      // RBAC Data Isolation
+      if (user.role === 'customer') {
+        bookings = bookings.filter((b) => b.customerId === user.id);
+      } else if (user.role === 'salon_owner' || user.role === 'staff') {
+        const ownedSalonId = user.salonId;
+        bookings = bookings.filter(
+          (b) =>
+            (ownedSalonId && b.salonId === ownedSalonId) ||
+            db.isSalonOwner(user.id, b.salonId)
+        );
+      } else if (user.role === 'admin') {
+        if (customerId) {
+          bookings = bookings.filter((b) => b.customerId === customerId);
+        }
+        if (salonId) {
+          bookings = bookings.filter((b) => b.salonId === salonId);
+        }
+      }
+
+      if (status) {
+        bookings = bookings.filter((b) => b.status === status);
+      }
+
+      return res.json({ success: true, bookings });
+    } catch (error: any) {
+      console.error(
+        '[GET BOOKINGS NEON] Failed:',
+        error?.message || error
       );
-    } else if (user.role === 'admin') {
-      // Admin can filter by customerId or salonId if passed
-      if (customerId) {
-        bookings = bookings.filter((b) => b.customerId === customerId);
-      }
-      if (salonId) {
-        bookings = bookings.filter((b) => b.salonId === salonId);
-      }
-    }
 
-    if (status) {
-      bookings = bookings.filter((b) => b.status === status);
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر تحميل الحجوزات حالياً. حاول مرة أخرى.',
+        bookings: [],
+      });
     }
-
-    res.json({ success: true, bookings });
   });
+
+  // Complete booking through customer QR.
+  app.post(
+    '/api/bookings/:id/complete-by-qr',
+    requireAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { qrNonce } = req.body || {};
+      const user = req.user!;
+
+      if (!qrNonce || typeof qrNonce !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'رمز QR غير صالح.',
+        });
+      }
+
+      try {
+        const result = await db.completeBookingByQr(
+          req.params.id,
+          qrNonce,
+          user,
+          req.ip || '127.0.0.1'
+        );
+
+        if (!result.success) {
+          return res.status(400).json(result);
+        }
+
+        return res.json(result);
+      } catch (error: any) {
+        console.error(
+          '[COMPLETE BOOKING QR] Failed:',
+          error?.message || error
+        );
+
+        return res.status(500).json({
+          success: false,
+          error: 'تعذر إكمال الخدمة عبر QR.',
+        });
+      }
+    }
+  );
 
   app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
     const { barberId, date } = req.query;
@@ -521,7 +577,7 @@ async function startServer() {
     res.json({ success: true, occupiedSlots: slots });
   });
 
-  app.post('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const bookingPayload = req.body;
     const ip = req.ip || '127.0.0.1';
 
@@ -545,7 +601,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'يرجى إكمال جميع بيانات الحجز المطلوبة' });
     }
 
-    const result = db.createBookingAtomic(securePayload, req.body.couponCode, ip);
+    const result = await db.createBookingAtomic(securePayload, req.body.couponCode, ip);
     if (!result.success) {
       return res.status(409).json({ success: false, error: result.error });
     }
@@ -859,7 +915,175 @@ async function startServer() {
     });
   });
 
-  // Maps config route
+
+// ==========================================
+// ADMIN SALON SETTLEMENTS
+// ==========================================
+
+// Admin-only: list settlements for the requested month.
+// Month/year are optional; defaults to the current Baghdad calendar month.
+app.get(
+  '/api/admin/settlements',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const now = new Date();
+      const requestedYear = Number(req.query.year);
+      const requestedMonth = Number(req.query.month);
+
+      const year =
+        Number.isInteger(requestedYear) && requestedYear >= 2020
+          ? requestedYear
+          : Number(
+              new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Baghdad',
+                year: 'numeric',
+              }).format(now)
+            );
+
+      const month =
+        Number.isInteger(requestedMonth) &&
+        requestedMonth >= 1 &&
+        requestedMonth <= 12
+          ? requestedMonth
+          : Number(
+              new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Baghdad',
+                month: '2-digit',
+              }).format(now)
+            );
+
+      const result = await db.generateSettlementForMonth(year, month);
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      res.json({
+        success: true,
+        year,
+        month,
+        periodStart: result.periodStart,
+        periodEnd: result.periodEnd,
+        settlements: result.settlements,
+      });
+    } catch (error) {
+      console.error('GET /api/admin/settlements failed:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to load salon settlements.',
+      });
+    }
+  }
+);
+
+// Admin-only: explicitly generate/update settlements for a month.
+app.post(
+  '/api/admin/settlements/generate',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const year = Number(req.body?.year);
+      const month = Number(req.body?.month);
+
+      if (
+        !Number.isInteger(year) ||
+        !Number.isInteger(month)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'year and month are required.',
+        });
+      }
+
+      const result = await db.generateSettlementForMonth(year, month);
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('POST /api/admin/settlements/generate failed:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to generate salon settlements.',
+      });
+    }
+  }
+);
+
+
+// Admin-only: record a full settlement payment.
+app.put(
+  '/api/admin/settlements/:id/paid',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const paidAmount = Number(req.body?.paidAmount);
+      const notes =
+        typeof req.body?.notes === 'string'
+          ? req.body.notes
+          : undefined;
+
+      const result = await db.recordSettlementPayment(
+        req.params.id,
+        paidAmount,
+        req.user!.id,
+        notes
+      );
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error(
+        'PUT /api/admin/settlements/:id/paid failed:',
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        error: 'تعذر تسجيل الدفع.',
+      });
+    }
+  }
+);
+
+// Admin-only: process overdue settlements and suspend unpaid salons.
+app.post(
+  '/api/admin/settlements/process-overdue',
+  requireAuth,
+  requireRole('admin'),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.processSettlementEnforcement();
+
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error(
+        'POST /api/admin/settlements/process-overdue failed:',
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        error: 'تعذر معالجة المستحقات المتأخرة.',
+      });
+    }
+  }
+);
+
+// Maps config route
   app.get('/api/config/maps', (req: Request, res: Response) => {
     res.json({
       hasGoogleMapsKey: Boolean(process.env.GOOGLE_MAPS_API_KEY),
@@ -904,6 +1128,7 @@ async function startServer() {
   }
 
   await loadUsersFromNeon();
+  await loadAllFromNeon();
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[HALAQI Server] Secure Multi-User Engine Running on http://0.0.0.0:${PORT}`);

@@ -15,6 +15,7 @@ import { SalonDashboardView } from './components/salon-dashboard/SalonDashboardV
 import { AdminPanelView } from './components/admin/AdminPanelView';
 import { SalonRegistrationView } from './components/salons/SalonRegistrationView';
 import { UserProfileView } from './components/profile/UserProfileView';
+import { TermsPrivacyView } from './components/legal/TermsPrivacyView';
 import { BookingWizardModal } from './components/booking/BookingWizardModal';
 import { AuthModal } from './components/auth/AuthModal';
 
@@ -131,6 +132,10 @@ function AppContent() {
               handleNavigate('salon_dashboard');
             }}
           />
+        )}
+
+        {currentView === 'terms_privacy' && (
+          <TermsPrivacyView onBack={() => handleNavigate('explore')} />
         )}
 
         {currentView === 'profile' && (
