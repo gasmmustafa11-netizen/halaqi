@@ -17,7 +17,5 @@ workflows:
           cd android
           chmod +x gradlew
           ./gradlew clean assembleDebug
-    publishing:
-      android:
-        artifacts:
-          - android/app/build/outputs/apk/debug/*.apk
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
