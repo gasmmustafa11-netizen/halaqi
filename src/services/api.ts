@@ -924,7 +924,7 @@ export const api = {
   // Auth
   async login(emailOrPhone: string, role?: string, password?: string): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrPhone, role, password }),
@@ -941,7 +941,7 @@ export const api = {
 
   async register(userData: { name: string; email?: string; phone: string; password?: string; role?: string; city?: string }): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
