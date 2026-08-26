@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { db } from './src/server/db';
+import { db, loadUsersFromNeon } from './src/server/db';
 import {
   AuthenticatedRequest,
   generateToken,
@@ -902,6 +902,8 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  await loadUsersFromNeon();
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[HALAQI Server] Secure Multi-User Engine Running on http://0.0.0.0:${PORT}`);

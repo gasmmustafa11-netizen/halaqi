@@ -184,7 +184,7 @@ export interface Notification {
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system';
+  type: 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
   read: boolean;
   createdAt: string;
   link?: string;

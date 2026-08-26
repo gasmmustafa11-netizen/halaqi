@@ -294,6 +294,23 @@ app.post('/api/salons', requireAuth, requireRole('salon_owner', 'admin'), (req: 
 
   db.getState().salons.push(newSalon);
 
+  // Notify admins about the new salon awaiting approval
+  const admins = db.getState().users.filter(
+    (u) => u.role === 'admin' && u.isActive
+  );
+
+  for (const admin of admins) {
+    db.createNotification({
+      userId: admin.id,
+      title: 'صالون جديد بانتظار الموافقة',
+      titleEn: 'New Salon Awaiting Approval',
+      message: `تم تسجيل صالون جديد باسم ${newSalon.name} ويحتاج إلى موافقة المدير قبل نشره في الموقع.`,
+      messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
+      type: 'new_salon',
+      link: '/admin/salons',
+    });
+  }
+
   // If creator is salon_owner, link salonId to user
   if (req.user!.role === 'salon_owner') {
     const userInDb = db.getUserById(req.user!.id);
@@ -397,6 +414,49 @@ app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), (req:
 
   if (typeof isVerified === 'boolean') salon.isVerified = isVerified;
   if (typeof commissionRate === 'number') salon.commissionRate = commissionRate;
+
+  // Notify salon owner about the status change
+  if (salon.ownerId && status) {
+    const owner = db.getUserById(salon.ownerId);
+
+    if (owner) {
+      let title = 'تحديث حالة الصالون';
+      let titleEn = 'Salon Status Updated';
+      let message = `تم تحديث حالة صالونك ${salon.name} إلى ${status}.`;
+      let messageEn = `The status of your salon "${salon.name}" has been changed to ${status}.`;
+      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+
+      if (status === 'approved') {
+        title = 'تم قبول الصالون 🎉';
+        titleEn = 'Salon Approved';
+        message = `تم قبول صالونك ${salon.name} ونشره الآن على الموقع.`;
+        messageEn = `Your salon "${salon.name}" has been approved and is now published on the platform.`;
+        notificationType = 'salon_approved';
+      } else if (status === 'suspended') {
+        title = 'تم إيقاف الصالون';
+        titleEn = 'Salon Suspended';
+        message = `تم إيقاف صالونك ${salon.name}. السبب: ${salon.suspensionReason || 'مخالفة شروط المنصة'}`;
+        messageEn = `Your salon "${salon.name}" has been suspended. Reason: ${salon.suspensionReason || 'Platform policy violation'}`;
+        notificationType = 'salon_suspended';
+      } else if (status === 'pending') {
+        title = 'تم تعليق مراجعة الصالون';
+        titleEn = 'Salon Review Pending';
+        message = `صالونك ${salon.name} ما زال بانتظار مراجعة المدير.`;
+        messageEn = `Your salon "${salon.name}" is still awaiting admin review.`;
+        notificationType = 'salon_rejected';
+      }
+
+      db.createNotification({
+        userId: owner.id,
+        title,
+        titleEn,
+        message,
+        messageEn,
+        type: notificationType,
+        link: '/profile',
+      });
+    }
+  }
 
   db.addAuditLog({
     userId: req.user!.id,

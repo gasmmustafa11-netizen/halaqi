@@ -1,4 +1,7 @@
 import "dotenv/config";
+import { neon } from "@neondatabase/serverless";
+
+const sql = neon(process.env.DATABASE_URL!);
 import crypto from 'crypto';
 import {
   Salon,
@@ -981,6 +984,21 @@ class DatabaseStore {
 
     this.state.users.push(newUser);
 
+    // Notify all admins about the new registration
+    const admins = this.state.users.filter((u) => u.role === 'admin' && u.isActive);
+
+    for (const admin of admins) {
+      this.createNotification({
+        userId: admin.id,
+        title: 'مستخدم جديد سجّل في المنصة',
+        titleEn: 'New User Registered',
+        message: `تم تسجيل مستخدم جديد: ${newUser.name} (${newUser.role === 'salon_owner' ? 'صاحب صالون' : 'زبون'})`,
+        messageEn: `A new ${newUser.role === 'salon_owner' ? 'salon owner' : 'customer'} registered: ${newUser.name}`,
+        type: 'new_user',
+        link: '/admin/users',
+      });
+    }
+
     this.addAuditLog({
       userId: newUser.id,
       userEmail: newUser.email,
@@ -1013,6 +1031,53 @@ class DatabaseStore {
 
   getAuditLogs(limit: number = 100): AuditLog[] {
     return this.state.auditLogs.slice(0, limit);
+  }
+
+  // Create notification
+  createNotification(data: {
+    userId: string;
+    title: string;
+    titleEn: string;
+    message: string;
+    messageEn: string;
+    type: Notification['type'];
+    link?: string;
+  }): Notification {
+    const notification: Notification = {
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId: data.userId,
+      title: data.title,
+      titleEn: data.titleEn,
+      message: data.message,
+      messageEn: data.messageEn,
+      type: data.type,
+      read: false,
+      createdAt: new Date().toISOString(),
+      link: data.link,
+    };
+
+    this.state.notifications.unshift(notification);
+
+    // Persist notification in Neon database
+    void sql`
+      INSERT INTO notifications
+      (id, user_id, title, title_en, message, message_en, type, read, created_at, link)
+      VALUES
+      (${notification.id}, ${notification.userId}, ${notification.title},
+       ${notification.titleEn}, ${notification.message}, ${notification.messageEn},
+       ${notification.type}, ${notification.read}, ${notification.createdAt},
+       ${notification.link ?? null})
+      ON CONFLICT (id) DO NOTHING
+    `.catch((error: any) => {
+      console.error('فشل حفظ الإشعار في Neon:', error.message);
+    });
+
+    // Keep max 500 notifications in memory
+    if (this.state.notifications.length > 500) {
+      this.state.notifications.pop();
+    }
+
+    return notification;
   }
 
   // Admin User Management
@@ -1683,3 +1748,345 @@ class DatabaseStore {
 }
 
 export const db = new DatabaseStore();
+
+export async function loadUsersFromNeon(): Promise<void> {
+  try {
+    const rows = await sql`
+      SELECT id, name, email, phone, role, city, salon_id, avatar,
+             password_hash, salt, is_active, is_banned, created_at
+      FROM users
+    `;
+
+    if (rows.length > 0) {
+      db.getState().users = rows.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        city: u.city,
+        salonId: u.salon_id || undefined,
+        avatar: u.avatar || undefined,
+        passwordHash: u.password_hash || undefined,
+        salt: u.salt || undefined,
+        isActive: u.is_active ?? true,
+        isBanned: u.is_banned ?? false,
+        createdAt: new Date(u.created_at).toISOString(),
+      }));
+
+      console.log(`تم تحميل ${rows.length} مستخدمين من Neon`);
+    }
+  } catch (error: any) {
+    console.error('فشل تحميل المستخدمين من Neon:', error.message);
+  }
+}
+
+export async function loadAllFromNeon(): Promise<void> {
+  try {
+    const [
+      salons,
+      barbers,
+      services,
+      bookings,
+      reviews,
+      coupons,
+      notifications,
+      cities,
+      blockedTimes,
+      favorites,
+      salonPosts,
+      postComments,
+      postLikes,
+      auditLogs,
+      settings,
+    ] = await Promise.all([
+      sql`SELECT * FROM salons`,
+      sql`SELECT * FROM barbers`,
+      sql`SELECT * FROM services`,
+      sql`SELECT * FROM bookings`,
+      sql`SELECT * FROM reviews`,
+      sql`SELECT * FROM coupons`,
+      sql`SELECT * FROM notifications`,
+      sql`SELECT * FROM cities`,
+      sql`SELECT * FROM blocked_times`,
+      sql`SELECT * FROM favorites`,
+      sql`SELECT * FROM salon_posts`,
+      sql`SELECT * FROM post_comments`,
+      sql`SELECT * FROM post_likes`,
+      sql`SELECT * FROM audit_logs`,
+      sql`SELECT * FROM platform_settings ORDER BY id LIMIT 1`,
+    ]);
+
+    if (salons.length) {
+      db.getState().salons = salons.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        nameEn: s.name_en,
+        slug: s.slug,
+        type: s.type,
+        city: s.city,
+        area: s.area,
+        address: s.address,
+        lat: Number(s.lat),
+        lng: Number(s.lng),
+        phone: s.phone,
+        whatsapp: s.whatsapp,
+        description: s.description,
+        descriptionEn: s.description_en,
+        rating: Number(s.rating || 0),
+        reviewCount: Number(s.review_count || 0),
+        startingPrice: Number(s.starting_price || 0),
+        coverImage: s.cover_image,
+        gallery: s.gallery || [],
+        isVerified: s.is_verified ?? false,
+        isFeatured: s.is_featured ?? false,
+        status: s.status,
+        ownerId: s.owner_id,
+        workingHours: s.working_hours || defaultWorkingHours,
+        features: s.features || [],
+        createdAt: new Date(s.created_at).toISOString(),
+      }));
+    }
+
+    if (barbers.length) {
+      db.getState().barbers = barbers.map((b: any) => ({
+        id: b.id,
+        salonId: b.salon_id,
+        name: b.name,
+        nameEn: b.name_en,
+        avatar: b.avatar,
+        title: b.title,
+        titleEn: b.title_en,
+        experienceYears: Number(b.experience_years || 0),
+        rating: Number(b.rating || 0),
+        reviewCount: Number(b.review_count || 0),
+        specializations: b.specializations || [],
+        isAvailable: b.is_available ?? true,
+        phone: b.phone || undefined,
+      }));
+    }
+
+    if (services.length) {
+      db.getState().services = services.map((s: any) => ({
+        id: s.id,
+        salonId: s.salon_id,
+        name: s.name,
+        nameEn: s.name_en,
+        category: s.category,
+        categoryEn: s.category_en,
+        description: s.description,
+        price: Number(s.price || 0),
+        durationMinutes: Number(s.duration_minutes || 0),
+        image: s.image || undefined,
+        barberIds: s.barber_ids || [],
+        isPopular: s.is_popular ?? false,
+      }));
+    }
+
+    if (bookings.length) {
+      db.getState().bookings = bookings.map((b: any) => ({
+        id: b.id,
+        bookingNumber: b.booking_number,
+        salonId: b.salon_id,
+        salonName: b.salon_name,
+        salonAddress: b.salon_address,
+        salonPhone: b.salon_phone,
+        salonType: b.salon_type,
+        serviceId: b.service_id,
+        serviceName: b.service_name,
+        barberId: b.barber_id,
+        barberName: b.barber_name,
+        customerId: b.customer_id,
+        customerName: b.customer_name,
+        customerPhone: b.customer_phone,
+        customerEmail: b.customer_email || undefined,
+        notes: b.notes || undefined,
+        date: b.date instanceof Date
+          ? b.date.toISOString().slice(0, 10)
+          : String(b.date),
+        timeSlot: b.time_slot,
+        durationMinutes: Number(b.duration_minutes || 0),
+        price: Number(b.price || 0),
+        discountAmount: Number(b.discount_amount || 0),
+        finalPrice: Number(b.final_price || 0),
+        commissionAmount: Number(b.commission_amount || 0),
+        salonPayout: Number(b.salon_payout || 0),
+        status: b.status,
+        paymentMethod: b.payment_method,
+        paymentStatus: b.payment_status,
+        createdAt: new Date(b.created_at).toISOString(),
+        rated: b.rated ?? false,
+        cancellationReason: b.cancellation_reason || undefined,
+      }));
+    }
+
+    if (reviews.length) {
+      db.getState().reviews = reviews.map((r: any) => ({
+        id: r.id,
+        salonId: r.salon_id,
+        salonName: r.salon_name,
+        bookingId: r.booking_id,
+        customerId: r.customer_id,
+        customerName: r.customer_name,
+        customerAvatar: r.customer_avatar || undefined,
+        rating: Number(r.rating || 0),
+        comment: r.comment,
+        createdAt: new Date(r.created_at).toISOString(),
+        reply: r.reply || undefined,
+        replyDate: r.reply_date
+          ? new Date(r.reply_date).toISOString()
+          : undefined,
+      }));
+    }
+
+    if (coupons.length) {
+      db.getState().coupons = coupons.map((c: any) => ({
+        id: c.id,
+        code: c.code,
+        discountPercent: Number(c.discount_percent || 0),
+        discountAmount: c.discount_amount
+          ? Number(c.discount_amount)
+          : undefined,
+        maxDiscount: c.max_discount
+          ? Number(c.max_discount)
+          : undefined,
+        minBookingAmount: Number(c.min_booking_amount || 0),
+        validUntil: new Date(c.valid_until).toISOString(),
+        usageCount: Number(c.usage_count || 0),
+        maxUsage: Number(c.max_usage || 0),
+        isActive: c.is_active ?? true,
+        salonId: c.salon_id || undefined,
+      }));
+    }
+
+    if (notifications.length) {
+      db.getState().notifications = notifications.map((n: any) => ({
+        id: n.id,
+        userId: n.user_id,
+        title: n.title,
+        titleEn: n.title_en,
+        message: n.message,
+        messageEn: n.message_en,
+        type: n.type,
+        read: n.read ?? false,
+        createdAt: new Date(n.created_at).toISOString(),
+        link: n.link || undefined,
+      }));
+    }
+
+    if (cities.length) {
+      db.getState().cities = cities.map((c: any) => ({
+        id: c.id,
+        nameAr: c.name_ar,
+        nameEn: c.name_en,
+        lat: Number(c.lat),
+        lng: Number(c.lng),
+        active: c.active ?? true,
+        salonCount: c.salon_count != null
+          ? Number(c.salon_count)
+          : undefined,
+      }));
+    }
+
+    if (blockedTimes.length) {
+      db.getState().blockedTimes = blockedTimes.map((b: any) => ({
+        id: b.id,
+        salonId: b.salon_id,
+        barberId: b.barber_id || undefined,
+        date: b.date instanceof Date
+          ? b.date.toISOString().slice(0, 10)
+          : String(b.date),
+        startTime: b.start_time,
+        endTime: b.end_time,
+        reason: b.reason || undefined,
+      }));
+    }
+
+    if (favorites.length) {
+      db.getState().favorites = favorites.map((f: any) => ({
+        userId: f.user_id,
+        salonId: f.salon_id,
+      }));
+    }
+
+    if (salonPosts.length) {
+      db.getState().salonPosts = salonPosts.map((p: any) => ({
+        id: p.id,
+        salonId: p.salon_id,
+        ownerId: p.owner_id,
+        salonName: p.salon_name,
+        imageUrl: p.image_url,
+        caption: p.caption,
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      }));
+    }
+
+    if (postComments.length) {
+      db.getState().postComments = postComments.map((c: any) => ({
+        id: c.id,
+        postId: c.post_id,
+        userId: c.user_id,
+        userName: c.user_name,
+        userAvatar: c.user_avatar || undefined,
+        comment: c.comment,
+        createdAt: new Date(c.created_at).toISOString(),
+      }));
+    }
+
+    if (postLikes.length) {
+      db.getState().postLikes = postLikes.map((l: any) => ({
+        id: l.id,
+        postId: l.post_id,
+        userId: l.user_id,
+        createdAt: new Date(l.created_at).toISOString(),
+      }));
+    }
+
+    if (auditLogs.length) {
+      db.getState().auditLogs = auditLogs.map((a: any) => ({
+        id: a.id,
+        userId: a.user_id,
+        userEmail: a.user_email,
+        userRole: a.user_role,
+        action: a.action,
+        targetType: a.target_type,
+        targetId: a.target_id || undefined,
+        details: a.details,
+        ip: a.ip || undefined,
+        status: a.status,
+        timestamp: new Date(a.timestamp).toISOString(),
+      }));
+    }
+
+    if (settings.length) {
+      const s: any = settings[0];
+      db.getState().settings = {
+        commissionRate: Number(s.commission_rate || 10),
+        currency: s.currency || 'IQD',
+        currencySymbol: s.currency_symbol || 'د.ع',
+        googleMapsApiKey: s.google_maps_api_key || undefined,
+        supportPhone: s.support_phone || '',
+        supportEmail: s.support_email || '',
+        termsAr: s.terms_ar || '',
+        termsEn: s.terms_en || '',
+        privacyAr: s.privacy_ar || '',
+        privacyEn: s.privacy_en || '',
+        cancellationAr: s.cancellation_ar || '',
+        cancellationEn: s.cancellation_en || '',
+        refundAr: s.refund_ar || '',
+        refundEn: s.refund_en || '',
+      };
+    }
+
+    console.log(
+      `تم تحميل بيانات Neon: salons=${salons.length}, barbers=${barbers.length}, services=${services.length}, bookings=${bookings.length}`
+    );
+  } catch (error: any) {
+    console.error('فشل تحميل باقي البيانات من Neon:', error.message);
+  }
+}
