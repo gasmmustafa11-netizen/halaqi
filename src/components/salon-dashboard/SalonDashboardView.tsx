@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Salon, Service, Barber, Booking } from '../../types';
+import { Salon, Service, Barber, Booking, SalonPost, PostComment } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import {
   Calendar,
   Clock,
@@ -30,7 +31,7 @@ export const SalonDashboardView: React.FC = () => {
   const { t, isRtl } = useLanguage();
   const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'services' | 'staff' | 'availability' | 'profile'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'services' | 'staff' | 'availability' | 'profile' | 'posts'>('calendar');
   const [salon, setSalon] = useState<Salon | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -39,6 +40,14 @@ export const SalonDashboardView: React.FC = () => {
 
   // New Service Modal
   const [isServiceModalOpen, setIsServiceModalOpen] = useState<boolean>(false);
+  const [selectedPostImage, setSelectedPostImage] = useState<string | null>(null);
+  const [salonPosts, setSalonPosts] = useState<SalonPost[]>([]);
+  const [postLikeStatus, setPostLikeStatus] = useState<Record<string, boolean>>({});
+  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+
+
+  const [isPublishingPost, setIsPublishingPost] = useState<boolean>(false);
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
 
   // New Staff Modal
@@ -52,6 +61,82 @@ export const SalonDashboardView: React.FC = () => {
   const [blockedBarberId, setBlockedBarberId] = useState<string>('all');
   const [blockReason, setBlockReason] = useState<string>('');
   const [blockSuccess, setBlockSuccess] = useState<boolean>(false);
+
+  const handleSelectPostImage = async () => {
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Photos,
+      });
+
+      if (photo.dataUrl) {
+        setSelectedPostImage(photo.dataUrl);
+      }
+    } catch (error) {
+      console.error('Image selection cancelled or failed:', error);
+    }
+  };
+
+  const loadPostComments = async (postId: string) => {
+    try {
+      const comments = await api.getPostComments(postId);
+
+      setPostComments((prev) => ({
+        ...prev,
+        [postId]: comments,
+      }));
+    } catch (error) {
+      console.error('Load post comments error:', error);
+    }
+  };
+
+  const handleTogglePostLike = async (post: SalonPost) => {
+    try {
+      const result = await api.togglePostLike(post.id);
+
+      if (!result.success) {
+        alert(result.error || 'تعذر تنفيذ الإعجاب.');
+        return;
+      }
+
+      setPostLikeStatus((prev) => ({
+        ...prev,
+        [post.id]: result.liked ?? false,
+      }));
+
+      setSalonPosts((prev) =>
+        prev.map((item) =>
+          item.id === post.id
+            ? { ...item, likeCount: result.likeCount ?? item.likeCount }
+            : item
+        )
+      );
+    } catch (error) {
+      console.error('Toggle post like error:', error);
+      alert('حدث خطأ أثناء تنفيذ الإعجاب.');
+    }
+  };
+
+  const handleDeleteSalonPost = async (id: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+
+    try {
+      const result = await api.deleteSalonPost(id);
+
+      if (!result.success) {
+        alert(result.error || 'تعذر حذف المنشور.');
+        return;
+      }
+
+      setSalonPosts((prev) => prev.filter((post) => post.id !== id));
+      alert('تم حذف المنشور بنجاح.');
+    } catch (error) {
+      console.error('Delete salon post error:', error);
+      alert('حدث خطأ أثناء حذف المنشور.');
+    }
+  };
 
   const loadDashboardData = async () => {
     setIsLoading(true);
@@ -68,6 +153,9 @@ export const SalonDashboardView: React.FC = () => {
       }
       const salonBookings = await api.getBookings({ salonId: mySalon.id });
       setBookings(salonBookings);
+
+      const posts = await api.getSalonPosts(mySalon.id);
+      setSalonPosts(posts);
     }
     setIsLoading(false);
   };
@@ -250,6 +338,7 @@ export const SalonDashboardView: React.FC = () => {
           { id: 'staff', label: 'طاقم العمل والخبراء', icon: Users },
           { id: 'availability', label: 'إغلاق المواعيد والعطل', icon: Lock },
           { id: 'profile', label: 'بيانات الصالون والموقع', icon: Settings },
+                  { id: 'posts', label: 'منشورات الصالون', icon: Sparkles },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -567,6 +656,88 @@ export const SalonDashboardView: React.FC = () => {
               حفظ فترة الإغلاق
             </button>
           </form>
+        </div>
+      )}
+
+      {/* TAB: Salon Posts */}
+      {activeTab === 'posts' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-white text-base">منشورات الصالون</h3>
+              <p className="text-xs text-slate-400 mt-1">انشر صور الصالون والخدمات والأعمال الجديدة</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSelectPostImage}
+              className="px-4 py-2.5 rounded-xl bg-[#d4af37] text-black font-bold text-xs flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              اختيار صورة
+            </button>
+          </div>
+
+          {selectedPostImage ? (
+            <div className="p-4 rounded-2xl bg-[#141721] border border-white/10 space-y-3">
+              <img
+                src={selectedPostImage}
+                alt="معاينة المنشور"
+                className="w-full max-h-96 object-cover rounded-xl"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPostImage(null)}
+                  className="px-4 py-2 rounded-xl bg-white/5 text-xs text-slate-300"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                      if (!selectedPostImage || isPublishingPost) return;
+
+                      setIsPublishingPost(true);
+
+                      try {
+                        const upload = await api.uploadImage(selectedPostImage);
+
+                        if (!upload.success || !upload.imageUrl) {
+                          alert(upload.error || 'تعذر رفع الصورة.');
+                          return;
+                        }
+
+                        const result = await api.createSalonPost({
+                          salonId: salon.id,
+                          imageUrl: upload.imageUrl,
+                          caption: '',
+                        });
+
+                        if (!result.success) {
+                          alert(result.error || 'تعذر نشر الصورة.');
+                          return;
+                        }
+
+                        alert('تم نشر الصورة بنجاح.');
+                        setSelectedPostImage(null);
+                      } catch (error) {
+                        console.error('Publish post error:', error);
+                        alert('حدث خطأ أثناء نشر الصورة.');
+                      } finally {
+                        setIsPublishingPost(false);
+                      }
+                    }}
+                  className="px-5 py-2 rounded-xl bg-[#d4af37] text-black font-bold text-xs"
+                >
+                  متابعة النشر
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-10 rounded-2xl bg-[#141721] border border-dashed border-white/10 text-center text-slate-400 text-sm">
+              اختر صورة من استديو الهاتف لبدء إنشاء منشور.
+            </div>
+          )}
         </div>
       )}
 

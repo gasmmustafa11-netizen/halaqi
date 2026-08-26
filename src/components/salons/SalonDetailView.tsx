@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Salon, Service, Barber, Review } from '../../types';
+import { Salon, Service, Barber, Review, SalonPost, PostComment } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBooking } from '../../context/BookingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +32,159 @@ interface SalonDetailViewProps {
   onBack: () => void;
 }
 
+interface SalonPostCardProps {
+  post: SalonPost;
+  liked: boolean;
+  comments: PostComment[];
+  user: any;
+  onLike: () => void;
+  onLoadComments: () => void;
+  onAddComment: (comment: string) => void;
+  loading: boolean;
+}
+
+const SalonPostCard: React.FC<SalonPostCardProps> = ({
+  post,
+  liked,
+  comments,
+  user,
+  onLike,
+  onLoadComments,
+  onAddComment,
+  loading,
+}) => {
+  const [comment, setComment] = useState('');
+  const [commentsOpen, setCommentsOpen] = useState(false);
+
+  const submitComment = () => {
+    const text = comment.trim();
+    if (!text || !user) return;
+
+    onAddComment(text);
+    setComment('');
+  };
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#11141d] shadow-xl">
+      {/* Post Image */}
+      <div className="relative aspect-square bg-black">
+        <img
+          src={post.imageUrl}
+          alt={post.caption || 'Salon post'}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      </div>
+
+      {/* Post Content */}
+      <div className="p-4">
+        {post.caption && (
+          <p className="text-sm text-slate-200 leading-6 mb-4">
+            {post.caption}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-5">
+          <button
+            type="button"
+            onClick={onLike}
+            disabled={!user || loading}
+            className="flex items-center gap-2 transition-transform active:scale-90 disabled:opacity-50"
+            aria-label={liked ? 'إلغاء الإعجاب' : 'إعجاب'}
+          >
+            <Heart
+              className={`w-7 h-7 transition-all ${
+                liked
+                  ? 'fill-white text-white scale-110'
+                  : 'text-white'
+              }`}
+              strokeWidth={1.8}
+            />
+
+            <span className="text-sm font-bold text-slate-300">
+              {post.likeCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const next = !commentsOpen;
+              setCommentsOpen(next);
+
+              if (next) {
+                onLoadComments();
+              }
+            }}
+            className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors"
+          >
+            <MessageSquare className="w-6 h-6" />
+            <span className="text-sm font-bold">
+              {post.commentCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Comments */}
+        {commentsOpen && (
+          <div className="mt-4 border-t border-white/10 pt-4 space-y-3">
+            {comments.length > 0 ? (
+              comments.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl bg-white/5 p-3"
+                >
+                  <p className="text-xs font-bold text-white mb-1">
+                    {item.userName}
+                  </p>
+                  <p className="text-sm text-slate-300 leading-5">
+                    {item.comment}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-slate-500 text-center">
+                لا توجد تعليقات بعد
+              </p>
+            )}
+
+            {user ? (
+              <div className="flex gap-2 pt-2">
+                <input
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      submitComment();
+                    }
+                  }}
+                  placeholder="اكتب تعليقاً..."
+                  className="flex-1 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-[#d4af37]"
+                />
+
+                <button
+                  type="button"
+                  onClick={submitComment}
+                  disabled={!comment.trim()}
+                  className="rounded-xl bg-[#d4af37] px-4 py-2 text-sm font-bold text-black disabled:opacity-40"
+                >
+                  إرسال
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 text-center pt-2">
+                سجل الدخول حتى تتمكن من التعليق
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
 export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack }) => {
   const { t, isRtl } = useLanguage();
   const { openBookingWizard } = useBooking();
@@ -42,6 +195,10 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
   const [services, setServices] = useState<Service[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [salonPosts, setSalonPosts] = useState<SalonPost[]>([]);
+  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
+  const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
+  const [postLoading, setPostLoading] = useState(false);
   const [isFavorite, setIsFavorite] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
 
@@ -58,6 +215,18 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
         setServices(data.services || []);
         setBarbers(data.barbers || []);
         setReviews(data.reviews || []);
+
+        const posts = await api.getSalonPosts(salon.id);
+        setSalonPosts(posts);
+
+        const likeStatuses: Record<string, boolean> = {};
+        for (const post of posts) {
+          if (user) {
+            const like = await api.getPostLikeStatus(post.id);
+            likeStatuses[post.id] = !!like.liked;
+          }
+        }
+        setLikedPosts(likeStatuses);
       }
       if (user) {
         const favs = await api.getFavorites(user.id);
@@ -285,6 +454,7 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
           { id: 'services', label: 'الخدمات والأسعار', icon: Scissors, count: services.length },
           { id: 'barbers', label: 'طاقم الحلاقين والخبراء', icon: Users, count: barbers.length },
           { id: 'reviews', label: 'التقييمات والآراء', icon: MessageSquare, count: reviews.length },
+                  { id: 'posts', label: 'أحدث القصات', icon: Heart, count: salonPosts.length },
           { id: 'hours', label: 'ساعات العمل والموقع', icon: Clock },
           { id: 'gallery', label: 'معرض الصور', icon: Sparkles, count: salon.gallery.length },
         ].map((tab) => {
@@ -548,6 +718,94 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* TAB 4: Salon Posts / Latest Styles */}
+      {activeTab === 'posts' && (
+        <div className="space-y-5">
+          {salonPosts.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-[#11141d] p-10 text-center">
+              <Heart className="w-10 h-10 mx-auto mb-3 text-slate-500" />
+              <p className="text-slate-400 text-sm">
+                لا توجد منشورات لهذا الصالون حالياً
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {salonPosts.map((post) => (
+                <SalonPostCard
+                  key={post.id}
+                  post={post}
+                  liked={!!likedPosts[post.id]}
+                  comments={postComments[post.id] || []}
+                  user={user}
+                  onLike={async () => {
+                    if (!user) return;
+
+                    setPostLoading(true);
+
+                    const result = await api.togglePostLike(post.id);
+
+                    if (result.success) {
+                      setLikedPosts((prev) => ({
+                        ...prev,
+                        [post.id]: !!result.liked,
+                      }));
+
+                      setSalonPosts((prev) =>
+                        prev.map((p) =>
+                          p.id === post.id
+                            ? {
+                                ...p,
+                                likeCount: result.likeCount ?? p.likeCount,
+                              }
+                            : p
+                        )
+                      );
+                    }
+
+                    setPostLoading(false);
+                  }}
+                  onLoadComments={async () => {
+                    const comments = await api.getPostComments(post.id);
+
+                    setPostComments((prev) => ({
+                      ...prev,
+                      [post.id]: comments,
+                    }));
+                  }}
+                  onAddComment={async (comment) => {
+                    if (!user) return;
+
+                    const result = await api.addPostComment(post.id, comment);
+
+                    if (result.success && result.comment) {
+                      setPostComments((prev) => ({
+                        ...prev,
+                        [post.id]: [
+                          ...(prev[post.id] || []),
+                          result.comment!,
+                        ],
+                      }));
+
+                      setSalonPosts((prev) =>
+                        prev.map((p) =>
+                          p.id === post.id
+                            ? {
+                                ...p,
+                                commentCount: p.commentCount + 1,
+                              }
+                            : p
+                        )
+                      );
+                    }
+                  }}
+                  loading={postLoading}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

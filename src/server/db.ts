@@ -13,7 +13,10 @@ import {
   BlockedTime,
   User,
   AuditLog,
-  UserRole
+  UserRole,
+  SalonPost,
+  PostComment,
+  PostLike
 } from '../types';
 
 export interface UserWithAuth extends User {
@@ -28,6 +31,9 @@ export interface DatabaseState {
   services: Service[];
   bookings: Booking[];
   reviews: Review[];
+  salonPosts: SalonPost[];
+  postComments: PostComment[];
+  postLikes: PostLike[];
   coupons: Coupon[];
   notifications: Notification[];
   cities: City[];
@@ -868,6 +874,9 @@ class DatabaseStore {
       services: [...initialServices],
       bookings: [...initialBookings],
       reviews: [...initialReviews],
+      salonPosts: [],
+      postComments: [],
+      postLikes: [],
       coupons: [...initialCoupons],
       notifications: [...initialNotifications],
       cities: [...initialCities],
@@ -1427,6 +1436,229 @@ class DatabaseStore {
     });
 
     return { success: true, review: newReview };
+  }
+
+  // ==========================================
+  // SALON POSTS
+  // ==========================================
+
+  getSalonPosts(salonId?: string): SalonPost[] {
+    const posts = salonId
+      ? this.state.salonPosts.filter((p) => p.salonId === salonId)
+      : this.state.salonPosts;
+
+    return posts.map((post) => ({
+      ...post,
+      likeCount: this.state.postLikes.filter((l) => l.postId === post.id).length,
+      commentCount: this.state.postComments.filter((c) => c.postId === post.id).length,
+    }));
+  }
+
+  createSalonPost(
+    data: {
+      salonId: string;
+      imageUrl: string;
+      caption: string;
+    },
+    requestingUser: User
+  ): { success: boolean; post?: SalonPost; error?: string } {
+    if (requestingUser.role !== 'salon_owner' && requestingUser.role !== 'admin') {
+      return { success: false, error: 'غير مسموح لك بنشر منشورات.' };
+    }
+
+    const salon = this.state.salons.find((s) => s.id === data.salonId);
+    if (!salon) {
+      return { success: false, error: 'الصالون غير موجود.' };
+    }
+
+    if (
+      requestingUser.role === 'salon_owner' &&
+      salon.ownerId !== requestingUser.id
+    ) {
+      return { success: false, error: 'لا يمكنك النشر في صالون آخر.' };
+    }
+
+    if (!data.imageUrl?.trim()) {
+      return { success: false, error: 'صورة المنشور مطلوبة.' };
+    }
+
+    const post: SalonPost = {
+      id: `post_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      salonId: salon.id,
+      ownerId: salon.ownerId,
+      salonName: salon.name,
+      imageUrl: data.imageUrl.trim(),
+      caption: (data.caption || '').trim(),
+      createdAt: new Date().toISOString(),
+      likeCount: 0,
+      commentCount: 0,
+    };
+
+    this.state.salonPosts.unshift(post);
+
+    return { success: true, post };
+  }
+
+  deleteSalonPost(
+    postId: string,
+    requestingUser: User
+  ): { success: boolean; error?: string } {
+    const post = this.state.salonPosts.find((p) => p.id === postId);
+
+    if (!post) {
+      return { success: false, error: 'المنشور غير موجود.' };
+    }
+
+    const allowed =
+      requestingUser.role === 'admin' ||
+      (requestingUser.role === 'salon_owner' &&
+        post.ownerId === requestingUser.id);
+
+    if (!allowed) {
+      return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
+    }
+
+    this.state.salonPosts = this.state.salonPosts.filter(
+      (p) => p.id !== postId
+    );
+
+    this.state.postLikes = this.state.postLikes.filter(
+      (l) => l.postId !== postId
+    );
+
+    this.state.postComments = this.state.postComments.filter(
+      (c) => c.postId !== postId
+    );
+
+    return { success: true };
+  }
+
+  togglePostLike(
+    postId: string,
+    requestingUser: User
+  ): { success: boolean; liked?: boolean; likeCount?: number; error?: string } {
+    const post = this.state.salonPosts.find((p) => p.id === postId);
+
+    if (!post) {
+      return { success: false, error: 'المنشور غير موجود.' };
+    }
+
+    const existing = this.state.postLikes.find(
+      (l) => l.postId === postId && l.userId === requestingUser.id
+    );
+
+    if (existing) {
+      this.state.postLikes = this.state.postLikes.filter(
+        (l) => l.id !== existing.id
+      );
+
+      return {
+        success: true,
+        liked: false,
+        likeCount: this.state.postLikes.filter((l) => l.postId === postId)
+          .length,
+      };
+    }
+
+    const like: PostLike = {
+      id: `like_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      postId,
+      userId: requestingUser.id,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.state.postLikes.push(like);
+
+    return {
+      success: true,
+      liked: true,
+      likeCount: this.state.postLikes.filter((l) => l.postId === postId)
+        .length,
+    };
+  }
+
+  getPostLikeStatus(
+    postId: string,
+    userId: string
+  ): { liked: boolean; likeCount: number } {
+    return {
+      liked: this.state.postLikes.some(
+        (l) => l.postId === postId && l.userId === userId
+      ),
+      likeCount: this.state.postLikes.filter((l) => l.postId === postId)
+        .length,
+    };
+  }
+
+  addPostComment(
+    data: {
+      postId: string;
+      comment: string;
+    },
+    requestingUser: User
+  ): { success: boolean; comment?: PostComment; error?: string } {
+    const post = this.state.salonPosts.find((p) => p.id === data.postId);
+
+    if (!post) {
+      return { success: false, error: 'المنشور غير موجود.' };
+    }
+
+    if (!data.comment?.trim()) {
+      return { success: false, error: 'التعليق لا يمكن أن يكون فارغاً.' };
+    }
+
+    const comment: PostComment = {
+      id: `comment_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      postId: data.postId,
+      userId: requestingUser.id,
+      userName: requestingUser.name,
+      userAvatar: requestingUser.avatar,
+      comment: data.comment.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    this.state.postComments.push(comment);
+
+    return { success: true, comment };
+  }
+
+  getPostComments(postId: string): PostComment[] {
+    return this.state.postComments
+      .filter((c) => c.postId === postId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  deletePostComment(
+    commentId: string,
+    requestingUser: User
+  ): { success: boolean; error?: string } {
+    const comment = this.state.postComments.find(
+      (c) => c.id === commentId
+    );
+
+    if (!comment) {
+      return { success: false, error: 'التعليق غير موجود.' };
+    }
+
+    const post = this.state.salonPosts.find(
+      (p) => p.id === comment.postId
+    );
+
+    const allowed =
+      requestingUser.role === 'admin' ||
+      comment.userId === requestingUser.id ||
+      (requestingUser.role === 'salon_owner' &&
+        post?.ownerId === requestingUser.id);
+
+    if (!allowed) {
+      return { success: false, error: 'غير مسموح لك بحذف هذا التعليق.' };
+    }
+
+    this.state.postComments = this.state.postComments.filter(
+      (c) => c.id !== commentId
+    );
+
+    return { success: true };
   }
 
   validateCoupon(code: string, bookingAmount: number): { valid: boolean; coupon?: Coupon; discount?: number; message?: string } {

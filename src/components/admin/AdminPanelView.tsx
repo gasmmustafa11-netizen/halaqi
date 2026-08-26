@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Salon, Booking, Coupon, User, AuditLog, UserRole } from '../../types';
+import {
+  Salon,
+  Booking,
+  Coupon,
+  User,
+  AuditLog,
+  UserRole,
+  SalonPost,
+  PostComment
+} from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -37,12 +46,15 @@ export const AdminPanelView: React.FC = () => {
   const { t } = useLanguage();
   const { user, switchRoleDemo } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts'>('analytics');
   const [salons, setSalons] = useState<Salon[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [salonPosts, setSalonPosts] = useState<SalonPost[]>([]);
+  const [postComments, setPostComments] = useState<Record<string, PostComment[]>>({});
+  const [isLoadingPosts, setIsLoadingPosts] = useState<boolean>(false);
   const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -91,6 +103,67 @@ export const AdminPanelView: React.FC = () => {
   useEffect(() => {
     loadAdminData();
   }, [user]);
+
+  const loadSalonPosts = async () => {
+    if (!isUserAdmin) return;
+
+    setIsLoadingPosts(true);
+
+    try {
+      const postsBySalon = await Promise.all(
+        salons.map((salon) => api.getSalonPosts(salon.id))
+      );
+
+      const allPosts = postsBySalon
+        .flat()
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() -
+            new Date(a.createdAt).getTime()
+        );
+
+      setSalonPosts(allPosts);
+
+      const commentsEntries = await Promise.all(
+        allPosts.map(async (post) => {
+          const comments = await api.getPostComments(post.id);
+          return [post.id, comments] as const;
+        })
+      );
+
+      setPostComments(Object.fromEntries(commentsEntries));
+    } catch (error) {
+      console.error('Error loading salon posts:', error);
+    } finally {
+      setIsLoadingPosts(false);
+    }
+  };
+
+  const handleAdminDeletePost = async (postId: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+
+    try {
+      const result = await api.deleteSalonPost(postId);
+
+      if (!result.success) {
+        alert(result.error || 'تعذر حذف المنشور.');
+        return;
+      }
+
+      setSalonPosts((prev) => prev.filter((post) => post.id !== postId));
+
+      setPostComments((prev) => {
+        const next = { ...prev };
+        delete next[postId];
+        return next;
+      });
+
+      alert('تم حذف المنشور بنجاح.');
+    } catch (error) {
+      console.error('Admin delete post error:', error);
+      alert('حدث خطأ أثناء حذف المنشور.');
+    }
+  };
 
   // If user is not admin, show strict 403 Forbidden Screen
   if (!isUserAdmin) {
@@ -422,6 +495,7 @@ export const AdminPanelView: React.FC = () => {
           { id: 'audit', label: 'سجلات المراقبة والأمان', icon: FileText, count: auditLogs.length },
           { id: 'coupons', label: 'كوبونات الخصم', icon: Tag, count: coupons.length },
           { id: 'security_tests', label: 'مصفوفة فحص الأمان (10 Tests)', icon: ShieldCheck },
+                    { id: 'posts', label: 'المنشورات والتعليقات', icon: FileText, count: salonPosts.length },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -452,6 +526,149 @@ export const AdminPanelView: React.FC = () => {
       </div>
 
       {/* TAB 1: Analytics & Reports */}
+      {activeTab === 'posts' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-black text-white">
+                المنشورات والتعليقات
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">
+                إدارة منشورات جميع الصالونات وحذف المنشورات المخالفة
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadSalonPosts}
+              className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 text-xs font-bold hover:bg-white/10"
+            >
+              تحديث
+            </button>
+          </div>
+
+          {isLoadingPosts ? (
+            <div className="p-10 text-center text-gray-400">
+              جاري تحميل المنشورات...
+            </div>
+          ) : salonPosts.length === 0 ? (
+            <div className="p-10 rounded-2xl bg-[#141414] border border-[#262626] text-center text-gray-400">
+              لا توجد منشورات حاليًا.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {salonPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="rounded-2xl bg-[#141414] border border-[#262626] overflow-hidden"
+                >
+                  <img
+                    src={post.imageUrl}
+                    alt={post.caption || 'منشور الصالون'}
+                    className="w-full h-56 object-cover"
+                  />
+
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <h3 className="font-bold text-white text-sm">
+                        {post.salonName}
+                      </h3>
+
+                      {post.caption && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          {post.caption}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>❤️ {post.likeCount}</span>
+                      <span>💬 {post.commentCount}</span>
+                    </div>
+
+                    <div className="border-t border-[#262626] pt-3 space-y-2">
+                      <h4 className="text-xs font-bold text-gray-300">
+                        التعليقات
+                      </h4>
+
+                      {(postComments[post.id] || []).length === 0 ? (
+                        <p className="text-[11px] text-gray-500">
+                          لا توجد تعليقات.
+                        </p>
+                      ) : (
+                        (postComments[post.id] || []).map((comment) => (
+                          <div
+                            key={comment.id}
+                            className="flex items-start justify-between gap-2 p-2 rounded-xl bg-white/5"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-white">
+                                {comment.userName}
+                              </p>
+                              <p className="text-[11px] text-gray-400 mt-0.5 break-words">
+                                {comment.comment}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              title="حذف التعليق"
+                              onClick={async () => {
+                                if (!confirm('هل أنت متأكد من حذف هذا التعليق؟')) return;
+
+                                const result = await api.deletePostComment(comment.id);
+
+                                if (!result.success) {
+                                  alert(result.error || 'تعذر حذف التعليق.');
+                                  return;
+                                }
+
+                                setPostComments((prev) => ({
+                                  ...prev,
+                                  [post.id]: (prev[post.id] || []).filter(
+                                    (item) => item.id !== comment.id
+                                  ),
+                                }));
+
+                                setSalonPosts((prev) =>
+                                  prev.map((item) =>
+                                    item.id === post.id
+                                      ? {
+                                          ...item,
+                                          commentCount: Math.max(
+                                            0,
+                                            item.commentCount - 1
+                                          ),
+                                        }
+                                      : item
+                                  )
+                                );
+                              }}
+                              className="shrink-0 p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleAdminDeletePost(post.id)}
+                      className="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold text-xs hover:bg-red-500/20 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      حذف المنشور
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'analytics' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

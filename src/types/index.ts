@@ -226,3 +226,33 @@ export interface PlatformSettings {
   refundAr: string;
   refundEn: string;
 }
+
+export interface SalonPost {
+  id: string;
+  salonId: string;
+  ownerId: string;
+  salonName: string;
+  imageUrl: string;
+  caption: string;
+  createdAt: string;
+  updatedAt?: string;
+  likeCount: number;
+  commentCount: number;
+}
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  comment: string;
+  createdAt: string;
+}
+
+export interface PostLike {
+  id: string;
+  postId: string;
+  userId: string;
+  createdAt: string;
+}

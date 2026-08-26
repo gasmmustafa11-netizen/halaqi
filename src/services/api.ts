@@ -11,6 +11,8 @@ import {
   User,
   AuditLog,
   UserRole,
+  SalonPost,
+  PostComment,
 } from '../types';
 
 let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halaqi_auth_token') : null;
@@ -52,6 +54,30 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 }
 
 export const api = {
+  async uploadImage(dataUrl: string): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/uploads/image', {
+        method: 'POST',
+        body: JSON.stringify({ dataUrl }),
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        imageUrl: data.imageUrl,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [uploadImage]:', err);
+      return {
+        success: false,
+        error: 'تعذر رفع الصورة إلى الخادم',
+      };
+    }
+  },
+
+
   // Salons
   async getSalons(params?: { type?: string; city?: string; query?: string; includePending?: boolean }): Promise<Salon[]> {
     try {
@@ -634,4 +660,173 @@ export const api = {
       return { success: false };
     }
   },
+
+  // Salon Posts
+  async getSalonPosts(salonId: string): Promise<SalonPost[]> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts?salonId=${encodeURIComponent(salonId)}`);
+      const data = await res.json();
+      return data.posts || [];
+    } catch (err) {
+      console.error('API Error [getSalonPosts]:', err);
+      return [];
+    }
+  },
+
+  async createSalonPost(payload: {
+    salonId: string;
+    imageUrl: string;
+    caption: string;
+  }): Promise<{ success: boolean; post?: SalonPost; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/salon-posts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        post: data.post,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [createSalonPost]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
+  async deleteSalonPost(id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/${id}`, {
+        method: 'DELETE',
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [deleteSalonPost]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
+  async togglePostLike(id: string): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/${id}/like`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [togglePostLike]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
+  async getPostLikeStatus(id: string): Promise<{
+    success: boolean;
+    liked?: boolean;
+    likeCount?: number;
+  }> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/${id}/like`);
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        liked: data.liked,
+        likeCount: data.likeCount,
+      };
+    } catch (err) {
+      console.error('API Error [getPostLikeStatus]:', err);
+      return {
+        success: false,
+      };
+    }
+  },
+
+  async getPostComments(id: string): Promise<PostComment[]> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/${id}/comments`);
+      const data = await res.json();
+      return data.comments || [];
+    } catch (err) {
+      console.error('API Error [getPostComments]:', err);
+      return [];
+    }
+  },
+
+  async addPostComment(
+    id: string,
+    comment: string
+  ): Promise<{ success: boolean; comment?: PostComment; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ comment }),
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        comment: data.comment,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [addPostComment]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
+  async deletePostComment(id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/salon-posts/comments/${id}`, {
+        method: 'DELETE',
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [deletePostComment]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم',
+      };
+    }
+  },
+
 };
