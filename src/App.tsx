@@ -30,6 +30,18 @@ function AppContent() {
   const { user, role, mySalon } = useAuth();
   const [currentView, setCurrentView] = useState<string>('explore');
 
+  // Retap-to-refresh: bumping a view's tick remounts that section so it
+  // reloads its data. Only the bottom-nav sections support refresh.
+  const [refreshTick, setRefreshTick] = useState<Record<string, number>>({});
+  const REFRESHABLE_VIEWS = new Set<string>([
+    'explore',
+    'posts',
+    'register_salon',
+    'salon_status',
+    'salon_dashboard',
+    'profile',
+  ]);
+
   useEffect(() => {
     if (role === 'admin') {
       setCurrentView('admin');
@@ -64,6 +76,18 @@ function AppContent() {
   };
 
   const handleNavigate = (view: string) => {
+    // Retap-to-refresh: tapping the already-active bottom-nav item reloads
+    // its data instead of doing nothing. We bump that view's tick (which is
+    // wired into its React key) and skip the normal navigation side effects.
+    if (view === currentView && REFRESHABLE_VIEWS.has(view)) {
+      setRefreshTick((prev) => ({
+        ...prev,
+        [view]: (prev[view] || 0) + 1,
+      }));
+
+      return;
+    }
+
     if (view === 'admin' && role !== 'admin') {
       return;
     }
@@ -142,6 +166,7 @@ function AppContent() {
 
         {currentView === 'explore' && (
           <HomeExploreView
+            key={`explore-${refreshTick.explore ?? 0}`}
             onSelectSalon={handleSelectSalon}
             onOpenMap={() => handleNavigate('map')}
             searchQuery={searchQuery}
@@ -151,6 +176,7 @@ function AppContent() {
 
         {currentView === 'posts' && (
         <PostsView
+          key={`posts-${refreshTick.posts ?? 0}`}
           salons={allSalons}
           selectedPostId={selectedPostId}
           onSelectSalon={handleSelectSalon}
@@ -196,12 +222,15 @@ function AppContent() {
           <MyBookingsView onSelectSalonId={handleSelectSalonById} />
         )}
 
-        {currentView === 'salon_dashboard' && mySalon?.status === 'approved' && <SalonDashboardView />}
+        {currentView === 'salon_dashboard' && mySalon?.status === 'approved' && (
+          <SalonDashboardView key={`salon_dashboard-${refreshTick.salon_dashboard ?? 0}`} />
+        )}
 
         {currentView === 'admin' && role === 'admin' && <AdminPanelView />}
 
         {currentView === 'register_salon' && (
           <SalonRegistrationView
+            key={`register_salon-${refreshTick.register_salon ?? 0}`}
             onSuccess={() => {
               handleNavigate('explore');
             }}
@@ -210,6 +239,7 @@ function AppContent() {
 
         {currentView === 'salon_status' && (
           <SalonRegistrationView
+            key={`salon_status-${refreshTick.salon_status ?? 0}`}
             onSuccess={() => {
               handleNavigate('explore');
             }}
@@ -241,6 +271,7 @@ function AppContent() {
 
         {currentView === 'profile' && (
           <UserProfileView
+            key={`profile-${refreshTick.profile ?? 0}`}
             onNavigate={handleNavigate}
             onNavigateToRole={(r) => {
               if (r === 'salon_owner') handleNavigate('salon_dashboard');

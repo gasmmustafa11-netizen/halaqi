@@ -21,7 +21,7 @@ import {
 const API_BASE =
   typeof window !== 'undefined'
     ? window.location.origin
-    : (import.meta.env.VITE_API_URL || '');
+    : ((import.meta as any).env?.VITE_API_URL || '');
 
 let currentAuthToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('halaqi_auth_token') : null;
 
@@ -716,10 +716,74 @@ export const api = {
 
       return {
         success: false,
-        error: 'تعذر الاتصال بالخادم لتجديد الجلسة',
+        error: 'تعذر الاتصال بالخادم.',
       };
     }
   },
+
+  async editUnifiedPostComment(
+    commentId: string,
+    comment: string
+  ): Promise<{
+    success: boolean;
+    blocked?: boolean;
+    comment?: PostComment;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/post-comments/${encodeURIComponent(commentId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ comment }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        blocked: data.blocked,
+        comment: data.comment,
+        error: data.error,
+      };
+    } catch (error) {
+      console.error('[editUnifiedPostComment]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async deleteUnifiedPostComment(
+    commentId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/post-comments/${encodeURIComponent(commentId)}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        error: data.error,
+      };
+    } catch (error) {
+      console.error('[deleteUnifiedPostComment]', error);
+
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
 
 
   async updateMyAvatar(imageUrl: string): Promise<{ success: boolean; user?: User; error?: string }> {

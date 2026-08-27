@@ -1,5 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Heart, MessageCircle, Send, Loader2, ThumbsDown } from 'lucide-react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+} from 'react';
+import {
+  Heart,
+  MessageCircle,
+  Send,
+  Loader2,
+  ThumbsDown,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
 import { useAuth } from '../../context/AuthContext';
@@ -39,6 +52,19 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [directPostLoading, setDirectPostLoading] = useState(false);
+
+  // Comment edit / delete (owner only) via long-press.
+  const [menuComment, setMenuComment] = useState<PostComment | null>(null);
+  const [editingComment, setEditingComment] = useState<{
+    id: string;
+    postId: string;
+    text: string;
+  } | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [commentActionError, setCommentActionError] = useState<string | null>(
+    null
+  );
+  const longPressTimer = useRef<number | null>(null);
 
 
   const salonMap = useMemo(() => {
@@ -498,6 +524,102 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
   const getSalon = (post: SalonPost) => salonMap.get(post.salonId);
 
+  // ---- Long-press detection (owner only) to reveal Edit / Delete ----
+  const startLongPress = (comment: PostComment) => {
+    if (comment.userId !== user?.id) return;
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      setMenuComment(comment);
+    }, 450);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleEditComment = async () => {
+    if (!editingComment) return;
+    const text = editingComment.text.trim();
+    if (!text) return;
+
+    setActionLoading(`edit:${editingComment.id}`);
+    setCommentActionError(null);
+
+    try {
+      const res = await api.editUnifiedPostComment(
+        editingComment.id,
+        text
+      );
+
+      if (res.blocked) {
+        setCommentActionError(res.error || 'تعذر تعديل التعليق.');
+        return;
+      }
+
+      if (res.success && res.comment) {
+        const postId = editingComment.postId;
+        setComments((p) => ({
+          ...p,
+          [postId]: (p[postId] || []).map((c) =>
+            c.id === editingComment.id
+              ? { ...c, comment: res.comment!.comment }
+              : c
+          ),
+        }));
+        setEditingComment(null);
+      } else {
+        setCommentActionError(res.error || 'تعذر تعديل التعليق.');
+      }
+    } catch (error) {
+      console.error('Edit comment error:', error);
+      setCommentActionError('تعذر تعديل التعليق.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteComment = async (comment: PostComment) => {
+    setMenuComment(null);
+    setActionLoading(`delete:${comment.id}`);
+
+    try {
+      const res = await api.deleteUnifiedPostComment(comment.id);
+
+      if (res.success) {
+        // Remove the comment immediately and update counts (no new comment).
+        setComments((p) => ({
+          ...p,
+          [comment.postId]: (p[comment.postId] || []).filter(
+            (c) => c.id !== comment.id
+          ),
+        }));
+        setPosts((prev) =>
+          prev.map((item) =>
+            item.id === comment.postId
+              ? { ...item, commentCount: Math.max(0, item.commentCount - 1) }
+              : item
+          )
+        );
+        setUserPosts((prev) =>
+          prev.map((item) =>
+            item.id === comment.postId
+              ? { ...item, commentCount: Math.max(0, item.commentCount - 1) }
+              : item
+          )
+        );
+      } else {
+        console.error('Delete comment error:', res.error);
+      }
+    } catch (error) {
+      console.error('Delete comment error:', error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <main
       dir={isRtl ? 'rtl' : 'ltr'}
@@ -767,10 +889,22 @@ export const PostsView: React.FC<PostsViewProps> = ({
                               </p>
                             </div>
                           ) : (
-                            postComments.map((comment) => (
+                            postComments.map((comment) => {
+                              const isOwner = comment.userId === user?.id;
+                              const isEditing =
+                                editingComment?.id === comment.id;
+
+                              return (
                               <div
                                 key={comment.id}
                                 className="flex gap-2.5"
+                                onTouchStart={() => startLongPress(comment)}
+                                onTouchEnd={clearLongPress}
+                                onTouchMove={clearLongPress}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  if (isOwner) setMenuComment(comment);
+                                }}
                               >
                                 <button
                                   type="button"
@@ -792,7 +926,56 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                   )}
                                 </button>
 
-                                <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5">
+                                {isEditing ? (
+                                  <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5">
+                                    <textarea
+                                      value={editingComment?.text ?? ''}
+                                      onChange={(event) =>
+                                        setEditingComment((prev) =>
+                                          prev
+                                            ? { ...prev, text: event.target.value }
+                                            : prev
+                                        )
+                                      }
+                                      rows={2}
+                                      placeholder={
+                                        isRtl ? 'عدّل تعليقك...' : 'Edit your comment...'
+                                      }
+                                      className="w-full resize-none rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 transition-all focus:border-[#D4AF37]/40 focus:bg-white/[0.08] focus:ring-1 focus:ring-[#D4AF37]/20"
+                                    />
+                                    {commentActionError && (
+                                      <p className="mt-1 text-xs text-rose-400">
+                                        {commentActionError}
+                                      </p>
+                                    )}
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={handleEditComment}
+                                        disabled={
+                                          actionLoading === `edit:${comment.id}`
+                                        }
+                                        className="flex items-center gap-1.5 rounded-xl bg-[#D4AF37] px-3 py-1.5 text-xs font-bold text-slate-900 transition-all hover:bg-[#e6c14d] disabled:opacity-60"
+                                      >
+                                        {actionLoading === `edit:${comment.id}` ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : null}
+                                        {isRtl ? 'حفظ' : 'Save'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingComment(null);
+                                          setCommentActionError(null);
+                                        }}
+                                        className="rounded-xl border border-white/[0.12] px-3 py-1.5 text-xs font-bold text-slate-300 transition-colors hover:text-slate-100"
+                                      >
+                                        {isRtl ? 'إلغاء' : 'Cancel'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5">
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -856,9 +1039,11 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                     </button>
                                   </div>
                                 </div>
-                              </div>
-                            ))
-                          )}
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
                         </div>
 
                         <div className="mt-4 flex gap-2">
@@ -909,6 +1094,61 @@ export const PostsView: React.FC<PostsViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Owner-only comment action menu (Edit / Delete) */}
+      {menuComment && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4"
+          onClick={() => setMenuComment(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/[0.12] bg-[#1a1d29] shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-white/[0.08] px-4 py-3 text-sm text-slate-300">
+              {isRtl ? 'خيارات التعليق' : 'Comment options'}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingComment({
+                  id: menuComment.id,
+                  postId: menuComment.postId,
+                  text: menuComment.comment,
+                });
+                setCommentActionError(null);
+                setMenuComment(null);
+              }}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 transition-colors hover:bg-white/[0.06]"
+            >
+              <Pencil className="h-4 w-4 text-[#D4AF37]" />
+              {isRtl ? 'تعديل التعليق' : 'Edit comment'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteComment(menuComment)}
+              disabled={actionLoading === `delete:${menuComment.id}`}
+              className="flex w-full items-center gap-3 border-t border-white/[0.08] px-4 py-3 text-left text-sm text-rose-400 transition-colors hover:bg-white/[0.06] disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+              {actionLoading === `delete:${menuComment.id}`
+                ? isRtl
+                  ? 'جارٍ الحذف...'
+                  : 'Deleting...'
+                : isRtl
+                  ? 'حذف التعليق'
+                  : 'Delete comment'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuComment(null)}
+              className="w-full border-t border-white/[0.08] px-4 py-3 text-center text-sm font-bold text-slate-400 transition-colors hover:text-slate-200"
+            >
+              {isRtl ? 'إلغاء' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 

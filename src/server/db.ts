@@ -4420,6 +4420,131 @@ class DatabaseStore {
     }
   }
 
+  async editPostComment(
+    commentId: string,
+    requestingUser: User,
+    newComment: string
+  ): Promise<{
+    success: boolean;
+    blocked?: boolean;
+    comment?: PostComment;
+    error?: string;
+  }> {
+    try {
+      const trimmed = (newComment || '').trim();
+
+      if (!trimmed) {
+        return {
+          success: false,
+          error: 'التعليق لا يمكن أن يكون فارغاً.',
+        };
+      }
+
+      // Block abusive edits before they are saved (keep moderation working).
+      const mod = moderateContent(trimmed);
+      if (mod.blocked) {
+        return { success: false, blocked: true, error: mod.message };
+      }
+
+      const rows = await sql`
+        SELECT
+          pc.id,
+          pc.post_id,
+          pc.user_id,
+          pc.likes,
+          pc.dislikes,
+          pc.created_at,
+          sp.salon_id,
+          CASE
+            WHEN sp.id IS NOT NULL THEN 'salon'
+            WHEN up.id IS NOT NULL THEN 'user'
+            ELSE NULL
+          END AS post_type,
+          up.user_id AS post_user_id,
+          ${sql`(SELECT cr.reaction FROM comment_reactions cr WHERE cr.comment_id = pc.id AND cr.user_id = ${requestingUser.id} LIMIT 1)`} AS my_reaction
+        FROM post_comments pc
+        LEFT JOIN salon_posts sp
+          ON sp.id = pc.post_id
+        LEFT JOIN user_posts up
+          ON up.id = pc.post_id
+        WHERE pc.id = ${commentId}
+        LIMIT 1
+      `;
+
+      if (!rows.length) {
+        return {
+          success: false,
+          error: 'التعليق غير موجود.',
+        };
+      }
+
+      const comment = rows[0] as any;
+
+      let allowed =
+        requestingUser.role === 'admin' ||
+        comment.user_id === requestingUser.id;
+
+      if (
+        !allowed &&
+        comment.post_type === 'user' &&
+        comment.post_user_id === requestingUser.id
+      ) {
+        allowed = true;
+      }
+
+      if (
+        !allowed &&
+        requestingUser.role === 'salon_owner' &&
+        comment.post_type === 'salon' &&
+        comment.salon_id
+      ) {
+        allowed = await this.isApprovedSalonOwnerFromNeon(
+          requestingUser.id,
+          comment.salon_id
+        );
+      }
+
+      if (!allowed) {
+        return {
+          success: false,
+          error: 'غير مسموح لك بتعديل هذا التعليق.',
+        };
+      }
+
+      // Modify the existing comment in place (do not create a new one).
+      const updatedAt = new Date().toISOString();
+      await sql`
+        UPDATE post_comments
+        SET comment = ${trimmed}, updated_at = ${updatedAt}
+        WHERE id = ${commentId}
+      `;
+
+      const updated: PostComment = {
+        id: commentId,
+        postId: String(comment.post_id),
+        userId: String(comment.user_id),
+        userName: requestingUser.name,
+        userAvatar: requestingUser.avatar,
+        comment: trimmed,
+        createdAt: comment.created_at
+          ? new Date(comment.created_at).toISOString()
+          : new Date().toISOString(),
+        likes: Number(comment.likes || 0),
+        dislikes: Number(comment.dislikes || 0),
+        myReaction: (comment.my_reaction as 'like' | 'dislike' | null) || null,
+      };
+
+      return { success: true, comment: updated };
+    } catch (error: any) {
+      console.error('فشل تعديل التعليق من Neon:', error?.message || error);
+
+      return {
+        success: false,
+        error: 'تعذر تعديل التعليق.',
+      };
+    }
+  }
+
   async deletePostComment(
     commentId: string,
     requestingUser: User

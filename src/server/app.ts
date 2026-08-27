@@ -2499,6 +2499,94 @@ app.post(
 );
 
 /* =========================================================
+   COMMENT EDIT / DELETE (owner / admin / salon owner)
+   Unified, post-type-agnostic endpoints (post type is
+   detected from the comment itself inside the DB layer).
+========================================================= */
+
+app.patch(
+  '/api/post-comments/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const commentId = String(req.params.id || '').trim();
+      const newComment = req.body?.comment;
+
+      if (!newComment?.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'التعليق لا يمكن أن يكون فارغاً.',
+        });
+      }
+
+      const result = await db.editPostComment(
+        commentId,
+        req.user!,
+        newComment
+      );
+
+      if (result.blocked) {
+        return res.status(400).json({
+          success: false,
+          blocked: true,
+          error: result.error,
+        });
+      }
+
+      if (!result.success) {
+        return res.status(403).json({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      return res.json({
+        success: true,
+        comment: result.comment,
+      });
+    } catch (error) {
+      console.error('[COMMENT EDIT ERROR]', error);
+
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر تعديل التعليق.',
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/post-comments/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const commentId = String(req.params.id || '').trim();
+
+      const result = await db.deletePostComment(commentId, req.user!);
+
+      if (!result.success) {
+        const status =
+          result.error === 'التعليق غير موجود.' ? 404 : 403;
+
+        return res.status(status).json({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[COMMENT DELETE ERROR]', error);
+
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر حذف التعليق.',
+      });
+    }
+  }
+);
+
+/* =========================================================
    CONFIG / CITIES
 ========================================================= */
 
