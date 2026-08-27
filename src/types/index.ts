@@ -201,6 +201,17 @@ export interface Notification {
   salonId?: string;
 }
 
+export type MessageType = 'text' | 'image' | 'audio';
+
+export interface MessageMediaMetadata {
+  size?: number;
+  mime?: string;
+  name?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+}
+
 export interface Message {
   id: string;
   senderId: string;
@@ -209,6 +220,10 @@ export interface Message {
   read: boolean;
   status?: 'sent' | 'delivered' | 'read';
   createdAt: string;
+  type?: MessageType;
+  mediaUrl?: string;
+  mediaThumbnail?: string;
+  mediaMetadata?: MessageMediaMetadata;
 }
 
 export interface Conversation {
@@ -221,6 +236,7 @@ export interface Conversation {
     body: string;
     createdAt: string;
     senderId: string;
+    type?: MessageType;
   };
   unreadCount: number;
 }

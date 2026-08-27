@@ -15,7 +15,8 @@ import {
   PostComment,
   UserPost,
   Message,
-  Conversation
+  Conversation,
+  MessageMediaMetadata
 } from '../types';
 
 const API_BASE =
@@ -1230,14 +1231,48 @@ export const api = {
     }
   },
 
+  async uploadMessageMedia(payload: {
+    kind: 'image' | 'audio';
+    original: string;
+    thumbnail?: string;
+  }): Promise<{ success: boolean; url?: string; thumbnailUrl?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/messages/media', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || 'فشل رفع الوسائط.' };
+      }
+      return { success: true, url: data.url, thumbnailUrl: data.thumbnailUrl };
+    } catch (err) {
+      console.error('API Error [uploadMessageMedia]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
   async sendMessage(
     recipientId: string,
-    body: string
+    body: string,
+    media?: {
+      type: 'image' | 'audio';
+      url: string;
+      thumbnail?: string;
+      metadata?: MessageMediaMetadata;
+    }
   ): Promise<{ success: boolean; message?: Message; error?: string }> {
     try {
       const res = await fetchWithAuth('/api/messages', {
         method: 'POST',
-        body: JSON.stringify({ recipientId, body }),
+        body: JSON.stringify({
+          recipientId,
+          body,
+          type: media?.type ?? 'text',
+          mediaUrl: media?.url,
+          thumbnail: media?.thumbnail,
+          metadata: media?.metadata,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
