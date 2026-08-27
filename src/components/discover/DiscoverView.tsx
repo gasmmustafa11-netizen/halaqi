@@ -90,8 +90,9 @@ const AnonymousChat: React.FC<{
   otherId: string;
   isRtl: boolean;
   onClose: () => void;
+  onNavigate: (view: string) => void;
   showToast: (m: string) => void;
-}> = ({ convId, otherId, isRtl, onClose, showToast }) => {
+}> = ({ convId, otherId, isRtl, onClose, onNavigate, showToast }) => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [meta, setMeta] = useState<any>(null);
@@ -197,19 +198,38 @@ const AnonymousChat: React.FC<{
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-300 flex items-center justify-center">
             {isRtl ? '›' : '‹'}
           </button>
-          <AnonAvatar avatar={otherAvatar} revealed={revealed} size="w-10 h-10" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-white truncate">{displayName}</p>
-            {!ended && !revealed && expiresAt != null && (
-              <p className={`text-[11px] flex items-center gap-1 ${remaining <= WARN_MS ? 'text-red-400' : 'text-gray-400'}`}>
-                <Clock className="w-3 h-3" />
-                {fmtRemaining(remaining)}
-                {remaining <= WARN_MS && remaining > 0 && (isRtl ? ' (10 دقائق متبقية)' : ' (10 minutes remaining)')}
-              </p>
-            )}
-            {revealed && <p className="text-[11px] text-[#D4AF37]">{isRtl ? 'تم كشف الهوية' : 'Identity revealed'}</p>}
-            {ended && <p className="text-[11px] text-gray-500">{isRtl ? 'انتهت المحادثة' : 'Conversation ended'}</p>}
-          </div>
+          {revealed ? (
+            <button
+              type="button"
+              onClick={() => onNavigate(`user:${otherId}`)}
+              aria-label={isRtl ? 'فتح الملف الشخصي' : 'Open profile'}
+              className={`flex items-center gap-3 flex-1 min-w-0 text-start rounded-2xl hover:bg-white/[0.04] transition-colors ${isRtl ? 'flex-row-reverse' : ''}`}
+            >
+              <AnonAvatar avatar={otherAvatar} revealed={revealed} size="w-10 h-10" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white truncate">{displayName}</p>
+                <p className="text-[11px] flex items-center gap-1 text-[#D4AF37]">
+                  <User className="w-3 h-3" />
+                  {isRtl ? 'تم كشف الهوية — اضغط للملف' : 'Identity revealed — tap for profile'}
+                </p>
+              </div>
+            </button>
+          ) : (
+            <>
+              <AnonAvatar avatar={otherAvatar} revealed={revealed} size="w-10 h-10" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white truncate">{displayName}</p>
+                {!ended && !revealed && expiresAt != null && (
+                  <p className={`text-[11px] flex items-center gap-1 ${remaining <= WARN_MS ? 'text-red-400' : 'text-gray-400'}`}>
+                    <Clock className="w-3 h-3" />
+                    {fmtRemaining(remaining)}
+                    {remaining <= WARN_MS && remaining > 0 && (isRtl ? ' (10 دقائق متبقية)' : ' (10 minutes remaining)')}
+                  </p>
+                )}
+                {ended && <p className="text-[11px] text-gray-500">{isRtl ? 'انتهت المحادثة' : 'Conversation ended'}</p>}
+              </div>
+            </>
+          )}
           <button onClick={end} className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-300 text-xs">
             {isRtl ? 'إنهاء' : 'End'}
           </button>
@@ -479,6 +499,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
           setActiveChat(null);
           loadConnections();
         }}
+        onNavigate={onNavigate}
         showToast={showToast}
       />
     );
