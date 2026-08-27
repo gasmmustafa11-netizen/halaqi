@@ -7,6 +7,7 @@ import {
   Share2,
   UserRound,
   Loader2,
+  MessageSquare,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { UserRole } from '../../types';
@@ -23,6 +24,7 @@ interface PublicUser {
 interface PublicUserProfileViewProps {
   userId: string;
   onBack: () => void;
+  onNavigate?: (view: string) => void;
 }
 
 const cityNames: Record<string, string> = {
@@ -41,6 +43,7 @@ const cityNames: Record<string, string> = {
 export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   userId,
   onBack,
+  onNavigate,
 }) => {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [salon, setSalon] = useState<any>(null);
@@ -304,21 +307,33 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
               <p className="text-sm text-gray-400 mt-2">{roleLabel}</p>
             </div>
 
-            <button
-              onClick={handleFollow}
-              disabled={followLoading}
-              className={`px-6 py-3 rounded-xl font-black text-sm transition-all ${
-                isFollowing
-                  ? 'bg-white/5 border border-white/10 text-white'
-                  : 'bg-[#D4AF37] text-black hover:brightness-110'
-              } ${followLoading ? 'opacity-60 cursor-wait' : ''}`}
-            >
-              {followLoading
-                ? 'جارٍ التحديث...'
-                : isFollowing
-                  ? 'إلغاء المتابعة'
-                  : 'متابعة'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleFollow}
+                disabled={followLoading}
+                className={`px-6 py-3 rounded-xl font-black text-sm transition-all ${
+                  isFollowing
+                    ? 'bg-white/5 border border-white/10 text-white'
+                    : 'bg-[#D4AF37] text-black hover:brightness-110'
+                } ${followLoading ? 'opacity-60 cursor-wait' : ''}`}
+              >
+                {followLoading
+                  ? 'جارٍ التحديث...'
+                  : isFollowing
+                    ? 'إلغاء المتابعة'
+                    : 'متابعة'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate?.(`messages:${userId}`)}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all"
+                title="إرسال رسالة"
+              >
+                <MessageSquare className="w-4 h-4 text-[#D4AF37]" />
+                مراسلة
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-8">

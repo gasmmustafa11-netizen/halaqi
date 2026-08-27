@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import express, { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { db } from './db.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon } from './db.js';
@@ -1295,6 +1296,23 @@ app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, re
 
 let messagesTableReady: Promise<void> | null = null;
 
+/* Spam / abuse protection for direct messaging.
+   - Global per-IP limit on how many messages can be sent in a window.
+   - Per (sender -> recipient) cooldown to stop rapid-fire / duplicate spam. */
+const messageRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 60, // up to 60 messages per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'تم تجاوز حد إرسال الرسائل. يرجى المحاولة لاحقاً.',
+  },
+});
+
+const messageRecipientCooldown = new Map<string, number>();
+const MESSAGE_RECIPIENT_MIN_INTERVAL_MS = 1500;
+
 async function ensureMessagesTable(): Promise<void> {
   if (!messagesTableReady) {
     messagesTableReady = (async () => {
@@ -1305,13 +1323,24 @@ async function ensureMessagesTable(): Promise<void> {
           recipient_id TEXT NOT NULL,
           body TEXT NOT NULL,
           read BOOLEAN NOT NULL DEFAULT FALSE,
+          status TEXT NOT NULL DEFAULT 'sent',
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `;
 
+      // Backfill any older table that was created before the status column.
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id, recipient_id, created_at)`;
+      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)`;
     })().catch((error: unknown) => {
       messagesTableReady = null;
       throw error;
@@ -1396,6 +1425,20 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
       };
     });
 
+    // A recipient fetching their inbox means the (pending) incoming
+    // messages have physically arrived on their device, so promote
+    // 'sent' -> 'delivered'. 'read' is only set when they open the
+    // thread, so unread counts remain accurate.
+    try {
+      await followSql`
+        UPDATE messages
+        SET status = 'delivered'
+        WHERE recipient_id = ${me} AND status = 'sent'
+      `;
+    } catch (updErr: any) {
+      console.error('[MESSAGES DELIVER]', updErr?.message || updErr);
+    }
+
     return res.json({
       success: true,
       conversations,
@@ -1456,9 +1499,22 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
         recipientId: m.recipient_id,
         body: m.body,
         read: m.read,
+        status: m.status || 'sent',
         createdAt: new Date(m.created_at).toISOString(),
       }))
       .reverse();
+
+    // If the current user is the recipient, fetching this thread means
+    // the pending incoming messages have arrived on their device.
+    try {
+      await followSql`
+        UPDATE messages
+        SET status = 'delivered'
+        WHERE recipient_id = ${me} AND sender_id = ${other} AND status = 'sent'
+      `;
+    } catch (updErr: any) {
+      console.error('[MESSAGES DELIVER THREAD]', updErr?.message || updErr);
+    }
 
     return res.json({
       success: true,
@@ -1479,7 +1535,7 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
    Sends a private message. The sender identity is ALWAYS derived from
    the authenticated user (req.user.id); the recipient is validated and
    must exist and not be banned. Self-messaging is rejected. */
-app.post('/api/messages', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/messages', requireAuth, messageRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
   try {
     await ensureMessagesTable();
 
@@ -1502,10 +1558,29 @@ app.post('/api/messages', requireAuth, async (req: AuthenticatedRequest, res: Re
       });
     }
 
+    // Message length validation (spam / abuse protection).
+    const MAX_MESSAGE_LENGTH = 2000;
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({
+        success: false,
+        error: 'الرسالة طويلة جداً (الحد الأقصى 2000 حرف).',
+      });
+    }
+
     if (recipientId === me) {
       return res.status(400).json({
         success: false,
         error: 'لا يمكنك إرسال رسالة إلى نفسك.',
+      });
+    }
+
+    // Per-recipient cooldown to prevent rapid-fire / duplicate spam.
+    const cooldownKey = `${me}->${recipientId}`;
+    const lastSent = messageRecipientCooldown.get(cooldownKey) || 0;
+    if (Date.now() - lastSent < MESSAGE_RECIPIENT_MIN_INTERVAL_MS) {
+      return res.status(429).json({
+        success: false,
+        error: 'الرجاء الانتظار قليلاً قبل إرسال رسالة أخرى لنفس المستخدم.',
       });
     }
 
@@ -1538,9 +1613,11 @@ app.post('/api/messages', requireAuth, async (req: AuthenticatedRequest, res: Re
     const id = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     const createdAt = new Date().toISOString();
 
+    messageRecipientCooldown.set(cooldownKey, Date.now());
+
     await followSql`
-      INSERT INTO messages (id, sender_id, recipient_id, body, read, created_at)
-      VALUES (${id}, ${me}, ${recipientId}, ${text}, FALSE, ${createdAt})
+      INSERT INTO messages (id, sender_id, recipient_id, body, read, status, created_at)
+      VALUES (${id}, ${me}, ${recipientId}, ${text}, FALSE, 'sent', ${createdAt})
     `;
 
     const message = {
@@ -1549,6 +1626,7 @@ app.post('/api/messages', requireAuth, async (req: AuthenticatedRequest, res: Re
       recipientId,
       body: text,
       read: false,
+      status: 'sent',
       createdAt,
     };
 
@@ -1605,7 +1683,7 @@ app.post('/api/messages/:userId/read', requireAuth, async (req: AuthenticatedReq
 
     await followSql`
       UPDATE messages
-      SET read = TRUE
+      SET read = TRUE, status = 'read'
       WHERE recipient_id = ${me}
         AND sender_id = ${other}
         AND read = FALSE
