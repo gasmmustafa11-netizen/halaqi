@@ -317,7 +317,8 @@ export const api = {
 
   async getUnifiedPostComments(
     postId: string,
-    postType: 'salon' | 'user'
+    postType: 'salon' | 'user',
+    userId?: string
   ): Promise<PostComment[]> {
     try {
       const base =
@@ -325,9 +326,12 @@ export const api = {
           ? '/api/user-posts'
           : '/api/salon-posts';
 
-      const res = await fetchWithAuth(
-        `${base}/${encodeURIComponent(postId)}/comments`
-      );
+      const url =
+        userId
+          ? `${base}/${encodeURIComponent(postId)}/comments?userId=${encodeURIComponent(userId)}`
+          : `${base}/${encodeURIComponent(postId)}/comments`;
+
+      const res = await fetchWithAuth(url);
 
       const data = await res.json().catch(() => ({}));
 
@@ -375,6 +379,42 @@ export const api = {
       };
     } catch (error) {
       console.error('[addUnifiedPostComment]', error);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم.',
+      };
+    }
+  },
+
+  async reactToComment(
+    commentId: string,
+    reaction: 'like' | 'dislike' | null
+  ): Promise<{
+    success: boolean;
+    likes?: number;
+    dislikes?: number;
+    myReaction?: 'like' | 'dislike' | null;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/post-comments/${encodeURIComponent(commentId)}/react`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reaction }),
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      return {
+        success: res.ok && data.success,
+        likes: data.likes,
+        dislikes: data.dislikes,
+        myReaction: data.myReaction,
+        error: data.error,
+      };
+    } catch (error) {
       return {
         success: false,
         error: 'تعذر الاتصال بالخادم.',

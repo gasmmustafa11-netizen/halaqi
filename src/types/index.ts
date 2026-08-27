@@ -296,6 +296,9 @@ export interface PostComment {
   userAvatar?: string;
   comment: string;
   createdAt: string;
+  likes?: number;
+  dislikes?: number;
+  myReaction?: 'like' | 'dislike' | null;
 }
 
 export interface PostLike {

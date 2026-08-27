@@ -2280,7 +2280,10 @@ app.get(
 
 app.get('/api/user-posts/:id/comments', async (req: Request, res: Response) => {
   try {
-    const comments = await db.getPostComments(req.params.id);
+    const comments = await db.getPostComments(
+      req.params.id,
+      typeof req.query.userId === 'string' ? req.query.userId : undefined
+    );
 
     return res.json({
       success: true,
@@ -2342,7 +2345,10 @@ app.post(
 
 app.get('/api/salon-posts/:id/comments', async (req: Request, res: Response) => {
   try {
-    const comments = await db.getPostComments(req.params.id);
+    const comments = await db.getPostComments(
+      req.params.id,
+      typeof req.query.userId === 'string' ? req.query.userId : undefined
+    );
 
     return res.json({
       success: true,
@@ -2397,6 +2403,60 @@ app.post(
       return res.status(500).json({
         success: false,
         error: 'تعذر إضافة التعليق.',
+      });
+    }
+  }
+);
+
+/* =========================================================
+   COMMENT REACTIONS (Like / Dislike)
+========================================================= */
+
+app.post(
+  '/api/post-comments/:id/react',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const commentId = String(req.params.id || '').trim();
+      const userId = req.user!.id;
+      const reaction = req.body?.reaction;
+
+      if (
+        reaction !== null &&
+        reaction !== 'like' &&
+        reaction !== 'dislike'
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'قيمة التفاعل غير صالحة.',
+        });
+      }
+
+      const result = await db.setCommentReaction(
+        commentId,
+        userId,
+        reaction
+      );
+
+      if (!result.success) {
+        return res.status(404).json({
+          success: false,
+          error: result.error || 'التعليق غير موجود.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        likes: result.likes,
+        dislikes: result.dislikes,
+        myReaction: result.myReaction,
+      });
+    } catch (error) {
+      console.error('[COMMENT REACT ERROR]', error);
+
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر تسجيل التفاعل.',
       });
     }
   }
