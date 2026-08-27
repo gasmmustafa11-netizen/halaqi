@@ -14,7 +14,8 @@ import {
   Sparkles,
   Search,
   Heart,
-    Bell
+  Bell,
+  Compass
   } from 'lucide-react';
 
 interface NavbarProps {
@@ -302,7 +303,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Right Section: Location Pill + User Controls */}
+        {/* Right Section: User Controls */}
         <div className="flex items-center gap-3 shrink-0">
 
             {user && (
@@ -545,83 +546,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
- {/* Current Location Badge */}
-          <div className="hidden sm:flex flex-col items-end px-3 py-1 bg-white/[0.06] rounded-full border border-white/[0.12] ring-1 ring-white/[0.05]">
-            <span className="text-[9px] text-gray-400 uppercase tracking-widest flex items-center gap-1">
-              <MapPin className="w-2.5 h-2.5 text-[#D4AF37]" />
-              الموقع الحالي
-            </span>
-            <span className="text-xs font-semibold text-white">بغداد، المنصور</span>
-          </div>
+          {/* Discover */}
+          <button
+            type="button"
+            onClick={() => onNavigate('explore')}
+            title={isRtl ? 'استكشف' : 'Discover'}
+            className="relative flex items-center justify-center w-10 h-10 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] ring-1 ring-white/[0.05] text-slate-200 shadow-[0_0_14px_-2px_rgba(255,255,255,0.18)] transition-all"
+          >
+            <Compass className="w-5 h-5" strokeWidth={1.5} />
+          </button>
 
-          {/* User Account / Profile */}
-          {user ? (
-            <div className="relative">
-              <button
-                onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                className="w-10 h-10 rounded-full border-2 border-[#D4AF37] bg-gray-800 flex items-center justify-center p-0.5 shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 overflow-hidden hover:brightness-110 transition-all"
-              >
-                {user.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  <span className="text-[#D4AF37] font-bold text-sm">
-                    {user.name.charAt(0)}
-                  </span>
-                )}
-              </button>
-
-              {/* Dropdown Menu */}
-              {isProfileDropdownOpen && (
-                 <div className="fixed left-3 right-3 top-[76px] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-56 w-auto bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-2 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] z-[100] text-xs space-y-1 animate-in fade-in zoom-in-95">
-                  <div className="px-3 py-2 border-b border-[#262626]">
-                    <p className="font-bold text-white truncate">{user.name}</p>
-                    <p className="text-[10px] text-gray-400 font-mono" dir="ltr">
-                      {user.phone}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      onNavigate('profile');
-                      setIsProfileDropdownOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
-                  >
-                    <User className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    <span>{t('profile')}</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      onNavigate('bookings');
-                      setIsProfileDropdownOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
-                  >
-                    <Calendar className="w-3.5 h-3.5 text-sky-400" />
-                    <span>{t('myBookings')}</span>
-                  </button>
-
-                  <div className="border-t border-[#262626] my-1" />
-
-                  <button
-                    onClick={() => {
-                      logout();
-                      setIsProfileDropdownOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-400 hover:bg-red-950/40 transition-colors"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>{t('logout')}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
+          {/* Login (logged-out only) */}
+          {!user && (
             <button
               onClick={openAuthModal}
               className="px-4 py-2 rounded-full bg-[#D4AF37] hover:bg-[#B8962D] text-black font-bold text-xs shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 transition-all flex items-center gap-1.5"
