@@ -329,7 +329,7 @@ export const MessagesView: React.FC<{
       <div
         ref={threadScrollRef}
         onScroll={handleThreadScroll}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-[#0f0f0f]"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 bg-[#0f0f0f]"
       >
         {loadingMsg && messages.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-gray-500">
