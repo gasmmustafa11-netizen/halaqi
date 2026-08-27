@@ -1630,24 +1630,10 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
       createdAt,
     };
 
-    // Notify the recipient (non-blocking; failures must not fail the send).
-    try {
-      const preview =
-        text.length > 80 ? `${text.substring(0, 80)}…` : text;
-
-      await db.createNotification({
-        userId: recipientId,
-        actorUserId: me,
-        title: 'رسالة جديدة 💬',
-        titleEn: 'New Message 💬',
-        message: `${sender?.name || 'مستخدم'}: ${preview}`,
-        messageEn: `${sender?.name || 'A user'}: ${preview}`,
-        type: 'message',
-        link: '/messages',
-      });
-    } catch (nerr: any) {
-      console.error('[MESSAGE NOTIFICATION] Failed:', nerr?.message || nerr);
-    }
+    // Private messages are surfaced via the Messages badge (conversation
+    // unread count) only — NOT as duplicate entries in the Notifications
+    // section. Intentionally no `type: 'message'` notification is created
+    // here (Messenger-style behaviour).
 
     return res.status(201).json({
       success: true,

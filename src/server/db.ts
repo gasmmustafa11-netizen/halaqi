@@ -4711,6 +4711,7 @@ export async function getNotificationsFromNeon(userId: string): Promise<Notifica
     FROM notifications n
     LEFT JOIN users u ON u.id = n.actor_user_id
     WHERE n.user_id = ${userId}
+      AND n.type != 'message'
     ORDER BY n.created_at DESC
   `;
 

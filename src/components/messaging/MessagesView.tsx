@@ -129,6 +129,11 @@ export const MessagesView: React.FC<{
       await loadMessages(otherId);
       await api.markMessagesRead(otherId);
       await loadConversations();
+      // Immediately refresh the Navbar Messages unread badge so it clears
+      // without waiting for the polling cycle.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('halaqi:messages-unread-refresh'));
+      }
       // Jump to the latest message once the thread has rendered.
       requestAnimationFrame(scrollThreadToBottom);
     },
@@ -147,6 +152,10 @@ export const MessagesView: React.FC<{
     const timer = setInterval(async () => {
       await loadMessages(selectedId);
       await api.markMessagesRead(selectedId);
+      // Keep the Navbar Messages unread badge in sync immediately.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('halaqi:messages-unread-refresh'));
+      }
     }, 10000);
     return () => clearInterval(timer);
   }, [selectedId, user?.id, loadMessages]);
