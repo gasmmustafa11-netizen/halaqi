@@ -107,6 +107,26 @@ const MODERATION_RULES: ModerationRule[] = [
     ],
   },
 
+  // ---------------- Severe Iraqi "عير" (penis) insults ----------------
+  {
+    id: 'severe-ar-ayr',
+    category: 'hate',
+    languages: ['ar', 'iraqi', 'levantine', 'gulf', 'egyptian'],
+    severity: 'severe',
+    terms: [
+      // "عير" (penis / "dick") and Iraqi insult phrases built around it.
+      // Terms are written run-together: the fuzzy matcher injects
+      // [^\p{L}\p{N}]* between characters, so it also catches spaced,
+      // dotted, tatweel and otherwise separated obfuscations
+      // (ع ي ر / ع.ي.ر / عـير / ع-ي-ر). Word boundaries still protect
+      // benign words that merely contain the letters (بعير/معير/عيرة/تعير).
+      'عير', '3yr',
+      'عيرك', '3yrk', // "your dick"
+      'عيري', '3yry',
+      'ياعير', // "يا عير"
+    ],
+  },
+
   // ---------------- Explicit profanity (high) ----------------
   {
     id: 'profanity-en',
