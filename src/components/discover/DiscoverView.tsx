@@ -1,22 +1,31 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { User, Clock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 
 interface DiscoverUser {
   id: string;
-  name: string;
-  avatar?: string;
-  city?: string;
-  interests: string[];
+  anonymousName: string;
+  anonymousAvatar?: string | null;
   sharedInterests: string[];
 }
 
 interface IncomingRequest {
   id: string;
   senderId: string;
-  name: string;
-  avatar?: string;
+  anonymousName: string;
+  sharedInterests: string[];
+}
+
+interface AnonConnection {
+  conversationId: string;
+  otherId: string;
+  expiresAt: string;
+  revealed: boolean;
+  ended: boolean;
+  myConsent: boolean;
+  otherConsent: boolean;
 }
 
 const INTEREST_OPTIONS: { id: string; ar: string; en: string }[] = [
@@ -48,8 +57,234 @@ const REPORT_REASONS = [
   { id: 'other', ar: 'أخرى', en: 'Other' },
 ];
 
+const ANON_DURATION_MS = 40 * 60 * 1000;
+const WARN_MS = 10 * 60 * 1000;
+
 const glassCard =
   'bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]';
+
+function AnonAvatar({ avatar, revealed, size = 'w-20 h-20' }: { avatar?: string; revealed?: boolean; size?: string }) {
+  if (revealed && avatar) {
+    return (
+      <div className={`${size} rounded-2xl bg-gray-800 border border-white/10 overflow-hidden shrink-0`}>
+        <img src={avatar} alt="" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+  return (
+    <div className={`${size} rounded-2xl bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.12] flex items-center justify-center text-gray-400 shrink-0`}>
+      <User className="w-1/2 h-1/2" />
+    </div>
+  );
+}
+
+function fmtRemaining(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+const AnonymousChat: React.FC<{
+  convId: string;
+  otherId: string;
+  isRtl: boolean;
+  onClose: () => void;
+  showToast: (m: string) => void;
+}> = ({ convId, otherId, isRtl, onClose, showToast }) => {
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<any[]>([]);
+  const [meta, setMeta] = useState<any>(null);
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [remaining, setRemaining] = useState<number>(ANON_DURATION_MS);
+  const [myConsent, setMyConsent] = useState(false);
+  const [otherConsent, setOtherConsent] = useState(false);
+  const [otherName, setOtherName] = useState('');
+  const [otherAvatar, setOtherAvatar] = useState<string | undefined>();
+
+  const refresh = useCallback(async () => {
+    const res = await api.getDiscoverConversation(convId);
+    if (res.success) {
+      setMessages(res.messages || []);
+      const m = res.meta;
+      setMeta(m);
+      setEnded(Boolean(m?.ended));
+      setRevealed(Boolean(m?.revealed));
+      if (m?.expiresAt) setExpiresAt(new Date(m.expiresAt).getTime());
+      setMyConsent(Boolean(m?.myConsent));
+      setOtherConsent(Boolean(m?.otherConsent));
+      if (m?.revealed) {
+        setOtherName(m.otherName || (isRtl ? 'مستخدم' : 'User'));
+        setOtherAvatar(m.otherAvatar);
+      }
+    }
+  }, [convId, isRtl]);
+
+  useEffect(() => {
+    refresh();
+    const t = window.setInterval(refresh, 4000);
+    return () => window.clearInterval(t);
+  }, [refresh]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (expiresAt == null || revealed || ended) return;
+    const tick = () => {
+      const left = expiresAt - Date.now();
+      setRemaining(left);
+      if (left <= 0) {
+        setEnded(true);
+        api.endDiscoverConversation(convId).catch(() => {});
+        showToast(isRtl ? 'انتهت المحادثة المجهولة' : 'Anonymous conversation ended');
+      }
+    };
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [expiresAt, revealed, ended, convId, showToast, isRtl]);
+
+  const send = async () => {
+    const text = body.trim();
+    if (!text || sending) return;
+    setSending(true);
+    const res = await api.sendDiscoverMessage(convId, text);
+    setSending(false);
+    if (res.success) {
+      setBody('');
+      refresh();
+    } else {
+      showToast(res.error || (isRtl ? 'تعذر الإرسال' : 'Could not send'));
+      if (res.error && /انتهت/.test(res.error)) setEnded(true);
+    }
+  };
+
+  const end = async () => {
+    if (!window.confirm(isRtl ? 'إنهاء المحادثة؟ ستُخفى هوياتكما.' : 'End the conversation? Identities stay hidden.')) return;
+    await api.endDiscoverConversation(convId);
+    setEnded(true);
+    showToast(isRtl ? 'تم إنهاء المحادثة' : 'Conversation ended');
+  };
+
+  const reveal = async () => {
+    const res = await api.revealDiscoverIdentity(convId);
+    if (res.success) {
+      setMyConsent(true);
+      setOtherConsent(Boolean(res.otherConsent));
+      if (res.revealed) {
+        setRevealed(true);
+        refresh();
+        showToast(isRtl ? 'تم كشف الهوية لكليكما' : 'Identities revealed for both of you');
+      } else {
+        showToast(isRtl ? 'بانتظار موافقة الطرف الآخر' : 'Waiting for the other person to agree');
+      }
+    } else {
+      showToast(res.error || (isRtl ? 'تعذر كشف الهوية' : 'Could not reveal'));
+    }
+  };
+
+  const me = user?.id;
+  const displayName = revealed ? otherName : isRtl ? 'مجهول' : 'Anonymous';
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0A0A0A]">
+      <div className="max-w-2xl w-full mx-auto flex-1 flex flex-col px-3 sm:px-4">
+        {/* header */}
+        <div className={`flex items-center gap-3 p-3 border-b border-white/[0.08] ${isRtl ? 'flex-row-reverse' : ''}`}>
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-300 flex items-center justify-center">
+            {isRtl ? '›' : '‹'}
+          </button>
+          <AnonAvatar avatar={otherAvatar} revealed={revealed} size="w-10 h-10" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white truncate">{displayName}</p>
+            {!ended && !revealed && expiresAt != null && (
+              <p className={`text-[11px] flex items-center gap-1 ${remaining <= WARN_MS ? 'text-red-400' : 'text-gray-400'}`}>
+                <Clock className="w-3 h-3" />
+                {fmtRemaining(remaining)}
+                {remaining <= WARN_MS && remaining > 0 && (isRtl ? ' (10 دقائق متبقية)' : ' (10 minutes remaining)')}
+              </p>
+            )}
+            {revealed && <p className="text-[11px] text-[#D4AF37]">{isRtl ? 'تم كشف الهوية' : 'Identity revealed'}</p>}
+            {ended && <p className="text-[11px] text-gray-500">{isRtl ? 'انتهت المحادثة' : 'Conversation ended'}</p>}
+          </div>
+          <button onClick={end} className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-300 text-xs">
+            {isRtl ? 'إنهاء' : 'End'}
+          </button>
+        </div>
+
+        {/* messages */}
+        <div className="flex-1 overflow-y-auto py-4 space-y-2">
+          {messages.length === 0 && (
+            <p className="text-center text-xs text-gray-500 mt-8">
+              {isRtl ? 'ابدأ المحادثة — هويتكما مخفية.' : 'Start the conversation — your identities are hidden.'}
+            </p>
+          )}
+          {messages.map((m) => {
+            const mine = m.senderId === me;
+            return (
+              <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-sm ${
+                    mine
+                      ? 'bg-[#D4AF37] text-black rounded-br-md'
+                      : 'bg-white/[0.08] text-gray-100 border border-white/[0.10] rounded-bl-md'
+                  }`}
+                >
+                  {m.body}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* composer / reveal */}
+        {ended ? (
+          <div className="p-4 text-center text-xs text-gray-500 border-t border-white/[0.08]">
+            {isRtl ? 'انتهت المحادثة المجهولة. بقيت هويتكما مخفية.' : 'The anonymous conversation has ended. Identities stayed hidden.'}
+          </div>
+        ) : (
+          <div className="p-3 border-t border-white/[0.08] space-y-2">
+            {!revealed && (
+              <button
+                onClick={reveal}
+                className="w-full py-2 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-[#D4AF37] text-xs transition-all"
+              >
+                {myConsent && !otherConsent
+                  ? isRtl ? 'بانتظار موافقة الطرف الآخر على كشف الهوية' : 'Waiting for the other to agree to reveal'
+                  : isRtl ? 'موافقة على كشف الهوية' : 'Agree to reveal identity'}
+              </button>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                maxLength={2000}
+                placeholder={isRtl ? 'اكتب رسالة…' : 'Type a message…'}
+                className="flex-1 bg-white/[0.06] border border-white/[0.12] rounded-full px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#D4AF37]/40"
+              />
+              <button
+                onClick={send}
+                disabled={sending || !body.trim()}
+                className="px-5 py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#B8962D] text-black text-sm font-bold transition-all disabled:opacity-60"
+              >
+                {isRtl ? 'إرسال' : 'Send'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({ onNavigate }) => {
   const { user, openAuthModal } = useAuth();
@@ -66,7 +301,9 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportFor, setReportFor] = useState<DiscoverUser | null>(null);
   const [reportReason, setReportReason] = useState('');
-  const [requests, setRequests] = useState<IncomingRequest[]>([]);
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
+  const [connections, setConnections] = useState<AnonConnection[]>([]);
+  const [activeChat, setActiveChat] = useState<{ convId: string; otherId: string } | null>(null);
 
   const interestLabel = (id: string) => INTEREST_OPTIONS.find((o) => o.id === id)?.[isRtl ? 'ar' : 'en'] || id;
 
@@ -90,18 +327,28 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
     }
   }, []);
 
-  const loadRequests = useCallback(async () => {
+  const loadConnections = useCallback(async () => {
+    const res = await api.getDiscoverConnections();
+    if (res.success) setConnections(res.connections);
+  }, []);
+
+  // Avoid name clash: use the proper setter
+  const [requests, setReqState] = useState<IncomingRequest[]>([]);
+  const loadIncoming = useCallback(async () => {
     const res = await api.getConnectionRequests();
-    if (res.success) setRequests(res.requests);
+    if (res.success) setReqState(res.requests);
   }, []);
 
   useEffect(() => {
     if (!user) return;
     loadInterests().then(() => {
       loadRecommendations();
-      loadRequests();
+      loadIncoming();
+      loadConnections();
     });
-  }, [user, loadInterests, loadRecommendations, loadRequests]);
+    const t = window.setInterval(loadConnections, 5000);
+    return () => window.clearInterval(t);
+  }, [user, loadInterests, loadRecommendations, loadIncoming, loadConnections]);
 
   const current = recommendations[index];
 
@@ -133,6 +380,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
     const res = await api.sendConnectionRequest(id);
     setActioning(false);
     if (res.success) {
+      setPendingIds((p) => [...p, id]);
       showToast(isRtl ? 'تم إرسال طلب الاتصال ✨' : 'Connection request sent ✨');
       next();
     } else {
@@ -182,8 +430,9 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
   const acceptReq = async (id: string) => {
     const res = await api.acceptConnectionRequest(id);
     if (res.success) {
-      showToast(isRtl ? 'تم قبول الطلب — أنتما متصلان ✨' : 'Request accepted — you are connected ✨');
-      setRequests((list) => list.filter((r) => r.id !== id));
+      showToast(isRtl ? 'تم قبول الطلب — افتح المحادثة المجهولة' : 'Request accepted — open the anonymous chat');
+      setReqState((list) => list.filter((r) => r.id !== id));
+      loadConnections();
     } else {
       showToast(res.error || (isRtl ? 'تعذر القبول' : 'Could not accept'));
     }
@@ -191,7 +440,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
 
   const declineReq = async (id: string) => {
     const res = await api.declineConnectionRequest(id);
-    if (res.success) setRequests((list) => list.filter((r) => r.id !== id));
+    if (res.success) setReqState((list) => list.filter((r) => r.id !== id));
   };
 
   if (!user) {
@@ -220,6 +469,21 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
     );
   }
 
+  if (activeChat) {
+    return (
+      <AnonymousChat
+        convId={activeChat.convId}
+        otherId={activeChat.otherId}
+        isRtl={isRtl}
+        onClose={() => {
+          setActiveChat(null);
+          loadConnections();
+        }}
+        showToast={showToast}
+      />
+    );
+  }
+
   return (
     <div className={`max-w-2xl mx-auto px-1 space-y-5 ${isRtl ? 'text-right' : 'text-left'}`}>
       {/* Incoming connection requests */}
@@ -231,17 +495,15 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
           <div className="space-y-2">
             {requests.map((r) => (
               <div key={r.id} className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/10 overflow-hidden shrink-0">
-                  {r.avatar ? (
-                    <img src={r.avatar} alt={r.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="w-full h-full flex items-center justify-center text-[#D4AF37] font-bold">
-                      {r.name.charAt(0)}
-                    </span>
-                  )}
-                </div>
+                <AnonAvatar size="w-10 h-10" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{r.name}</p>
+                  <p className="text-sm font-semibold text-white truncate">{isRtl ? 'مجهول' : 'Anonymous'}</p>
+                  {r.sharedInterests.length > 0 && (
+                    <p className="text-[11px] text-gray-400 truncate">
+                      {isRtl ? 'تشاركان اهتمامات' : 'You share interests'}
+                      {isRtl ? `: ${r.sharedInterests.map(interestLabel).join('، ')}` : `: ${r.sharedInterests.map(interestLabel).join(', ')}`}
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() => acceptReq(r.id)}
@@ -261,6 +523,35 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
         </div>
       )}
 
+      {/* Active anonymous conversations */}
+      {connections.length > 0 && (
+        <div className={`${glassCard} p-4`}>
+          <p className="text-xs text-gray-400 mb-3 font-bold uppercase tracking-widest">
+            {isRtl ? 'محادثات مجهولة' : 'Anonymous chats'}
+          </p>
+          <div className="space-y-2">
+            {connections.map((c) => (
+              <button
+                key={c.conversationId}
+                onClick={() => setActiveChat({ convId: c.conversationId, otherId: c.otherId })}
+                className="w-full flex items-center gap-3 text-right"
+              >
+                <AnonAvatar size="w-10 h-10" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{isRtl ? 'مجهول' : 'Anonymous'}</p>
+                  <p className="text-[11px] text-gray-400">
+                    {c.revealed
+                      ? isRtl ? 'هوية مكشوفة' : 'Identity revealed'
+                      : isRtl ? 'محادثة مجهولة' : 'Anonymous chat'}
+                  </p>
+                </div>
+                <span className="text-[#D4AF37] text-xs font-bold">{isRtl ? 'فتح' : 'Open'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Intro + interests */}
       <div className={`${glassCard} p-5 sm:p-7`}>
         <div className="flex items-start gap-4">
@@ -273,8 +564,8 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
             </h1>
             <p className="text-xs sm:text-sm text-gray-400 mt-1">
               {isRtl
-                ? 'نقترح عليك أشخاصاً يشاركونك اهتماماتك. الاتصال يتم فقط عند قبول الطرفين.'
-                : 'We recommend people who share your interests. A connection forms only when both of you accept.'}
+                ? 'محادثات مجهولة لمدة 40 دقيقة. تُكشف الهوية فقط عند اتفاقكما معاً.'
+                : 'Anonymous chats for 40 minutes. Identity is revealed only when you both agree.'}
             </p>
           </div>
         </div>
@@ -324,10 +615,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
                 <p className="text-xs text-gray-400 font-bold">
                   {isRtl ? `اهتماماتك (${interests.length})` : `Your interests (${interests.length})`}
                 </p>
-                <button
-                  onClick={startEditing}
-                  className="text-xs text-[#D4AF37] hover:underline"
-                >
+                <button onClick={startEditing} className="text-xs text-[#D4AF37] hover:underline">
                   {isRtl ? 'تعديل' : 'Edit'}
                 </button>
               </div>
@@ -355,33 +643,25 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
         </div>
       </div>
 
-      {/* Recommendations */}
+      {/* Recommendations (anonymous) */}
       {loading ? (
         <div className={`${glassCard} p-10 text-center text-gray-400 text-sm`}>
           {isRtl ? 'جارٍ التحميل…' : 'Loading…'}
         </div>
       ) : current ? (
         <div className={`${glassCard} overflow-hidden relative`}>
-          {/* soft glow */}
           <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#D4AF37]/[0.08] blur-3xl" />
 
           <div className="p-6 sm:p-8 relative">
-            <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-2xl bg-gray-800 border border-white/10 overflow-hidden shrink-0">
-                {current.avatar ? (
-                  <img src={current.avatar} alt={current.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="w-full h-full flex items-center justify-center text-2xl text-[#D4AF37] font-black">
-                    {current.name.charAt(0)}
-                  </span>
-                )}
-              </div>
+            <div className={`flex items-center gap-4 ${isRtl ? 'flex-row-reverse' : ''}`}>
+              <AnonAvatar size="w-20 h-20" />
               <div className="min-w-0 flex-1">
-                <p className="text-lg font-black text-white truncate">{current.name}</p>
-                {current.city && <p className="text-xs text-gray-400 mt-0.5">{current.city}</p>}
+                <p className="text-lg font-black text-white truncate">{isRtl ? 'مجهول' : 'Anonymous'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {isRtl ? 'هوية مخفية حتى الاتفاق' : 'Identity hidden until you both agree'}
+                </p>
               </div>
 
-              {/* overflow menu */}
               <div className="relative">
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
@@ -392,9 +672,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
                 </button>
                 {menuOpen && (
                   <div
-                    className={`absolute ${
-                      isRtl ? 'left-0' : 'right-0'
-                    } mt-2 w-40 z-20 bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]`}
+                    className={`absolute ${isRtl ? 'left-0' : 'right-0'} mt-2 w-40 z-20 bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]`}
                   >
                     <button
                       onClick={() => {
@@ -419,7 +697,6 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
               </div>
             </div>
 
-            {/* shared interests */}
             <div className="mt-5">
               <p className="text-xs text-gray-400 font-bold mb-2">
                 {isRtl
@@ -438,7 +715,6 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
               </div>
             </div>
 
-            {/* conversation starter */}
             {current.sharedInterests[0] && (
               <div className="mt-5 rounded-2xl bg-white/[0.04] border border-white/[0.10] p-4">
                 <p className="text-[11px] uppercase tracking-widest text-[#D4AF37]/70 mb-1">
@@ -446,20 +722,21 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
                 </p>
                 <p className="text-sm text-gray-200 leading-relaxed">
                   {isRtl
-                    ? `أنتما تشاركان الاهتمام بـ "${interestLabel(current.sharedInterests[0])}". ما رأيكما أن تبدآ الحديث عنه؟`
+                    ? `تشاركان الاهتمام بـ "${interestLabel(current.sharedInterests[0])}". ما رأيكما أن تبدآ الحديث عنه؟`
                     : `You both enjoy "${interestLabel(current.sharedInterests[0])}". Why not break the ice with that?`}
                 </p>
               </div>
             )}
 
-            {/* actions */}
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => connect(current.id)}
-                disabled={actioning}
+                disabled={actioning || pendingIds.includes(current.id)}
                 className="flex-1 py-3 rounded-full bg-[#D4AF37] hover:bg-[#B8962D] text-black font-bold text-sm shadow-[0_0_16px_-2px_rgba(212,175,55,0.5)] ring-1 ring-[#D4AF37]/20 transition-all disabled:opacity-60"
               >
-                {isRtl ? 'تواصل' : 'Connect'}
+                {pendingIds.includes(current.id)
+                  ? isRtl ? 'طلب مرسل' : 'Request sent'
+                  : isRtl ? 'تواصل' : 'Connect'}
               </button>
               <button
                 onClick={skip}
@@ -469,12 +746,6 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
                 {isRtl ? 'تخطٍ' : 'Skip'}
               </button>
             </div>
-
-            <p className="text-[11px] text-gray-500 mt-3 text-center">
-              {isRtl
-                ? 'عند قبول الطرف الآخر للطلب، يكتمل الاتصال بينكما.'
-                : 'Once they accept your request, the connection is complete.'}
-            </p>
           </div>
         </div>
       ) : (
@@ -494,7 +765,8 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
           <button
             onClick={() => {
               loadRecommendations();
-              loadRequests();
+              loadIncoming();
+              loadConnections();
             }}
             className="mt-4 px-5 py-2 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-200 text-xs transition-all"
           >
@@ -510,7 +782,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
             <h3 className="text-base font-black text-white">
               {isRtl ? 'الإبلاغ عن المستخدم' : 'Report user'}
             </h3>
-            <p className="text-xs text-gray-400 mt-1 mb-4">{reportFor.name}</p>
+            <p className="text-xs text-gray-400 mt-1 mb-4">{isRtl ? 'مجهول' : 'Anonymous'}</p>
             <div className="grid grid-cols-2 gap-2">
               {REPORT_REASONS.map((r) => (
                 <button
@@ -549,7 +821,6 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
         </div>
       )}
 
-      {/* toast */}
       {toast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-full bg-white/[0.08] backdrop-blur-2xl border border-white/[0.12] text-white text-xs shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]">
           {toast}

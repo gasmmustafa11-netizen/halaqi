@@ -1499,7 +1499,18 @@ async function ensureMessagesTable(): Promise<void> {
         /* column already exists — ignore */
       }
 
+      // Discover anonymous chats reuse the messages table but are tagged
+      // with a conversation_id so they never surface in normal Messages.
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN conversation_id TEXT
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)`;
+      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id, recipient_id, created_at)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)`;
@@ -1533,7 +1544,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
           read,
           created_at
         FROM messages
-        WHERE sender_id = ${me} OR recipient_id = ${me}
+        WHERE (sender_id = ${me} OR recipient_id = ${me}) AND conversation_id IS NULL
       )
       SELECT DISTINCT ON (other_id)
         other_id,
@@ -1548,7 +1559,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
     const unreadRows = await followSql`
       SELECT sender_id AS other_id, COUNT(*)::int AS unread_count
       FROM messages
-      WHERE recipient_id = ${me} AND read = FALSE
+      WHERE recipient_id = ${me} AND read = FALSE AND conversation_id IS NULL
       GROUP BY sender_id
     `;
 
@@ -1595,7 +1606,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
       await followSql`
         UPDATE messages
         SET status = 'delivered'
-        WHERE recipient_id = ${me} AND status = 'sent'
+        WHERE recipient_id = ${me} AND status = 'sent' AND conversation_id IS NULL
       `;
     } catch (updErr: any) {
       console.error('[MESSAGES DELIVER]', updErr?.message || updErr);
@@ -1642,14 +1653,16 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
           SELECT * FROM messages
           WHERE ((sender_id = ${me} AND recipient_id = ${other})
               OR (sender_id = ${other} AND recipient_id = ${me}))
+            AND conversation_id IS NULL
             AND created_at < ${before!.toISOString()}
           ORDER BY created_at DESC
           LIMIT 50
         `
       : await followSql`
           SELECT * FROM messages
-          WHERE (sender_id = ${me} AND recipient_id = ${other})
-             OR (sender_id = ${other} AND recipient_id = ${me})
+          WHERE ((sender_id = ${me} AND recipient_id = ${other})
+             OR (sender_id = ${other} AND recipient_id = ${me}))
+          AND conversation_id IS NULL
           ORDER BY created_at DESC
           LIMIT 50
         `;
@@ -1672,7 +1685,7 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
       await followSql`
         UPDATE messages
         SET status = 'delivered'
-        WHERE recipient_id = ${me} AND sender_id = ${other} AND status = 'sent'
+        WHERE recipient_id = ${me} AND sender_id = ${other} AND status = 'sent' AND conversation_id IS NULL
       `;
     } catch (updErr: any) {
       console.error('[MESSAGES DELIVER THREAD]', updErr?.message || updErr);
@@ -1835,6 +1848,7 @@ app.post('/api/messages/:userId/read', requireAuth, async (req: AuthenticatedReq
       WHERE recipient_id = ${me}
         AND sender_id = ${other}
         AND read = FALSE
+        AND conversation_id IS NULL
     `;
 
     return res.json({ success: true });
@@ -2917,6 +2931,20 @@ async function ensureDiscoverTables(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `;
+      await followSql`
+        CREATE TABLE IF NOT EXISTS anonymous_conversations (
+          id TEXT PRIMARY KEY,
+          user_a TEXT NOT NULL,
+          user_b TEXT NOT NULL,
+          connection_id TEXT,
+          expires_at TIMESTAMPTZ NOT NULL,
+          revealed BOOLEAN NOT NULL DEFAULT FALSE,
+          reveal_consent_a BOOLEAN NOT NULL DEFAULT FALSE,
+          reveal_consent_b BOOLEAN NOT NULL DEFAULT FALSE,
+          ended BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
     })()
       .then(() => undefined)
       .catch((err: unknown) => {
@@ -3027,10 +3055,8 @@ app.get(
         const shared = myInterests.filter((i) => theirInterests.includes(i));
         return {
           id: u.id,
-          name: u.name,
-          avatar: u.avatar || undefined,
-          city: u.city || undefined,
-          interests: theirInterests,
+          anonymousName: 'Anonymous',
+          anonymousAvatar: null,
           sharedInterests: shared,
         };
       });
@@ -3097,16 +3123,47 @@ app.post(
       await ensureDiscoverTables();
       const currentUserId = req.user!.id;
       const id = String(req.params.id || '').trim();
-      const rows = await followSql`
-        UPDATE connection_requests
-        SET status = 'accepted', updated_at = NOW()
+
+      const existing = await followSql`
+        SELECT id, sender_id, receiver_id, status
+        FROM connection_requests
         WHERE id = ${id} AND receiver_id = ${currentUserId} AND status = 'pending'
-        RETURNING id
+        LIMIT 1
       `;
-      if (!rows[0]) {
+      if (!existing[0]) {
         return res.status(404).json({ success: false, error: 'طلب الاتصال غير موجود.' });
       }
-      return res.json({ success: true, status: 'accepted' });
+
+      await followSql`
+        UPDATE connection_requests
+        SET status = 'accepted', updated_at = NOW()
+        WHERE id = ${id}
+      `;
+
+      const senderId = existing[0].sender_id;
+      const receiverId = existing[0].receiver_id;
+
+      // Create (or reuse) the anonymous conversation for both users.
+      const already = await followSql`
+        SELECT id FROM anonymous_conversations
+        WHERE (user_a = ${senderId} AND user_b = ${receiverId})
+           OR (user_a = ${receiverId} AND user_b = ${senderId})
+        LIMIT 1
+      `;
+
+      let conversationId: string;
+      if (already[0]) {
+        conversationId = already[0].id;
+      } else {
+        conversationId = 'anon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+        const expiresAt = new Date(Date.now() + 40 * 60 * 1000).toISOString();
+        await followSql`
+          INSERT INTO anonymous_conversations (id, user_a, user_b, connection_id, expires_at, revealed, reveal_consent_a, reveal_consent_b, ended, created_at)
+          VALUES (${conversationId}, ${senderId}, ${receiverId}, ${id}, ${expiresAt}, FALSE, FALSE, FALSE, FALSE, NOW())
+        `;
+      }
+
+      return res.json({ success: true, status: 'accepted', conversationId });
     } catch (error) {
       console.error('[DISCOVER ACCEPT]', error);
       return res.status(500).json({ success: false, error: 'تعذر قبول الطلب.' });
@@ -3146,8 +3203,10 @@ app.get(
     try {
       await ensureDiscoverTables();
       const currentUserId = req.user!.id;
+      const meRows = await followSql`SELECT interests FROM users WHERE id = ${currentUserId} LIMIT 1`;
+      const myInterests: string[] = (meRows as any[])[0]?.interests || [];
       const rows = await followSql`
-        SELECT cr.id, cr.sender_id, u.name, u.avatar
+        SELECT cr.id, cr.sender_id, u.interests AS sender_interests
         FROM connection_requests cr
         JOIN users u ON u.id = cr.sender_id
         WHERE cr.receiver_id = ${currentUserId} AND cr.status = 'pending'
@@ -3155,12 +3214,16 @@ app.get(
       `;
       return res.json({
         success: true,
-        requests: (rows as any[]).map((r: any) => ({
-          id: r.id,
-          senderId: r.sender_id,
-          name: r.name,
-          avatar: r.avatar || undefined,
-        })),
+        requests: (rows as any[]).map((r: any) => {
+          const senderInterests: string[] = r.sender_interests || [];
+          const sharedInterests = senderInterests.filter((i: string) => myInterests.includes(i));
+          return {
+            id: r.id,
+            senderId: r.sender_id,
+            anonymousName: 'Anonymous',
+            sharedInterests,
+          };
+        }),
       });
     } catch (error) {
       console.error('[DISCOVER REQUESTS]', error);
@@ -3260,6 +3323,214 @@ app.post(
     } catch (error) {
       console.error('[DISCOVER REPORT]', error);
       return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+    }
+  }
+);
+
+/* ---------- Anonymous conversations (reuse the messages table) ---------- */
+
+const ANON_DURATION_MS = 40 * 60 * 1000;
+
+async function getAnonymousConversation(convId: string, userId: string): Promise<any | null> {
+  const rows = await followSql`
+    SELECT * FROM anonymous_conversations WHERE id = ${convId} LIMIT 1
+  `;
+  const conv = (rows as any[])[0];
+  if (!conv) return null;
+  if (conv.user_a !== userId && conv.user_b !== userId) return null;
+  return conv;
+}
+
+app.get(
+  '/api/discover/connections',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const me = req.user!.id;
+      const rows = await followSql`
+        SELECT * FROM anonymous_conversations
+        WHERE (user_a = ${me} OR user_b = ${me}) AND ended = FALSE
+        ORDER BY created_at DESC
+      `;
+      const now = Date.now();
+      const list = await Promise.all(
+        (rows as any[]).map(async (c: any) => {
+          const expired = !c.revealed && new Date(c.expires_at).getTime() <= now;
+          if (expired) {
+            await followSql`UPDATE anonymous_conversations SET ended = TRUE WHERE id = ${c.id}`;
+          }
+          const otherId = c.user_a === me ? c.user_b : c.user_a;
+          const iAmA = c.user_a === me;
+          return {
+            conversationId: c.id,
+            otherId,
+            expiresAt: c.expires_at,
+            revealed: Boolean(c.revealed) && !expired,
+            ended: Boolean(c.ended) || expired,
+            myConsent: Boolean(iAmA ? c.reveal_consent_a : c.reveal_consent_b),
+            otherConsent: Boolean(iAmA ? c.reveal_consent_b : c.reveal_consent_a),
+          };
+        })
+      );
+      return res.json({ success: true, connections: list.filter((c: any) => !c.ended) });
+    } catch (error) {
+      console.error('[DISCOVER CONNECTIONS]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل المحادثات.' });
+    }
+  }
+);
+
+app.get(
+  '/api/discover/conversation/:convId/messages',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const me = req.user!.id;
+      const convId = String(req.params.convId || '').trim();
+      const conv = await getAnonymousConversation(convId, me);
+      if (!conv) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة.' });
+
+      const expired = !conv.revealed && !conv.ended && new Date(conv.expires_at).getTime() <= Date.now();
+      if (expired) {
+        await followSql`UPDATE anonymous_conversations SET ended = TRUE WHERE id = ${convId}`;
+      }
+      const ended = Boolean(conv.ended) || expired;
+      const revealed = Boolean(conv.revealed) && !ended;
+
+      const rows = await followSql`
+        SELECT * FROM messages WHERE conversation_id = ${convId} ORDER BY created_at ASC
+      `;
+      const messages = (rows as any[]).map((m: any) => ({
+        id: m.id,
+        senderId: m.sender_id,
+        body: m.body,
+        createdAt: new Date(m.created_at).toISOString(),
+      }));
+
+      const otherId = conv.user_a === me ? conv.user_b : conv.user_a;
+      const iAmA = conv.user_a === me;
+      const meta: any = {
+        conversationId: convId,
+        otherId,
+        expiresAt: conv.expires_at,
+        revealed,
+        ended,
+        myConsent: Boolean(iAmA ? conv.reveal_consent_a : conv.reveal_consent_b),
+        otherConsent: Boolean(iAmA ? conv.reveal_consent_b : conv.reveal_consent_a),
+      };
+      if (revealed) {
+        const prof = await followSql`SELECT name, avatar FROM users WHERE id = ${otherId} LIMIT 1`;
+        meta.otherName = prof[0]?.name || 'مستخدم';
+        meta.otherAvatar = prof[0]?.avatar || undefined;
+      }
+
+      return res.json({ success: true, messages, meta });
+    } catch (error) {
+      console.error('[DISCOVER MSG GET]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الرسائل.' });
+    }
+  }
+);
+
+app.post(
+  '/api/discover/conversation/:convId/messages',
+  requireAuth,
+  messageRateLimiter,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const me = req.user!.id;
+      const convId = String(req.params.convId || '').trim();
+      const text = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+      if (!text) return res.status(400).json({ success: false, error: 'نص الرسالة مطلوب.' });
+      if (text.length > 2000) return res.status(400).json({ success: false, error: 'الرسالة طويلة جداً.' });
+
+      const conv = await getAnonymousConversation(convId, me);
+      if (!conv) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة.' });
+
+      // Enforce the 40-minute anonymous window unless identities are revealed.
+      if (!conv.revealed && new Date(conv.expires_at).getTime() <= Date.now()) {
+        await followSql`UPDATE anonymous_conversations SET ended = TRUE WHERE id = ${convId}`;
+        return res.status(410).json({ success: false, error: 'انتهت المحادثة المجهولة.' });
+      }
+      if (conv.ended) return res.status(410).json({ success: false, error: 'انتهت المحادثة.' });
+
+      const otherId = conv.user_a === me ? conv.user_b : conv.user_a;
+      const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      const createdAt = new Date().toISOString();
+      await followSql`
+        INSERT INTO messages (id, sender_id, recipient_id, body, read, status, created_at, conversation_id)
+        VALUES (${msgId}, ${me}, ${otherId}, ${text}, FALSE, 'sent', ${createdAt}, ${convId})
+      `;
+      return res.status(201).json({
+        success: true,
+        message: { id: msgId, senderId: me, recipientId: otherId, body: text, read: false, status: 'sent', createdAt },
+      });
+    } catch (error) {
+      console.error('[DISCOVER MSG SEND]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إرسال الرسالة.' });
+    }
+  }
+);
+
+app.post(
+  '/api/discover/conversation/:convId/end',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const me = req.user!.id;
+      const convId = String(req.params.convId || '').trim();
+      const conv = await getAnonymousConversation(convId, me);
+      if (!conv) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة.' });
+      await followSql`UPDATE anonymous_conversations SET ended = TRUE WHERE id = ${convId}`;
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DISCOVER END]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إنهاء المحادثة.' });
+    }
+  }
+);
+
+app.post(
+  '/api/discover/conversation/:convId/reveal',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const me = req.user!.id;
+      const convId = String(req.params.convId || '').trim();
+      const conv = await getAnonymousConversation(convId, me);
+      if (!conv) return res.status(404).json({ success: false, error: 'المحادثة غير موجودة.' });
+      if (conv.ended) return res.status(410).json({ success: false, error: 'انتهت المحادثة.' });
+      if (conv.revealed) return res.json({ success: true, revealed: true });
+      if (!conv.revealed && new Date(conv.expires_at).getTime() <= Date.now()) {
+        return res.status(410).json({ success: false, error: 'انتهت المحادثة المجهولة.' });
+      }
+
+      const iAmA = conv.user_a === me;
+      if (iAmA) {
+        await followSql`UPDATE anonymous_conversations SET reveal_consent_a = TRUE WHERE id = ${convId}`;
+      } else {
+        await followSql`UPDATE anonymous_conversations SET reveal_consent_b = TRUE WHERE id = ${convId}`;
+      }
+      const updated = await followSql`SELECT * FROM anonymous_conversations WHERE id = ${convId} LIMIT 1`;
+      const u = (updated as any[])[0];
+      const nowRevealed = Boolean(u.reveal_consent_a) && Boolean(u.reveal_consent_b);
+      if (nowRevealed) {
+        await followSql`UPDATE anonymous_conversations SET revealed = TRUE WHERE id = ${convId}`;
+      }
+      return res.json({
+        success: true,
+        revealed: nowRevealed,
+        myConsent: true,
+        otherConsent: Boolean(iAmA ? u.reveal_consent_b : u.reveal_consent_a),
+      });
+    } catch (error) {
+      console.error('[DISCOVER REVEAL]', error);
+      return res.status(500).json({ success: false, error: 'تعذر كشف الهوية.' });
     }
   }
 );
