@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -38,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
 
     const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+  const notificationsRef = useRef<HTMLDivElement>(null);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const loadNotifications = async () => {
     if (!user?.id) {
@@ -125,7 +126,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  useEffect(() => {
+    useEffect(() => {
       loadNotifications();
 
       if (!user?.id) return;
@@ -134,6 +135,28 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       return () => clearInterval(timer);
     }, [user?.id]);
+
+    // Close the notifications panel when clicking/tapping outside of it.
+    useEffect(() => {
+      if (!isNotificationsOpen) return;
+
+      const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+        if (
+          notificationsRef.current &&
+          !notificationsRef.current.contains(e.target as Node)
+        ) {
+          setIsNotificationsOpen(false);
+        }
+      };
+
+      document.addEventListener('mousedown', handlePointerDown);
+      document.addEventListener('touchstart', handlePointerDown);
+
+      return () => {
+        document.removeEventListener('mousedown', handlePointerDown);
+        document.removeEventListener('touchstart', handlePointerDown);
+      };
+    }, [isNotificationsOpen]);
 
     const unreadCount = notifications.filter((item) => !item.read).length;
 
@@ -302,7 +325,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Notifications */}
             {user && (
-              <div className="relative">
+              <div className="relative" ref={notificationsRef}>
                 <button
                   type="button"
                   onClick={() => {
