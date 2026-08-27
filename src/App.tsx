@@ -250,7 +250,10 @@ function AppContent() {
         )}
 
         {currentView === 'messages' && (
-          <MessagesView initialUserId={selectedMessageUserId} />
+          <MessagesView
+            initialUserId={selectedMessageUserId}
+            onNavigate={handleNavigate}
+          />
         )}
       </main>
 

@@ -9,7 +9,6 @@ import {
   Calendar,
   User,
   ShieldCheck,
-  MessageSquare,
   Store,
   LogOut,
   Sparkles,
@@ -493,7 +492,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title={isRtl ? 'الرسائل' : 'Messages'}
                 className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#262626] hover:bg-[#333] border border-[#333] text-[#D4AF37] transition-all"
               >
-                <MessageSquare className="w-5 h-5" />
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-5 h-5"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M5 4h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4 3v-3H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
+                    fill="#D4AF37"
+                  />
+                  <circle cx="8.5" cy="9.5" r="1.1" fill="#141414" />
+                  <circle cx="12" cy="9.5" r="1.1" fill="#141414" />
+                  <circle cx="15.5" cy="9.5" r="1.1" fill="#141414" />
+                </svg>
                 {messageUnread > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center border-2 border-[#141414]">
                     {messageUnread > 99 ? '99+' : messageUnread}

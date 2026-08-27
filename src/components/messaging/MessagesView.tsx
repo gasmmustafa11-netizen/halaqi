@@ -46,9 +46,10 @@ const MessageStatusTicks: React.FC<{ status: Message['status']; isRtl: boolean }
   );
 };
 
-export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
-  initialUserId,
-}) => {
+export const MessagesView: React.FC<{
+  initialUserId?: string | null;
+  onNavigate?: (view: string) => void;
+}> = ({ initialUserId, onNavigate }) => {
   const { user } = useAuth();
   const { isRtl } = useLanguage();
 
@@ -62,7 +63,23 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
 
-  const threadEndRef = useRef<HTMLDivElement>(null);
+  // Scroll container for the message thread. We pin the view to the latest
+  // message ONLY when the user is already near the bottom, so reading older
+  // messages is never interrupted by polling. Scrolling is contained to this
+  // element (never the page) by setting scrollTop directly.
+  const threadScrollRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
+
+  const scrollThreadToBottom = useCallback(() => {
+    const el = threadScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const handleThreadScroll = useCallback(() => {
+    const el = threadScrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -112,8 +129,10 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
       await loadMessages(otherId);
       await api.markMessagesRead(otherId);
       await loadConversations();
+      // Jump to the latest message once the thread has rendered.
+      requestAnimationFrame(scrollThreadToBottom);
     },
-    [loadMessages, loadConversations]
+    [loadMessages, loadConversations, scrollThreadToBottom]
   );
 
   // Open a specific conversation when navigated from a profile ("Message" button).
@@ -132,9 +151,17 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
     return () => clearInterval(timer);
   }, [selectedId, user?.id, loadMessages]);
 
+  // Pin the thread to the latest message when it first loads or when the
+  // user is already near the bottom. If they've scrolled up to read older
+  // messages, leave their scroll position untouched.
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!selectedId) return;
+    const el = threadScrollRef.current;
+    if (!el) return;
+    if (nearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, selectedId]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -147,6 +174,8 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
         setMessages((prev) => [...prev, res.message as Message]);
         setInput('');
         await loadConversations();
+        // Always reveal the message the user just sent.
+        requestAnimationFrame(scrollThreadToBottom);
       } else {
         setError(res.error || (isRtl ? 'فشل إرسال الرسالة.' : 'Failed to send message.'));
       }
@@ -261,7 +290,12 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
           <ArrowLeft className="w-5 h-5 rotate-180" />
         </button>
         {selectedConv && (
-          <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => onNavigate?.(`user:${selectedConv.otherUser.id}`)}
+            className="flex items-center gap-3 min-w-0 text-start hover:opacity-80 transition-opacity"
+            title={isRtl ? 'عرض الملف الشخصي' : 'View profile'}
+          >
             <div className="shrink-0 w-9 h-9 rounded-full bg-gray-800 border border-[#333] flex items-center justify-center overflow-hidden">
               {selectedConv.otherUser.avatar ? (
                 <img
@@ -278,12 +312,16 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
             <p className="text-sm font-bold text-white truncate">
               {selectedConv.otherUser.name}
             </p>
-          </div>
+          </button>
         )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-[#0f0f0f]">
+      <div
+        ref={threadScrollRef}
+        onScroll={handleThreadScroll}
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-[#0f0f0f]"
+      >
         {loadingMsg && messages.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-gray-500">
             <Loader2 className="w-6 h-6 animate-spin" />
@@ -321,7 +359,6 @@ export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
             );
           })
         )}
-        <div ref={threadEndRef} />
       </div>
 
       {/* Composer */}
