@@ -406,7 +406,7 @@ export const MessagesView: React.FC<{
 
   return (
     <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4">
-      <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-[78vh]">
+        <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-[78dvh]">
         <div className="grid h-full grid-cols-1 md:grid-cols-[340px_1fr]">
           {/* Inbox pane (hidden on mobile when a thread is open) */}
           <div
