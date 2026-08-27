@@ -1399,7 +1399,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
 
     if (otherIds.length) {
       const profiles = await followSql`
-        SELECT id, name, avatar, avatar_url FROM users WHERE id = ANY(${otherIds})
+        SELECT id, name, avatar FROM users WHERE id = ANY(${otherIds})
       `;
 
       for (const p of profiles) {
