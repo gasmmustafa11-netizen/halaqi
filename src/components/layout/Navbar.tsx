@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -139,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const [messageUnread, setMessageUnread] = useState<number>(0);
 
-  const loadMessageUnread = async () => {
+  const loadMessageUnread = useCallback(async () => {
     if (!user?.id) {
       setMessageUnread(0);
       return;
@@ -151,14 +151,25 @@ export const Navbar: React.FC<NavbarProps> = ({
     } catch {
       /* ignore transient failures */
     }
-  };
+  }, [user?.id]);
 
+  // Periodic refresh of the Messages unread badge.
   useEffect(() => {
     loadMessageUnread();
     if (!user?.id) return;
     const timer = setInterval(loadMessageUnread, 15000);
     return () => clearInterval(timer);
-  }, [user?.id]);
+  }, [user?.id, loadMessageUnread]);
+
+  // Immediate refresh when a conversation is read elsewhere (e.g. the
+  // MessagesView marks messages read on open) so the badge updates
+  // without waiting for the 15s poll.
+  useEffect(() => {
+    const handler = () => loadMessageUnread();
+    window.addEventListener('halaqi:messages-unread-refresh', handler);
+    return () =>
+      window.removeEventListener('halaqi:messages-unread-refresh', handler);
+  }, [loadMessageUnread]);
 
 
   const navItems = [
