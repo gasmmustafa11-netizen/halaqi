@@ -3083,8 +3083,39 @@ app.get(
       `;
       const myInterests: string[] = Array.isArray(me[0]?.interests) ? me[0].interests : [];
 
+      // Cold Start: a brand-new user with no interests yet still gets useful,
+      // non-empty suggestions (anonymous) instead of an empty screen.
       if (myInterests.length === 0) {
-        return res.json({ success: true, users: [] });
+        const cold = await followSql`
+          SELECT id
+          FROM users
+          WHERE id != ${currentUserId}
+            AND COALESCE(is_active, true) = true
+            AND COALESCE(is_banned, false) = false
+            AND id NOT IN (
+              SELECT blocked_id FROM user_blocks WHERE blocker_id = ${currentUserId}
+              UNION
+              SELECT blocker_id FROM user_blocks WHERE blocked_id = ${currentUserId}
+            )
+            AND id NOT IN (
+              SELECT receiver_id FROM connection_requests
+              WHERE sender_id = ${currentUserId} AND status IN ('pending', 'accepted')
+              UNION
+              SELECT sender_id FROM connection_requests
+              WHERE receiver_id = ${currentUserId} AND status IN ('pending', 'accepted')
+            )
+          ORDER BY array_length(interests, 1) DESC NULLS LAST, id DESC
+          LIMIT ${limit}
+        `;
+        return res.json({
+          success: true,
+          users: (cold as any[]).map((u: any) => ({
+            id: u.id,
+            anonymousName: 'Anonymous',
+            anonymousAvatar: null,
+            sharedInterests: [],
+          })),
+        });
       }
 
       const rows = await followSql`
