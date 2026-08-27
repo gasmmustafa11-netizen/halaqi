@@ -24,6 +24,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
+import { compressImageToDataUrl } from '../../utils/compressImage';
 
 interface UserProfileViewProps {
   onNavigate?: (view: string) => void;
@@ -129,19 +130,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
     if (!file) return;
 
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-          } else {
-            reject(new Error('تعذر قراءة الصورة.'));
-          }
-        };
-
-        reader.onerror = () => reject(new Error('تعذر قراءة الصورة.'));
-        reader.readAsDataURL(file);
+      const dataUrl = await compressImageToDataUrl(file, {
+        maxDimension: 1080,
+        quality: 0.8,
       });
 
       const upload = await api.uploadImage(dataUrl);

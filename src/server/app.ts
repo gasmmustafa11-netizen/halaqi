@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 import { db } from './db.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon } from './db.js';
 import {
@@ -832,6 +833,112 @@ app.get('/api/user-posts/:postId', async (req: Request, res: Response) => {
     });
   }
 });
+
+/* =========================================================
+   IMAGE UPLOAD (Supabase Storage)
+   Re-added after the Neon migration removed it. Keeps images in
+   external Supabase Storage (bucket: avatars) instead of storing
+   base64 blobs in Neon. Auth via requireAuth.
+   ========================================================= */
+let supabaseStorageClient: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseStorageClient() {
+  if (!supabaseStorageClient) {
+    supabaseStorageClient = createClient(
+      process.env.SUPABASE_URL || '',
+      process.env.SUPABASE_SECRET_KEY || '',
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    );
+  }
+  return supabaseStorageClient;
+}
+
+app.post(
+  '/api/uploads/image',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { dataUrl } = req.body || {};
+
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'الصورة مطلوبة.',
+        });
+      }
+
+      const match = dataUrl.match(
+        /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/
+      );
+
+      if (!match) {
+        return res.status(400).json({
+          success: false,
+          error: 'صيغة الصورة غير مدعومة.',
+        });
+      }
+
+      const extension =
+        match[1] === 'jpeg' || match[1] === 'jpg' ? 'jpg' : match[1];
+      const contentType =
+        extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
+
+      const fileName = `${req.user!.id}_${Date.now()}.${extension}`;
+      const fileBuffer = Buffer.from(match[2], 'base64');
+
+      // Verify configuration without logging secrets.
+      if (
+        !/^https:\/\/.+\.supabase\.co$/.test(process.env.SUPABASE_URL || '')
+      ) {
+        console.error('[Image Upload] SUPABASE_URL missing or invalid.');
+        return res.status(500).json({
+          success: false,
+          error: 'تعذر رفع الصورة.',
+        });
+      }
+
+      const supabaseAdmin = getSupabaseStorageClient();
+      const avatarBucket = 'avatars';
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(avatarBucket)
+        .upload(fileName, fileBuffer, {
+          contentType,
+          upsert: true,
+          cacheControl: '3600',
+        });
+
+      if (uploadError) {
+        console.error('[Image Upload] Supabase upload failed:', uploadError);
+        return res.status(500).json({
+          success: false,
+          error: 'تعذر رفع الصورة.',
+        });
+      }
+
+      const { data: publicData } = supabaseAdmin.storage
+        .from(avatarBucket)
+        .getPublicUrl(fileName);
+
+      return res.status(201).json({
+        success: true,
+        imageUrl: publicData.publicUrl,
+      });
+    } catch (error) {
+      console.error('[Image Upload Error]:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر رفع الصورة.',
+      });
+    }
+  }
+);
 
 app.post(
   '/api/user-posts',

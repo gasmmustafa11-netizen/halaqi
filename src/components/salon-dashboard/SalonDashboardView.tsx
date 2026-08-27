@@ -4,6 +4,7 @@ import { Salon, Service, Barber, Booking, SalonPost, PostComment } from '../../t
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { compressImageToDataUrl } from '../../utils/compressImage';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import {
   Calendar,
@@ -884,7 +885,12 @@ export const SalonDashboardView: React.FC = () => {
                       setIsPublishingPost(true);
 
                       try {
-                        const upload = await api.uploadImage(selectedPostImage);
+                        const compressedImage = await compressImageToDataUrl(
+                          selectedPostImage,
+                          { maxDimension: 1080, quality: 0.8 }
+                        );
+
+                        const upload = await api.uploadImage(compressedImage);
 
                         if (!upload.success || !upload.imageUrl) {
                           alert(upload.error || 'تعذر رفع الصورة.');
