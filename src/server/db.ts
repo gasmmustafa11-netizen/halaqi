@@ -40,6 +40,102 @@ async function ensureCommentReactionsTables(): Promise<void> {
   `;
 }
 
+/* =========================================================
+   INTEREST LEARNING
+   Auto-learns per-user interest weights from real interactions
+   (likes / comments / follows) and decays topics the user stops
+   engaging with. Combined with the user's manually selected
+   interests for Feed Ranking and Discover recommendations.
+========================================================= */
+
+const LEARN_LIKE_STEP = 0.6;
+const LEARN_COMMENT_STEP = 0.9;
+const LEARN_FOLLOW_STEP = 0.8;
+const LEARN_DECAY = 0.85; // every learning event decays all other learned weights
+const LEARN_MAX = 3.0;
+const LEARN_MIN_DELETE = 0.05;
+const MANUAL_INTEREST_WEIGHT = 1.0;
+const COMBINED_MATCH_THRESHOLD = 0.3; // learned weight >= this counts as a match
+
+async function ensureLearnedInterestsTable(): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS learned_interests (
+      user_id TEXT NOT NULL,
+      interest TEXT NOT NULL,
+      weight NUMERIC NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, interest)
+    )
+  `;
+}
+
+export async function recordInterestLearning(
+  userId: string,
+  interests: string[],
+  delta: number
+): Promise<void> {
+  if (!userId || !interests || interests.length === 0) return;
+  await ensureLearnedInterestsTable();
+
+  // Decay all existing learned weights for this user (topics they keep
+  // engaging with get re-boosted below; ignored ones fade toward 0).
+  await sql`
+    UPDATE learned_interests
+    SET weight = weight * ${LEARN_DECAY}, updated_at = NOW()
+    WHERE user_id = ${userId}
+  `;
+
+  for (const interest of interests) {
+    if (!interest) continue;
+    await sql`
+      INSERT INTO learned_interests (user_id, interest, weight, updated_at)
+      VALUES (${userId}, ${interest}, ${delta}, NOW())
+      ON CONFLICT (user_id, interest)
+      DO UPDATE SET
+        weight = GREATEST(0, LEAST(${LEARN_MAX}, learned_interests.weight + ${delta})),
+        updated_at = NOW()
+    `;
+  }
+
+  // Drop weights that have decayed below the threshold.
+  await sql`
+    DELETE FROM learned_interests
+    WHERE user_id = ${userId} AND weight < ${LEARN_MIN_DELETE}
+  `;
+}
+
+export async function getCombinedInterests(
+  userId?: string
+): Promise<{ interest: string; weight: number }[]> {
+  if (!userId) return [];
+  await ensureLearnedInterestsTable();
+
+  const manualRows = await sql`
+    SELECT interests FROM users WHERE id = ${userId} LIMIT 1
+  `;
+  const manual: string[] = Array.isArray(manualRows[0]?.interests)
+    ? manualRows[0].interests
+    : [];
+
+  const learnedRows = await sql`
+    SELECT interest, weight FROM learned_interests WHERE user_id = ${userId}
+  `;
+
+  const map = new Map<string, number>();
+  for (const i of manual) {
+    map.set(i, (map.get(i) || 0) + MANUAL_INTEREST_WEIGHT);
+  }
+  for (const r of learnedRows as any[]) {
+    const w = Number(r.weight || 0);
+    map.set(r.interest, (map.get(r.interest) || 0) + w);
+  }
+
+  return Array.from(map.entries()).map(([interest, weight]) => ({
+    interest,
+    weight,
+  }));
+}
+
 export interface UserWithAuth extends User {
   passwordHash?: string;
   salt?: string;
@@ -3260,55 +3356,45 @@ class DatabaseStore {
       const viewerId = viewerUserId || '';
 
       // ----- Viewer signals (power the Cold Start -> Personalized transition) -----
-      let viewerInterests: string[] = [];
       const engagedUserIds = new Set<string>();
       const engagedSalonIds = new Set<string>();
-      // Content-based affinity: the viewer's own interests PLUS the interests of
-      // authors they have genuinely interacted with. Drives interest matching even
-      // before the viewer has 10 interactions, and generalizes personalization.
-      const affinityInterests = new Set<string>();
+
+      // Combined interests = manually selected interests (base weight) PLUS
+      // auto-learned weights from real likes/comments/follows. Only weights at or
+      // above the threshold participate in SQL `&&` matching; all weights feed the
+      // graded interest signal so repeated engagement nudges the feed gradually.
+      const combined = await getCombinedInterests(viewerId);
+      const combinedMap = new Map<string, number>();
+      for (const c of combined) combinedMap.set(c.interest, c.weight);
+      const combinedMatchInterests = combined
+        .filter((c) => c.weight >= COMBINED_MATCH_THRESHOLD)
+        .map((c) => c.interest);
 
       if (viewerId) {
-        const vRows = await sql`
-          SELECT interests FROM users WHERE id = ${viewerId} LIMIT 1
-        `;
-        viewerInterests = Array.isArray(vRows[0]?.interests)
-          ? vRows[0].interests
-          : [];
-        viewerInterests.forEach((i: string) => affinityInterests.add(i));
-
-        // Authors/salons the viewer liked (+ the engaged authors' interests).
+        // Authors/salons the viewer liked.
         const liked = await sql`
           SELECT
             CASE WHEN pl.post_type = 'user' THEN up.user_id ELSE sp.owner_id END AS author_id,
-            CASE WHEN pl.post_type = 'salon' THEN sp.salon_id ELSE NULL END AS salon_id,
-            CASE WHEN pl.post_type = 'user' THEN u2.interests ELSE o2.interests END AS author_interests
+            CASE WHEN pl.post_type = 'salon' THEN sp.salon_id ELSE NULL END AS salon_id
           FROM post_likes pl
           LEFT JOIN user_posts up ON up.id = pl.post_id AND pl.post_type = 'user'
-          LEFT JOIN users u2 ON u2.id = up.user_id
           LEFT JOIN salon_posts sp ON sp.id = pl.post_id AND pl.post_type = 'salon'
-          LEFT JOIN users o2 ON o2.id = sp.owner_id
           WHERE pl.user_id = ${viewerId}
         `;
         for (const r of liked as any[]) {
           if (r.author_id) engagedUserIds.add(String(r.author_id));
           if (r.salon_id) engagedSalonIds.add(String(r.salon_id));
-          if (Array.isArray(r.author_interests))
-            r.author_interests.forEach((i: string) => affinityInterests.add(i));
         }
 
-        // Authors the viewer commented on (+ their interests).
+        // Authors the viewer commented on.
         const commented = await sql`
-          SELECT up.user_id, u.interests AS author_interests
+          SELECT up.user_id
           FROM post_comments pc
           JOIN user_posts up ON up.id = pc.post_id
-          LEFT JOIN users u ON u.id = up.user_id
           WHERE pc.user_id = ${viewerId}
         `;
         for (const r of commented as any[]) {
           if (r.user_id) engagedUserIds.add(String(r.user_id));
-          if (Array.isArray(r.author_interests))
-            r.author_interests.forEach((i: string) => affinityInterests.add(i));
         }
 
         // Authors the viewer follows.
@@ -3320,8 +3406,8 @@ class DatabaseStore {
         }
       }
 
-      // Interest matching uses the full affinity set (own + implied from interactions).
-      const viParam = Array.from(affinityInterests);
+      // Interest matching uses only strongly-enough-learned / manual interests.
+      const viParam = combinedMatchInterests;
 
       const rows = await sql`
         SELECT
@@ -3346,7 +3432,8 @@ class DatabaseStore {
               AND pl.post_id = sp.id
               AND pl.user_id = ${viewerId}
           ) AS liked_by_me,
-          (owner.interests && ${viParam}::text[]) AS interest_match
+          (owner.interests && ${viParam}::text[]) AS interest_match,
+          owner.interests AS author_interests
         FROM salon_posts sp
         LEFT JOIN users owner ON owner.id = sp.owner_id
 
@@ -3374,7 +3461,8 @@ class DatabaseStore {
               AND pl.post_id = up.id
               AND pl.user_id = ${viewerId}
           ) AS liked_by_me,
-          (u.interests && ${viParam}::text[]) AS interest_match
+          (u.interests && ${viParam}::text[]) AS interest_match,
+          u.interests AS author_interests
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
 
@@ -3405,6 +3493,9 @@ class DatabaseStore {
 
         liked: Boolean(p.liked_by_me),
         interestMatch: Boolean(p.interest_match),
+        authorInterests: Array.isArray(p.author_interests)
+          ? p.author_interests
+          : [],
         // Stable source key used by the diversity pass.
         sourceId:
           p.post_type === 'user'
@@ -3433,7 +3524,7 @@ class DatabaseStore {
 
       // Interests (own + implied from interactions) influence ranking from the
       // start; the weight grows a little as real activity accumulates.
-      const hasAffinity = affinityInterests.size > 0;
+      const hasAffinity = combinedMatchInterests.length > 0;
       const interestWeight = hasAffinity ? 0.6 + 0.4 * activity : 0;
       // Previous real interactions (likes/comments/follows) personalize more as
       // the viewer engages more.
@@ -3459,7 +3550,15 @@ class DatabaseStore {
             ((!!p.salonId && engagedSalonIds.has(p.salonId)) ||
               (!!p.ownerId && engagedUserIds.has(p.ownerId))));
 
-        const interestSignal = p.interestMatch ? 1 : 0; // 0..1
+        // Interest signal from combined (manual + learned) weights: matching an
+        // author's topic nudges the post up, and repeated engagement (higher
+        // learned weight) pushes it higher — gradual, never fake.
+        let matchedWeight = 0;
+        for (const i of p.authorInterests as string[]) {
+          const w = combinedMap.get(i);
+          if (w) matchedWeight += w;
+        }
+        const interestSignal = Math.min(1, matchedWeight / 2.0); // 0..1
         const interactionSignal = personalMatch ? 1 : 0; // 0..1
 
         // Cold Start always contributes; personalization is layered on top and
@@ -3842,6 +3941,25 @@ class DatabaseStore {
 
       const liked = toggleRow.action === 'liked';
 
+      // Interest Learning: reinforce (or reverse on unlike) the topics of the
+      // post's author from real interaction. Skip self-interaction.
+      if (
+        toggleRow.post_owner_id &&
+        String(toggleRow.post_owner_id) !== String(requestingUser.id)
+      ) {
+        const ownerRows = await sql`
+          SELECT interests FROM users WHERE id = ${toggleRow.post_owner_id} LIMIT 1
+        `;
+        const ownerInterests = Array.isArray(ownerRows[0]?.interests)
+          ? ownerRows[0].interests
+          : [];
+        await recordInterestLearning(
+          requestingUser.id,
+          ownerInterests,
+          liked ? LEARN_LIKE_STEP : -LEARN_LIKE_STEP
+        );
+      }
+
       // Notify post owner on like (not on unlike, not self-notify).
       // Works for both salon and user posts now that salon CTE returns owner_id.
       if (
@@ -4080,6 +4198,19 @@ class DatabaseStore {
           type: 'post_comment',
           link: `/posts?postId=${data.postId}`,
         }).catch(() => {});
+
+        // Interest Learning: reinforce the author's topics from a real comment.
+        const ownerRows = await sql`
+          SELECT interests FROM users WHERE id = ${postOwnerId} LIMIT 1
+        `;
+        const ownerInterests = Array.isArray(ownerRows[0]?.interests)
+          ? ownerRows[0].interests
+          : [];
+        await recordInterestLearning(
+          requestingUser.id,
+          ownerInterests,
+          LEARN_COMMENT_STEP
+        );
       }
 
       return {

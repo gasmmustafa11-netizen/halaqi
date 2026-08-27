@@ -5,7 +5,7 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
-import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon } from './db.js';
+import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
 import {
   AuthenticatedRequest,
   generateToken,
@@ -2053,6 +2053,7 @@ app.post(
         SELECT
           tc.id AS target_valid,
           tc.name AS target_name,
+          tc.interests AS target_interests,
           COALESCE(
             (SELECT val FROM did_follow),
             FALSE
@@ -2073,6 +2074,17 @@ app.post(
       }
 
       const isFollowing = Boolean(row.is_following);
+
+      // Interest Learning: reinforce (or reverse on unfollow) the followed
+      // user's topics from a real follow action.
+      const targetInterests = Array.isArray(row.target_interests)
+        ? row.target_interests
+        : [];
+      recordInterestLearning(
+        currentUserId,
+        targetInterests,
+        isFollowing ? 0.8 : -0.8
+      ).catch(() => {});
 
       /* Fire-and-forget notification on follow. */
       if (isFollowing) {
@@ -3078,10 +3090,13 @@ app.get(
         50
       );
 
-      const me = await followSql`
-        SELECT interests FROM users WHERE id = ${currentUserId} LIMIT 1
-      `;
-      const myInterests: string[] = Array.isArray(me[0]?.interests) ? me[0].interests : [];
+      // Combined = manually selected interests + auto-learned weights from real
+      // likes/comments/follows. Only weights at/above the match threshold drive
+      // the `&&` overlap, so Discover improves gradually (no fake data).
+      const combined = await getCombinedInterests(currentUserId);
+      const myInterests: string[] = combined
+        .filter((c) => c.weight >= 0.3)
+        .map((c) => c.interest);
 
       // Cold Start: a brand-new user with no interests yet still gets useful,
       // non-empty suggestions (anonymous) instead of an empty screen.
