@@ -25,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { compressImageToDataUrl } from '../../utils/compressImage';
+import { CaptionText } from '../posts/CaptionText';
 
 interface UserProfileViewProps {
   onNavigate?: (view: string) => void;
@@ -105,7 +106,7 @@ const AdminVerifiedBadge = () => {
 
 const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const { user, logout, refreshUser } = useAuth();
-    const { language, setLanguage } = useLanguage();
+    const { isRtl, language, setLanguage } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'posts' | 'saved'>('posts');
   const [posts, setPosts] = useState<UserPost[]>([]);
@@ -122,20 +123,153 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
     postFileInputRef.current?.click();
   };
 
+  // ===== Post Composer state =====
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerFile, setComposerFile] = useState<File | null>(null);
+  const [composerPreview, setComposerPreview] = useState<string | null>(null);
+  const [caption, setCaption] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionResults, setMentionResults] = useState<
+    Array<{ id: string; name: string; avatar?: string }>
+  >([]);
+  const [hashtagInput, setHashtagInput] = useState('');
+  const captionRef = useRef<HTMLTextAreaElement>(null);
+
+  const DRAFT_KEY = 'halaqi_post_draft';
+
+  // Restore text-only draft (never the image/base64).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d?.caption) setCaption(d.caption);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Persist text-only draft.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ caption }));
+    } catch {
+      /* ignore */
+    }
+  }, [caption]);
+
+  // Mention search reusing the existing /api/search users endpoint.
+  useEffect(() => {
+    const q = mentionQuery.trim();
+    if (!q) {
+      setMentionResults([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const res = await api.search(q);
+      if (!cancelled) setMentionResults(res.users.slice(0, 5));
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [mentionQuery]);
+
+  const detectedHashtags = Array.from(
+    new Set((caption.match(/#[\p{L}\p{N}_]+/gu) || []) as string[])
+  );
+  const detectedMentions = Array.from(
+    new Set((caption.match(/@[\p{N}\p{L}_]+/gu) || []) as string[])
+  );
+
+  const insertAtCursor = (text: string) => {
+    const el = captionRef.current;
+    if (!el) {
+      setCaption((c) => c + text);
+      return;
+    }
+    const start = el.selectionStart ?? caption.length;
+    const end = el.selectionEnd ?? caption.length;
+    const next = caption.slice(0, start) + text + caption.slice(end);
+    setCaption(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const addHashtag = () => {
+    const t = hashtagInput.trim().replace(/^#/, '');
+    if (!t) return;
+    setCaption((c) => (c ? c + ' ' : '') + '#' + t);
+    setHashtagInput('');
+  };
+
+  const removeToken = (token: string) => {
+    try {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      setCaption((c) =>
+        c
+          .replace(new RegExp(escaped, 'gu'), '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleSuggestCaption = async () => {
+    setSuggesting(true);
+    try {
+      const res = await api.suggestCaption(caption);
+      if (res.success && res.caption) {
+        setCaption(res.caption);
+      } else {
+        alert(res.error || 'تعذر اقتراح تعليق.');
+      }
+    } catch {
+      alert('تعذر اقتراح تعليق.');
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
   const handlePostImageSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
+    event.target.value = '';
 
     if (!file) return;
 
+    setComposerFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setComposerPreview(
+        typeof reader.result === 'string' ? reader.result : null
+      );
+    };
+    reader.readAsDataURL(file);
+    setComposerOpen(true);
+  };
+
+  const handlePublish = async () => {
+    if (!composerFile) return;
+    setPublishing(true);
     try {
-      const dataUrl = await compressImageToDataUrl(file, {
+      const compressed = await compressImageToDataUrl(composerFile, {
         maxDimension: 1080,
         quality: 0.8,
       });
 
-      const upload = await api.uploadImage(dataUrl);
+      const upload = await api.uploadImage(compressed);
 
       if (!upload.success || !upload.imageUrl) {
         alert(upload.error || 'تعذر رفع الصورة.');
@@ -144,7 +278,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
       const result = await api.createUserPost({
         imageUrl: upload.imageUrl,
-        caption: '',
+        caption,
       });
 
       if (!result.success) {
@@ -153,16 +287,20 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       }
 
       alert('تم نشر الصورة بنجاح.');
-
-      setPosts((current) => [
-        result.post,
-        ...current,
-      ]);
+      setComposerOpen(false);
+      setComposerFile(null);
+      setComposerPreview(null);
+      setCaption('');
+      setShowPreview(false);
+      setMentionQuery('');
+      setMentionResults([]);
+      localStorage.removeItem(DRAFT_KEY);
+      setPosts((current) => [result.post, ...current]);
     } catch (error) {
       console.error('[CREATE USER POST]', error);
       alert('حدث خطأ أثناء نشر الصورة.');
     } finally {
-      event.target.value = '';
+      setPublishing(false);
     }
   };
 
@@ -1077,6 +1215,264 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
           scrollbar-width: none;
         }
       `}</style>
+
+      {composerOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setComposerOpen(false)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/[0.12] bg-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-white/[0.12] px-4 py-3">
+              <h3 className="text-sm font-black text-white">
+                {isRtl ? 'إنشاء منشور' : 'Create Post'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setComposerOpen(false)}
+                className="text-lg text-slate-400 transition-colors hover:text-white"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              {/* Image preview */}
+              {composerPreview && (
+                <div className="overflow-hidden rounded-2xl border border-white/[0.12] bg-black/30">
+                  <img
+                    src={composerPreview}
+                    alt="معاينة"
+                    className="max-h-72 w-full object-contain"
+                  />
+                </div>
+              )}
+
+              {/* Caption */}
+              <div>
+                <textarea
+                  ref={captionRef}
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  dir="auto"
+                  rows={3}
+                  maxLength={500}
+                  placeholder={
+                    isRtl
+                      ? 'اكتب شيئاً عن صورتك... مثال: مرحباً، أنا أحمد وهذه صورتي ✂️'
+                      : 'Write something about your photo... e.g. Hi, I am Ahmed and this is my photo ✂️'
+                  }
+                  className="w-full resize-none rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5 text-sm text-white outline-none transition-all placeholder:text-slate-500 focus:border-[#D4AF37]/40 focus:ring-1 focus:ring-[#D4AF37]/20"
+                />
+                <div className="mt-1 text-right text-[10px] text-slate-500">
+                  {caption.length}/500
+                </div>
+              </div>
+
+              {/* Quick emojis */}
+              <div className="flex flex-wrap gap-2">
+                {['✂️', '🔥', '❤️', '😎', '💈', '📸'].map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => insertAtCursor(em)}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.06] text-lg transition-all hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/[0.08]"
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+
+              {/* Hashtags */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={hashtagInput}
+                    onChange={(e) => setHashtagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addHashtag();
+                      }
+                    }}
+                    dir="auto"
+                    placeholder={isRtl ? 'أضف وسمًا مثل Ahmed' : 'Add hashtag e.g. Ahmed'}
+                    className="flex-1 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-[#D4AF37]/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={addHashtag}
+                    className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-3 py-2 text-xs font-bold text-[#D4AF37]"
+                  >
+                    +
+                  </button>
+                </div>
+                {detectedHashtags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {detectedHashtags.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/[0.08] px-2.5 py-1 text-xs font-semibold text-[#D4AF37]"
+                      >
+                        {t}
+                        <button
+                          type="button"
+                          onClick={() => removeToken(t)}
+                          className="text-[#D4AF37]/70 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Mentions */}
+              <div>
+                <input
+                  value={mentionQuery}
+                  onChange={(e) => setMentionQuery(e.target.value)}
+                  dir="auto"
+                  placeholder={isRtl ? 'اكتب @ للإشارة إلى شخص' : 'Type @ to mention someone'}
+                  className="w-full rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-[#D4AF37]/40"
+                />
+                {mentionResults.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {mentionResults.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => {
+                          insertAtCursor('@' + u.name + ' ');
+                          setMentionQuery('');
+                          setMentionResults([]);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 text-start text-xs text-slate-200 transition-all hover:border-[#D4AF37]/30"
+                      >
+                        {u.avatar ? (
+                          <img
+                            src={u.avatar}
+                            alt={u.name}
+                            className="h-6 w-6 rounded-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#D4AF37]/20 text-[10px] font-bold text-[#D4AF37]">
+                            {(u.name || '?').charAt(0)}
+                          </span>
+                        )}
+                        <span className="truncate">{u.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {detectedMentions.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {detectedMentions.map((m) => (
+                      <span
+                        key={m}
+                        className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-400/[0.08] px-2.5 py-1 text-xs font-semibold text-sky-400"
+                      >
+                        {m}
+                        <button
+                          type="button"
+                          onClick={() => removeToken(m)}
+                          className="text-sky-400/70 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Suggest + Preview */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSuggestCaption}
+                  disabled={suggesting}
+                  className="flex items-center gap-1.5 rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-3 py-2 text-xs font-bold text-[#D4AF37] transition-all hover:bg-[#D4AF37]/[0.16] disabled:opacity-50"
+                >
+                  {suggesting ? '...' : '✨ '}
+                  {isRtl ? 'اقترح تعليقاً' : 'Suggest a caption'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-xs font-bold text-slate-200 transition-all hover:border-[#D4AF37]/30"
+                >
+                  👁️ {isRtl ? 'معاينة' : 'Preview'}
+                </button>
+              </div>
+
+              {/* Preview */}
+              {showPreview && (
+                <div className="rounded-2xl border border-white/[0.12] bg-white/[0.04] p-4">
+                  {composerPreview && (
+                    <img
+                      src={composerPreview}
+                      alt="معاينة"
+                      className="mb-3 max-h-60 w-full rounded-xl object-cover"
+                    />
+                  )}
+                  {caption.trim() ? (
+                    <p
+                      className="whitespace-pre-wrap text-sm leading-6 text-slate-200"
+                      dir="auto"
+                    >
+                      <CaptionText
+                        text={caption}
+                        onHashtag={() => {}}
+                        onMention={async (name) => {
+                          const res = await api.search(name);
+                          const u = res.users?.[0];
+                          if (u && onNavigate) onNavigate(`user:${u.id}`);
+                        }}
+                      />
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      {isRtl ? 'لا يوجد تعليق بعد.' : 'No caption yet.'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setComposerOpen(false)}
+                  className="rounded-xl bg-white/5 px-4 py-2 text-xs text-slate-300"
+                >
+                  {isRtl ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePublish}
+                  disabled={publishing || !composerFile}
+                  className="rounded-xl bg-[#D4AF37] px-5 py-2 text-xs font-black text-black shadow-[0_0_16px_-2px_rgba(212,175,55,0.5)] ring-1 ring-[#D4AF37]/20 transition-all hover:bg-[#e5c45b] disabled:opacity-40"
+                >
+                  {publishing
+                    ? isRtl
+                      ? 'جارٍ النشر...'
+                      : 'Publishing...'
+                    : isRtl
+                      ? 'نشر'
+                      : 'Publish'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
