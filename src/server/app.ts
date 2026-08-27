@@ -870,7 +870,7 @@ app.post(
 
       return res.status(500).json({
         success: false,
-        error: 'تعذر حفظ المنشور.',
+        error: 'تعذر تحديث حالة الإشعار.',
       });
     }
   }
@@ -878,8 +878,418 @@ app.post(
 
 
 /* =========================================================
-   PUBLIC USER PROFILE
+   BOOKINGS ENDPOINTS (restored)
    ========================================================= */
+
+app.get('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { customerId, salonId, status } = req.query;
+  const user = req.user!;
+
+  try {
+    // Always read authoritative booking data from Neon.
+    let bookings = await db.getAllBookingsFromNeon();
+
+    // RBAC Data Isolation
+    if (user.role === 'customer') {
+      bookings = bookings.filter((b) => b.customerId === user.id);
+    } else if (user.role === 'salon_owner') {
+      // Authoritative ownership lookup from Neon.
+      // Do not rely on user.salonId in a serverless instance.
+      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+    } else if (user.role === 'staff') {
+      const ownedSalonId = user.salonId;
+
+      bookings = bookings.filter(
+        (b) =>
+          (ownedSalonId && b.salonId === ownedSalonId) ||
+          db.isSalonOwner(user.id, b.salonId)
+      );
+    } else if (user.role === 'admin') {
+      if (customerId) {
+        bookings = bookings.filter(
+          (b) => b.customerId === customerId
+        );
+      }
+
+      if (salonId) {
+        bookings = bookings.filter(
+          (b) => b.salonId === salonId
+        );
+      }
+    }
+
+    if (status) {
+      bookings = bookings.filter(
+        (b) => b.status === status
+      );
+    }
+
+    return res.json({
+      success: true,
+      bookings,
+    });
+  } catch (error: any) {
+    console.error(
+      '[GET BOOKINGS NEON] Failed:',
+      error?.message || error
+    );
+
+    return res.status(503).json({
+      success: false,
+      error: 'تعذر تحميل الحجوزات حالياً. حاول مرة أخرى.',
+      bookings: [],
+    });
+  }
+});
+
+app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
+  const { barberId, date } = req.query;
+  if (!barberId || !date) {
+    return res.status(400).json({ success: false, error: 'barberId and date are required' });
+  }
+  const slots = db.getOccupiedSlots(barberId as string, date as string);
+  res.json({ success: true, occupiedSlots: slots });
+});
+
+app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const bookingPayload = req.body;
+  const ip = req.ip || '127.0.0.1';
+
+  // Strictly enforce customer details from authenticated user token
+  const customer = req.user!;
+  const securePayload = {
+    ...bookingPayload,
+    customerId: customer.id,
+    customerName: bookingPayload.customerName || customer.name,
+    customerPhone: bookingPayload.customerPhone || customer.phone,
+    customerEmail: customer.email,
+  };
+
+  if (
+    !securePayload.salonId ||
+    !securePayload.serviceId ||
+    !securePayload.date ||
+    !securePayload.timeSlot
+  ) {
+    return res.status(400).json({ success: false, error: 'يرجى إكمال جميع بيانات الحجز المطلوبة' });
+  }
+
+  // ============================================================
+  // BOOKING SALON SYNC
+  // Vercel serverless memory may not contain salons loaded in Neon.
+  // Sync the selected salon before validating the booking.
+  // ============================================================
+  const salonInMemory = db.getState().salons.find(
+    (salon) => salon.id === securePayload.salonId
+  );
+
+  if (!salonInMemory) {
+    try {
+      const salonFromNeon = await db.getSalonByIdFromNeon(
+        securePayload.salonId
+      );
+
+      if (!salonFromNeon) {
+        return res.status(404).json({
+          success: false,
+          error: 'الصالون المحدد غير موجود.',
+        });
+      }
+
+      db.getState().salons.push(salonFromNeon);
+
+      console.log(
+        `[BOOKING SALON SYNC] Salon ${salonFromNeon.id} loaded from Neon`
+      );
+    } catch (error: any) {
+      console.error(
+        '[BOOKING SALON SYNC] Failed to load salon from Neon:',
+        error?.message || error
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر التحقق من الصالون حالياً. حاول مرة أخرى.',
+      });
+    }
+  }
+
+  // ============================================================
+  // BOOKING SERVICE NEON SYNC FINAL
+  // ============================================================
+  const serviceInMemory = db.getState().services.find(
+    (service) =>
+      service.id === securePayload.serviceId &&
+      service.salonId === securePayload.salonId
+  );
+
+  if (!serviceInMemory) {
+    try {
+      const serviceFromNeon = await db.getServiceByIdFromNeon(
+        securePayload.serviceId
+      );
+
+      if (!serviceFromNeon) {
+        return res.status(404).json({
+          success: false,
+          error: 'الخدمة المطلوبة غير موجودة.',
+        });
+      }
+
+      if (serviceFromNeon.salonId !== securePayload.salonId) {
+        return res.status(400).json({
+          success: false,
+          error: 'الخدمة المطلوبة لا تنتمي إلى هذا الصالون.',
+        });
+      }
+
+      db.getState().services.push(serviceFromNeon);
+
+      console.log(
+        `[BOOKING SERVICE SYNC] Service ${serviceFromNeon.id} loaded from Neon`
+      );
+    } catch (error: any) {
+      console.error(
+        '[BOOKING SERVICE SYNC] Failed:',
+        error?.message || error
+      );
+
+      return res.status(503).json({
+        success: false,
+        error: 'تعذر التحقق من الخدمة حالياً. حاول مرة أخرى.',
+      });
+    }
+  }
+
+  // ============================================================
+  // BARBER IS OPTIONAL
+  // The customer books the salon/service/time directly.
+  // No barber is auto-assigned here.
+  // ============================================================
+
+  const bookingWithoutBarber = {
+    ...securePayload,
+    barberId: undefined,
+    barberName: undefined,
+  };
+
+  console.log(
+    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+  );
+
+  const result = await db.createBookingAtomic(
+    bookingWithoutBarber,
+    req.body.couponCode,
+    ip
+  );
+
+  if (!result.success || !result.booking) {
+    return res.status(409).json({
+      success: false,
+      error: result.error || 'تعذر إتمام الحجز.'
+    });
+  }
+
+  // Notify both the salon owner and platform admins after a successful booking.
+  // IMPORTANT: notifications must never block the booking response.
+  void (async () => {
+  // Recipients are resolved server-side from authoritative user/salon data.
+  try {
+    const salon = db.getState().salons.find(
+      (s) => s.id === result.booking!.salonId
+    );
+
+    const recipients = new Map<string, any>();
+
+    // 1. Salon owner
+    if (salon?.ownerId) {
+      let owner =
+        db.getUserById(salon.ownerId) ||
+        await db.getUserByIdFromNeon(salon.ownerId);
+
+      if (owner) {
+        recipients.set(owner.id, owner);
+      } else {
+        console.error(
+          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+        );
+      }
+    } else {
+      console.error(
+        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+      );
+    }
+
+    // 2. Platform admins
+    const admins = db.getAdminUsers();
+
+    for (const admin of admins) {
+      recipients.set(admin.id, admin);
+    }
+
+    // If admin is not currently in memory, try the authoritative Neon user.
+    if (!admins.length) {
+      const stateUsers = db.getState().users || [];
+
+      for (const user of stateUsers) {
+        if (user.role === 'admin') {
+          const admin =
+            db.getUserById(user.id) ||
+            await db.getUserByIdFromNeon(user.id);
+
+          if (admin) {
+            recipients.set(admin.id, admin);
+          }
+        }
+      }
+    }
+
+    const notificationPayload = {
+      title: 'حجز جديد 🎉',
+      titleEn: 'New Booking 🎉',
+      message: `لديك حجز جديد من ${result.booking!.customerName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}، المبلغ: ${result.booking!.finalPrice.toLocaleString()} د.ع.`,
+      messageEn: `You have a new booking from ${result.booking!.customerName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}. Amount: ${result.booking!.finalPrice.toLocaleString()} IQD.`,
+      type: 'booking_created' as const,
+      link: '/bookings',
+      salonId: result.booking!.salonId,
+    };
+
+    for (const recipient of recipients.values()) {
+      await db.createNotification({
+        userId: recipient.id,
+        ...notificationPayload,
+      });
+
+      console.log(
+        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
+      );
+    }
+  } catch (error: any) {
+    // Never fail an already-created booking because notification delivery failed.
+    console.error(
+      '[BOOKING NOTIFICATION] Failed to create notification:',
+      error?.message || error
+    );
+  }
+  })();
+
+    // Return successful booking immediately.
+    // Notification delivery is intentionally fire-and-forget.
+    return res.status(201).json({
+      success: true,
+      booking: result.booking,
+    });
+  });
+
+app.post('/api/bookings/:id/complete-by-qr', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const { qrNonce } = req.body || {};
+
+    if (!qrNonce || typeof qrNonce !== 'string') {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_QR',
+        error: 'رمز QR غير صالح.',
+      });
+    }
+
+    const result = await db.completeBookingByQr(
+      req.params.id,
+      qrNonce,
+      user,
+      req.ip || '127.0.0.1'
+    );
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    return res.json({
+      success: true,
+      booking: result.booking,
+    });
+  } catch (error: any) {
+    console.error('[BOOKING_QR] Failed to complete booking:', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'حدث خطأ أثناء إكمال الحجز عبر QR.',
+    });
+  }
+});
+
+app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { status } = req.body;
+  const user = req.user!;
+
+  const allowedStatuses = ['confirmed', 'pending', 'completed', 'cancelled'];
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      error: 'حالة الحجز غير صالحة.',
+    });
+  }
+
+  const booking = db.getState().bookings.find(
+    (b) => b.id === req.params.id
+  );
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      error: 'الحجز غير موجود.',
+    });
+  }
+
+  // Only the salon owner of this booking or Admin can update status.
+  if (
+    user.role !== 'admin' &&
+    !db.isSalonOwner(user.id, booking.salonId)
+  ) {
+    return res.status(403).json({
+      success: false,
+      error: 'غير مصرح لك بتغيير حالة هذا الحجز.',
+    });
+  }
+
+  booking.status = status as typeof booking.status;
+
+  db.addAuditLog({
+    userId: user.id,
+    userEmail: user.email,
+    userRole: user.role,
+    action: 'BOOKING_STATUS_CHANGE',
+    targetType: 'booking',
+    targetId: booking.id,
+    details: `تغيير حالة الحجز ${booking.bookingNumber} إلى ${status}`,
+    ip: req.ip || '127.0.0.1',
+    status: 'success',
+  });
+
+  return res.json({
+    success: true,
+    booking,
+  });
+});
+
+app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { reason } = req.body;
+  const ip = req.ip || '127.0.0.1';
+  const result = db.cancelBooking(req.params.id, req.user!, reason, ip);
+  if (!result.success) {
+    return res.status(400).json({ success: false, error: result.error });
+  }
+  res.json({ success: true });
+});
+
+/* =========================================================
+   STATIC FRONTEND
+========================================================= */
 
 app.get('/api/users/:id/public', async (req: Request, res: Response) => {
   try {
