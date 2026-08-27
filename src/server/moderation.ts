@@ -87,6 +87,26 @@ const MODERATION_RULES: ModerationRule[] = [
     ],
   },
 
+  // ---------------- Severe Iraqi/Arabic insults (block on match) ----------------
+  {
+    id: 'severe-ar-insult',
+    category: 'hate',
+    languages: ['ar', 'iraqi', 'levantine', 'gulf', 'egyptian'],
+    severity: 'severe',
+    terms: [
+      // "كس امك" (your mother's vagina) and close Iraqi variants.
+      // Terms are written run-together on purpose: the fuzzy matcher
+      // injects [\W_]* between characters, so it also catches spaced,
+      // dotted or otherwise separated obfuscations (كس امك / كس.امك / ك س امك).
+      'كسامك', 'كسأمك',
+      'ksamk', 'ksomak', 'ksomk', 'ksamak',
+      'kosamk', 'kosomak', 'kosomk', 'kosamak',
+      // "كس اختك" / "كسختك" family.
+      'كساختك',
+      'ksokhtak', 'kosokhtak', 'ksohtak',
+    ],
+  },
+
   // ---------------- Explicit profanity (high) ----------------
   {
     id: 'profanity-en',
@@ -105,7 +125,8 @@ const MODERATION_RULES: ModerationRule[] = [
     languages: ['ar', 'iraqi', 'levantine', 'gulf', 'egyptian'],
     severity: 'high',
     terms: [
-      'خرا', 'خرة', 'khra', 'khara',
+      'خرا', 'خرة', 'khra', 'khara', 'khrah', 'khera', 'kharah',
+      '5ra', '5rah', '5ara',
       'زق', 'zag',
       'مصخرة', 'mskhra',
       'حيوان', 'كلب', 'حمار', '7mar', '7mar',
@@ -238,7 +259,7 @@ const COMPILED: CompiledRule[] = MODERATION_RULES.map((rule) => {
     const norm = normalizeText(t);
     const chars = Array.from(norm)
       .map((c) => escapeRegex(c))
-      .join('[\\W_]*');
+      .join('[^\\p{L}\\p{N}]*');
     return boundary(chars);
   });
   return {
