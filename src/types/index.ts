@@ -206,6 +206,7 @@ export interface Message {
   recipientId: string;
   body: string;
   read: boolean;
+  status?: 'sent' | 'delivered' | 'read';
   createdAt: string;
 }
 

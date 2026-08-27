@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { Message, Conversation } from '../../types';
-import { MessageSquare, Send, ArrowLeft, Loader2 } from 'lucide-react';
+import { MessageSquare, Send, ArrowLeft, Loader2, Check, CheckCheck } from 'lucide-react';
 
 const formatTime = (iso: string, isRtl: boolean): string => {
   try {
@@ -18,7 +18,37 @@ const formatTime = (iso: string, isRtl: boolean): string => {
   }
 };
 
-export const MessagesView: React.FC = () => {
+const MessageStatusTicks: React.FC<{ status: Message['status']; isRtl: boolean }> = ({
+  status,
+  isRtl,
+}) => {
+  if (status === 'sent') {
+    return (
+      <span title={isRtl ? 'تم الإرسال' : 'Sent'} className="inline-flex">
+        <Check className="w-3 h-3" />
+      </span>
+    );
+  }
+
+  if (status === 'delivered') {
+    return (
+      <span title={isRtl ? 'تم التسليم' : 'Delivered'} className="inline-flex text-gray-400">
+        <CheckCheck className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+
+  // read
+  return (
+    <span title={isRtl ? 'تم القراءة' : 'Read'} className="inline-flex text-[#D4AF37]">
+      <CheckCheck className="w-3.5 h-3.5" />
+    </span>
+  );
+};
+
+export const MessagesView: React.FC<{ initialUserId?: string | null }> = ({
+  initialUserId,
+}) => {
   const { user } = useAuth();
   const { isRtl } = useLanguage();
 
@@ -85,6 +115,12 @@ export const MessagesView: React.FC = () => {
     },
     [loadMessages, loadConversations]
   );
+
+  // Open a specific conversation when navigated from a profile ("Message" button).
+  useEffect(() => {
+    if (!initialUserId || !user?.id) return;
+    openConversation(initialUserId);
+  }, [initialUserId, user?.id, openConversation]);
 
   // Poll the open thread for new messages and keep read state fresh.
   useEffect(() => {
@@ -273,11 +309,12 @@ export const MessagesView: React.FC = () => {
                 >
                   <p className="whitespace-pre-wrap break-words">{m.body}</p>
                   <p
-                    className={`text-[9px] mt-1 ${
+                    className={`text-[9px] mt-1 flex items-center gap-1 ${
                       mine ? 'text-black/60' : 'text-gray-500'
                     }`}
                   >
                     {formatTime(m.createdAt, isRtl)}
+                    {mine && <MessageStatusTicks status={m.status} isRtl={isRtl} />}
                   </p>
                 </div>
               </div>

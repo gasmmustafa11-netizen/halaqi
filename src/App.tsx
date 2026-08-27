@@ -36,6 +36,7 @@ function AppContent() {
   }, [role]);
   const [selectedSalon, setSelectedSalon] = useState<Salon | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedMessageUserId, setSelectedMessageUserId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -98,6 +99,24 @@ function AppContent() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
+    }
+
+    // Open an existing direct conversation with a specific user
+    // (e.g. the "Message" button on a profile).
+    if (view.startsWith('messages:')) {
+      const uid = view.slice('messages:'.length).trim();
+
+      if (uid) {
+        setSelectedMessageUserId(uid);
+        setCurrentView('messages');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
+
+    // Plain "messages" nav (navbar) clears any deep-linked conversation.
+    if (view === 'messages') {
+      setSelectedMessageUserId(null);
     }
 
     setCurrentView(view);
@@ -214,6 +233,7 @@ function AppContent() {
             <PublicUserProfileView
               userId={selectedUserId}
               onBack={() => handleNavigate('search')}
+              onNavigate={handleNavigate}
             />
           )
         )}
@@ -229,7 +249,9 @@ function AppContent() {
           />
         )}
 
-        {currentView === 'messages' && <MessagesView />}
+        {currentView === 'messages' && (
+          <MessagesView initialUserId={selectedMessageUserId} />
+        )}
       </main>
 
       {/* Footer */}
