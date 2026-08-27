@@ -1987,4 +1987,83 @@ export const api = {
     }
   },
 
+  async getDiscoverConnections(): Promise<{ success: boolean; connections: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/connections', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        connections: Array.isArray(data.connections) ? data.connections : [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getDiscoverConnections]:', err);
+      return { success: false, connections: [], error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async getDiscoverConversation(convId: string): Promise<{ success: boolean; messages: any[]; meta?: any; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/conversation/${encodeURIComponent(convId)}/messages`, {
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        messages: Array.isArray(data.messages) ? data.messages : [],
+        meta: data.meta,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getDiscoverConversation]:', err);
+      return { success: false, messages: [], error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async sendDiscoverMessage(convId: string, body: string): Promise<{ success: boolean; message?: any; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/conversation/${encodeURIComponent(convId)}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, message: data.message, error: data.error };
+    } catch (err) {
+      console.error('API Error [sendDiscoverMessage]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async endDiscoverConversation(convId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/conversation/${encodeURIComponent(convId)}/end`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [endDiscoverConversation]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async revealDiscoverIdentity(convId: string): Promise<{ success: boolean; revealed?: boolean; myConsent?: boolean; otherConsent?: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/conversation/${encodeURIComponent(convId)}/reveal`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        revealed: data.revealed,
+        myConsent: data.myConsent,
+        otherConsent: data.otherConsent,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [revealDiscoverIdentity]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
 };
