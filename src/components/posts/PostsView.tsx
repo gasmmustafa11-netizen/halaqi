@@ -421,7 +421,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
   return (
     <main
       dir={isRtl ? 'rtl' : 'ltr'}
-      className="relative min-h-screen overflow-hidden bg-[#070707] pb-28 text-white"
+      className="relative min-h-screen overflow-hidden bg-[#0A0A0A] pb-28 text-white"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-80 w-80 rounded-full bg-[#D4AF37]/[0.06] blur-[100px]" />
@@ -430,7 +430,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
       </div>
 
       <div className="relative mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-7 overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.035] p-5 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:p-6">
+        <header className="mb-7 overflow-hidden rounded-[24px] border border-white/[0.12] bg-white/[0.06] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2">
@@ -463,7 +463,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
         </header>
 
         {loading ? (
-          <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-white/[0.07] bg-white/[0.025] backdrop-blur-xl">
+          <div className="flex min-h-[420px] items-center justify-center rounded-[24px] border border-white/[0.12] bg-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
             <div className="flex flex-col items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] shadow-[0_0_40px_rgba(212,175,55,0.08)]">
                 <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
@@ -474,7 +474,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
             </div>
           </div>
         ) : posts.length === 0 ? (
-          <div className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] px-6 py-16 text-center shadow-2xl backdrop-blur-2xl">
+          <div className="rounded-[24px] border border-white/[0.12] bg-white/[0.06] px-6 py-16 text-center shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/15 bg-[#D4AF37]/[0.05]">
               <MessageCircle className="h-6 w-6 text-[#D4AF37]/70" />
             </div>
@@ -511,10 +511,10 @@ export const PostsView: React.FC<PostsViewProps> = ({
                 <article
                   id={`post-${post.id}`}
                   key={post.id}
-                  className={`group overflow-hidden rounded-[28px] border shadow-2xl shadow-black/40 backdrop-blur-2xl transition-all duration-300 ${
+                  className={`group overflow-hidden rounded-[24px] border shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl transition-all duration-300 ${
                     selectedPostId === post.id
-                      ? 'border-[#D4AF37]/60 bg-[#D4AF37]/[0.07] ring-2 ring-[#D4AF37]/20'
-                      : 'border-white/[0.08] bg-white/[0.035] hover:border-[#D4AF37]/20 hover:bg-white/[0.045]'
+                      ? 'border-[#D4AF37]/60 bg-[#D4AF37]/[0.10] ring-2 ring-[#D4AF37]/20'
+                      : 'border-white/[0.12] bg-white/[0.06] hover:border-[#D4AF37]/20 hover:bg-white/[0.08]'
                   }`}
                 >
                   <button
@@ -528,7 +528,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       }
                     }}
                   >
-                    <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl border border-white/[0.10] bg-black/40 shadow-lg">
+                      <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.06] ring-1 ring-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.6)]">
                       {isUserPost && userPost?.userAvatar ? (
                         <img
                           src={userPost.userAvatar}
@@ -571,7 +571,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="hidden shrink-0 rounded-xl border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 sm:block">
+                      <div className="hidden shrink-0 rounded-xl border border-white/[0.12] bg-white/[0.06] px-2.5 py-2 sm:block">
                       <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">
                         {isUserPost
                           ? (isRtl ? 'الملف الشخصي' : 'PROFILE')
@@ -580,7 +580,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
                   </button>
 
-                  <div className="relative overflow-hidden border-y border-white/[0.06] bg-black/40">
+                  <div className="relative overflow-hidden border-y border-white/[0.12] bg-black/40">
                     <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/20 via-transparent to-white/[0.025]" />
                     <div
 
@@ -636,7 +636,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                           className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition-all ${
                             isLiked
                               ? 'border-red-400/20 bg-red-400/[0.08] text-red-300'
-                              : 'border-white/[0.07] bg-white/[0.025] text-slate-400 hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white'
+                              : 'border-white/[0.12] bg-white/[0.06] text-slate-400 hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white'
                           }`}
                         >
                           <Heart
@@ -650,7 +650,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleToggleComments(post)}
-                          className="flex h-10 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 text-xs font-bold text-slate-400 transition-all hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white"
+                          className="flex h-10 items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 text-xs font-bold text-slate-400 transition-all hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white"
                         >
                           {isCommentsLoading ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -667,7 +667,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
 
                     {isCommentsOpen && (
-                      <div className="mt-5 rounded-2xl border border-white/[0.07] bg-black/20 p-3 backdrop-blur-xl sm:p-4">
+                      <div className="mt-5 rounded-2xl border border-white/[0.12] bg-white/[0.06] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl sm:p-4">
                         <div className="mb-3 flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-300">
                             {isRtl ? 'التعليقات' : 'Comments'}
@@ -679,7 +679,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                         <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
                           {postComments.length === 0 ? (
-                            <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-5 text-center">
+                              <div className="rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-5 text-center">
                               <p className="text-xs text-slate-600">
                                 {isRtl
                                   ? 'لا توجد تعليقات بعد'
@@ -692,7 +692,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                 key={comment.id}
                                 className="flex gap-2.5"
                               >
-                                <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.04]">
+                                <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-white/[0.12] bg-white/[0.06]">
                                   {comment.userAvatar ? (
                                     <img
                                       src={comment.userAvatar}
@@ -706,7 +706,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                   )}
                                 </div>
 
-                                <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.05] bg-white/[0.025] px-3 py-2.5">
+                                <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5">
                                   <div className="text-xs font-bold text-slate-200">
                                     {comment.userName}
                                   </div>
@@ -739,7 +739,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                 ? 'اكتب تعليقاً...'
                                 : 'Write a comment...'
                             }
-                            className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 transition-all focus:border-[#D4AF37]/40 focus:bg-black/40 focus:ring-1 focus:ring-[#D4AF37]/10"
+                            className="min-w-0 flex-1 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 transition-all focus:border-[#D4AF37]/40 focus:bg-white/[0.08] focus:ring-1 focus:ring-[#D4AF37]/20"
                           />
 
                           <button
@@ -749,7 +749,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                               isCommentLoading ||
                               !(commentText[post.id] || '').trim()
                             }
-                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10 transition-all hover:bg-[#e5c45b] disabled:cursor-not-allowed disabled:opacity-30"
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37] text-black shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 transition-all hover:bg-[#e5c45b] disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             {isCommentLoading ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
