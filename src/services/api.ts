@@ -457,6 +457,33 @@ export const api = {
     }
   },
 
+  async suggestCaption(context?: string): Promise<{
+    success: boolean;
+    caption?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/ai/suggest-caption', {
+        method: 'POST',
+        body: JSON.stringify({ context: context || '' }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || 'تعذر اقتراح تعليق.',
+        };
+      }
+
+      return { success: true, caption: data.caption };
+    } catch (err) {
+      console.error('[SUGGEST CAPTION API]', err);
+      return { success: false, error: 'تعذر اقتراح تعليق.' };
+    }
+  },
+
   async updateMyProfile(data: {
     name: string;
     phone?: string;

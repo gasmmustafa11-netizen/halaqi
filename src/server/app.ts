@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon } from './db.js';
 import {
@@ -935,6 +936,60 @@ app.post(
       return res.status(500).json({
         success: false,
         error: 'تعذر رفع الصورة.',
+      });
+    }
+  }
+);
+
+/* =========================================================
+   AI CAPTION SUGGESTION (server-side, key never sent to client)
+   Used by the Post Composer "✨ Suggest a caption" feature.
+   Fails gracefully so it never blocks normal posting.
+   ========================================================= */
+app.post(
+  '/api/ai/suggest-caption',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      if (!apiKey) {
+        return res.status(200).json({
+          success: false,
+          error: 'خدمة اقتراح التعليق غير متاحة.',
+        });
+      }
+
+      const { context } = req.body || {};
+
+      const ai = new GoogleGenAI({ apiKey });
+
+      const prompt =
+        'Write a short, friendly social-media caption for a beauty/salon photo post. ' +
+        'Match the user language (Arabic or English). Keep it under 140 characters. ' +
+        'You may include 1-2 relevant hashtags. Return only the caption text, no quotes.\n' +
+        (context ? `User context / draft: ${context}\n` : '');
+
+      const result = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+      });
+
+      const caption = (result as any)?.text?.trim() || '';
+
+      if (!caption) {
+        return res.status(200).json({
+          success: false,
+          error: 'تعذر إنشاء اقتراح.',
+        });
+      }
+
+      return res.status(200).json({ success: true, caption });
+    } catch (error) {
+      console.error('[SUGGEST CAPTION ERROR]', error);
+      return res.status(200).json({
+        success: false,
+        error: 'تعذر اقتراح تعليق.',
       });
     }
   }

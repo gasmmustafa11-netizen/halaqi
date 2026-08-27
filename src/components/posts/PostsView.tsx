@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Heart, MessageCircle, Send, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { CaptionText } from './CaptionText';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Salon, SalonPost, PostComment, UserPost } from '../../types';
@@ -622,8 +623,8 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                   <div className="p-4 sm:p-5">
                     {post.caption && (
-                      <p className="mb-5 whitespace-pre-wrap text-sm leading-6 text-slate-300">
-                        {post.caption}
+                      <p className="mb-5 whitespace-pre-wrap text-sm leading-6 text-slate-300" dir="auto">
+                        <CaptionText text={post.caption} />
                       </p>
                     )}
 
