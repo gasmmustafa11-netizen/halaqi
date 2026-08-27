@@ -1287,6 +1287,341 @@ app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, re
   res.json({ success: true });
 });
 
+
+/* =========================================================
+   MESSAGING / DIRECT CHAT
+   Persistent private messages backed by Neon (messages table).
+   ========================================================= */
+
+let messagesTableReady: Promise<void> | null = null;
+
+async function ensureMessagesTable(): Promise<void> {
+  if (!messagesTableReady) {
+    messagesTableReady = (async () => {
+      await followSql`
+        CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          sender_id TEXT NOT NULL,
+          recipient_id TEXT NOT NULL,
+          body TEXT NOT NULL,
+          read BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+
+      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)`;
+      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)`;
+      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id, recipient_id, created_at)`;
+    })().catch((error: unknown) => {
+      messagesTableReady = null;
+      throw error;
+    });
+  }
+
+  await messagesTableReady;
+}
+
+/* GET /api/messages/conversations
+   Returns the current user's conversations with the latest message
+   and unread count per conversation. RBAC: only conversations where
+   the current user is a participant are returned. */
+app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureMessagesTable();
+
+    const me = req.user!.id;
+
+    const rows = await followSql`
+      WITH conv AS (
+        SELECT
+          CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END AS other_id,
+          id,
+          sender_id,
+          recipient_id,
+          body,
+          read,
+          created_at
+        FROM messages
+        WHERE sender_id = ${me} OR recipient_id = ${me}
+      )
+      SELECT DISTINCT ON (other_id)
+        other_id,
+        body,
+        read,
+        created_at,
+        sender_id
+      FROM conv
+      ORDER BY other_id, created_at DESC
+    `;
+
+    const unreadRows = await followSql`
+      SELECT sender_id AS other_id, COUNT(*)::int AS unread_count
+      FROM messages
+      WHERE recipient_id = ${me} AND read = FALSE
+      GROUP BY sender_id
+    `;
+
+    const unreadMap = new Map<string, number>(
+      unreadRows.map((r: any) => [String(r.other_id), Number(r.unread_count || 0)])
+    );
+
+    const otherIds: string[] = rows.map((r: any) => String(r.other_id));
+    const profileMap = new Map<string, any>();
+
+    if (otherIds.length) {
+      const profiles = await followSql`
+        SELECT id, name, avatar, avatar_url FROM users WHERE id = ANY(${otherIds})
+      `;
+
+      for (const p of profiles) {
+        profileMap.set(String(p.id), p);
+      }
+    }
+
+    const conversations: any[] = rows.map((r: any) => {
+      const profile = profileMap.get(String(r.other_id)) || {};
+
+      return {
+        otherUser: {
+          id: String(r.other_id),
+          name: profile.name || 'مستخدم',
+          avatar: profile.avatar || profile.avatar_url || undefined,
+        },
+        lastMessage: {
+          body: r.body,
+          createdAt: new Date(r.created_at).toISOString(),
+          senderId: r.sender_id,
+        },
+        unreadCount: unreadMap.get(String(r.other_id)) || 0,
+      };
+    });
+
+    return res.json({
+      success: true,
+      conversations,
+    });
+  } catch (error: any) {
+    console.error('[MESSAGES CONVERSATIONS]', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تحميل المحادثات.',
+    });
+  }
+});
+
+/* GET /api/messages/:userId
+   Returns the message history between the current user and :userId.
+   Authorization: only messages where (me <-> userId) are returned,
+   so a user can never read another participant's conversation. */
+app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureMessagesTable();
+
+    const me = req.user!.id;
+    const other = String(req.params.userId || '').trim();
+
+    if (!other || other === me) {
+      return res.status(400).json({
+        success: false,
+        error: 'محادثة غير صالحة.',
+      });
+    }
+
+    const beforeRaw = req.query.before;
+    const before = typeof beforeRaw === 'string' ? new Date(beforeRaw) : null;
+    const hasBefore = before && !isNaN(before.getTime());
+
+    const rows = hasBefore
+      ? await followSql`
+          SELECT * FROM messages
+          WHERE ((sender_id = ${me} AND recipient_id = ${other})
+              OR (sender_id = ${other} AND recipient_id = ${me}))
+            AND created_at < ${before!.toISOString()}
+          ORDER BY created_at DESC
+          LIMIT 50
+        `
+      : await followSql`
+          SELECT * FROM messages
+          WHERE (sender_id = ${me} AND recipient_id = ${other})
+             OR (sender_id = ${other} AND recipient_id = ${me})
+          ORDER BY created_at DESC
+          LIMIT 50
+        `;
+
+    const messages: any[] = rows
+      .map((m: any) => ({
+        id: m.id,
+        senderId: m.sender_id,
+        recipientId: m.recipient_id,
+        body: m.body,
+        read: m.read,
+        createdAt: new Date(m.created_at).toISOString(),
+      }))
+      .reverse();
+
+    return res.json({
+      success: true,
+      messages,
+      hasMore: rows.length === 50,
+    });
+  } catch (error: any) {
+    console.error('[MESSAGES HISTORY]', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تحميل الرسائل.',
+    });
+  }
+});
+
+/* POST /api/messages
+   Sends a private message. The sender identity is ALWAYS derived from
+   the authenticated user (req.user.id); the recipient is validated and
+   must exist and not be banned. Self-messaging is rejected. */
+app.post('/api/messages', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureMessagesTable();
+
+    const me = req.user!.id;
+    const { recipientId, body } = req.body || {};
+
+    const text = typeof body === 'string' ? body.trim() : '';
+
+    if (!recipientId || typeof recipientId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'معرف المستلم مطلوب.',
+      });
+    }
+
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        error: 'نص الرسالة مطلوب.',
+      });
+    }
+
+    if (recipientId === me) {
+      return res.status(400).json({
+        success: false,
+        error: 'لا يمكنك إرسال رسالة إلى نفسك.',
+      });
+    }
+
+    const recipient =
+      db.getUserById(recipientId) || (await db.getUserByIdFromNeon(recipientId));
+
+    if (!recipient) {
+      return res.status(404).json({
+        success: false,
+        error: 'المستخدم غير موجود.',
+      });
+    }
+
+    if (recipient.isBanned) {
+      return res.status(403).json({
+        success: false,
+        error: 'لا يمكن إرسال رسالة إلى هذا المستخدم.',
+      });
+    }
+
+    const sender = db.getUserById(me) || (await db.getUserByIdFromNeon(me));
+
+    if (sender?.isBanned) {
+      return res.status(403).json({
+        success: false,
+        error: 'تم حظر حسابك من إرسال الرسائل.',
+      });
+    }
+
+    const id = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    const createdAt = new Date().toISOString();
+
+    await followSql`
+      INSERT INTO messages (id, sender_id, recipient_id, body, read, created_at)
+      VALUES (${id}, ${me}, ${recipientId}, ${text}, FALSE, ${createdAt})
+    `;
+
+    const message = {
+      id,
+      senderId: me,
+      recipientId,
+      body: text,
+      read: false,
+      createdAt,
+    };
+
+    // Notify the recipient (non-blocking; failures must not fail the send).
+    try {
+      const preview =
+        text.length > 80 ? `${text.substring(0, 80)}…` : text;
+
+      await db.createNotification({
+        userId: recipientId,
+        actorUserId: me,
+        title: 'رسالة جديدة 💬',
+        titleEn: 'New Message 💬',
+        message: `${sender?.name || 'مستخدم'}: ${preview}`,
+        messageEn: `${sender?.name || 'A user'}: ${preview}`,
+        type: 'message',
+        link: '/messages',
+      });
+    } catch (nerr: any) {
+      console.error('[MESSAGE NOTIFICATION] Failed:', nerr?.message || nerr);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message,
+    });
+  } catch (error: any) {
+    console.error('[SEND MESSAGE]', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر إرسال الرسالة.',
+    });
+  }
+});
+
+/* POST /api/messages/:userId/read
+   Marks all messages FROM :userId TO the current user as read.
+   Authorization: only rows where recipient_id = me are updated, so a
+   user can never mark another user's incoming messages as read. */
+app.post('/api/messages/:userId/read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureMessagesTable();
+
+    const me = req.user!.id;
+    const other = String(req.params.userId || '').trim();
+
+    if (!other || other === me) {
+      return res.status(400).json({
+        success: false,
+        error: 'طلب غير صالح.',
+      });
+    }
+
+    await followSql`
+      UPDATE messages
+      SET read = TRUE
+      WHERE recipient_id = ${me}
+        AND sender_id = ${other}
+        AND read = FALSE
+    `;
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('[MESSAGES READ]', error?.message || error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تحديث حالة القراءة.',
+    });
+  }
+});
+
 /* =========================================================
    STATIC FRONTEND
 ========================================================= */
