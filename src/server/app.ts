@@ -860,6 +860,138 @@ function getSupabaseStorageClient() {
   return supabaseStorageClient;
 }
 
+/* Media for direct messages is stored in the same object storage used for
+   avatars (Supabase Storage). We keep a dedicated folder prefix so message
+   binaries never mix with profile images, but reuse the existing, already
+   configured bucket so no new infrastructure is introduced. */
+const MESSAGE_MEDIA_BUCKET = process.env.SUPABASE_MEDIA_BUCKET || 'avatars';
+const MESSAGE_MEDIA_FOLDER = 'msg';
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_THUMBNAIL_BYTES = 1024 * 1024; // 1 MB
+
+const IMAGE_MIME_WHITELIST = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webm',
+]);
+
+const AUDIO_MIME_WHITELIST = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/aac',
+  'audio/wav',
+  'audio/x-wav',
+]);
+
+type StoredMedia = { url: string; thumbnailUrl?: string };
+
+/* Validates a base64 data URL, decodes it, enforces size + MIME, and uploads
+   the original (and optional thumbnail) to object storage. Returns the public
+   URLs. Never returns storage credentials to the caller. */
+async function storeMessageMedia(params: {
+  userId: string;
+  kind: 'image' | 'audio';
+  original: string;
+  thumbnail?: string;
+}): Promise<
+  { ok: true; data: StoredMedia } | { ok: false; error: string; code: 'validation' | 'storage' }
+> {
+  const match = (s: string) =>
+    s.match(/^data:([^,]+);base64,(.+)$/);
+
+  const orig = match(params.original);
+  if (!orig) {
+    return { ok: false, error: 'صيغة الملف غير مدعومة.', code: 'validation' };
+  }
+
+  const mimeFull = orig[1];
+  const baseMime = mimeFull.split(';')[0].toLowerCase();
+  const buffer = Buffer.from(orig[2], 'base64');
+
+  if (!buffer.length) {
+    return { ok: false, error: 'الملف فارغ.', code: 'validation' };
+  }
+
+  const whitelist =
+    params.kind === 'image' ? IMAGE_MIME_WHITELIST : AUDIO_MIME_WHITELIST;
+  if (!whitelist.has(baseMime)) {
+    return { ok: false, error: 'صيغة الملف غير مدعومة.', code: 'validation' };
+  }
+
+  const max = params.kind === 'image' ? MAX_IMAGE_BYTES : MAX_AUDIO_BYTES;
+  if (buffer.length > max) {
+    return {
+      ok: false,
+      code: 'validation',
+      error:
+        params.kind === 'image'
+          ? 'حجم الصورة كبير جداً (الحد الأقصى 10MB).'
+          : 'حجم الصوت كبير جداً (الحد الأقصى 25MB).',
+    };
+  }
+
+  if (!/^https:\/\/.+\.supabase\.co$/.test(process.env.SUPABASE_URL || '')) {
+    console.error('[Message Media] SUPABASE_URL missing or invalid.');
+    return { ok: false, error: 'تعذر رفع الوسائط.', code: 'storage' };
+  }
+
+  const client = getSupabaseStorageClient();
+  const bucket = MESSAGE_MEDIA_BUCKET;
+  const ts = Date.now();
+  const ext = (() => {
+    const e = baseMime.split('/')[1] || 'bin';
+    return e === 'jpeg' ? 'jpg' : e.replace('x-', '');
+  })();
+
+  const originalName = `${MESSAGE_MEDIA_FOLDER}/${params.userId}_${ts}_o.${ext}`;
+  const { error: upErr } = await client.storage
+    .from(bucket)
+    .upload(originalName, buffer, {
+      contentType: mimeFull,
+      upsert: true,
+      cacheControl: '31536000',
+    });
+
+  if (upErr) {
+    console.error('[Message Media] upload failed:', upErr);
+    return { ok: false, error: 'تعذر رفع الوسائط.', code: 'storage' };
+  }
+
+  const url = client.storage.from(bucket).getPublicUrl(originalName).data
+    .publicUrl;
+
+  let thumbnailUrl: string | undefined;
+  if (params.kind === 'image' && params.thumbnail) {
+    const tm = match(params.thumbnail);
+    if (tm) {
+      const tBaseMime = tm[1].split(';')[0].toLowerCase();
+      const tBuf = Buffer.from(tm[2], 'base64');
+      if (IMAGE_MIME_WHITELIST.has(tBaseMime) && tBuf.length <= MAX_THUMBNAIL_BYTES) {
+        const tExt = (tBaseMime.split('/')[1] || 'jpg').replace('x-', '');
+        const tName = `${MESSAGE_MEDIA_FOLDER}/${params.userId}_${ts}_t.${tExt}`;
+        const { error: tErr } = await client.storage
+          .from(bucket)
+          .upload(tName, tBuf, {
+            contentType: tm[1],
+            upsert: true,
+            cacheControl: '31536000',
+          });
+        if (!tErr) {
+          thumbnailUrl = client.storage.from(bucket).getPublicUrl(tName).data
+            .publicUrl;
+        }
+      }
+    }
+  }
+
+  return { ok: true, data: { url, thumbnailUrl } };
+}
+
 app.post(
   '/api/uploads/image',
   requireAuth,
@@ -936,6 +1068,73 @@ app.post(
       return res.status(500).json({
         success: false,
         error: 'تعذر رفع الصورة.',
+      });
+    }
+  }
+);
+
+/* =========================================================
+   MESSAGE MEDIA UPLOAD (object storage, NOT the database)
+   Accepts a base64 data URL for an image or voice clip, validates
+   MIME + size server-side, and stores the original binary in the
+   existing Supabase Storage bucket. The database only ever holds
+   the returned public URL + metadata (see POST /api/messages).
+   The caller's auth identity is the only trusted source for the
+   upload owner; storage credentials are never returned.
+   ========================================================= */
+app.post(
+  '/api/messages/media',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { kind, original, thumbnail } = req.body || {};
+
+      if (kind !== 'image' && kind !== 'audio') {
+        return res.status(400).json({
+          success: false,
+          error: 'نوع الوسائط غير مدعوم.',
+        });
+      }
+
+      if (!original || typeof original !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'الملف مطلوب.',
+        });
+      }
+
+      if (kind === 'image' && thumbnail && typeof thumbnail !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'صيغة المعاينة غير صحيحة.',
+        });
+      }
+
+      const result = await storeMessageMedia({
+        userId: req.user!.id,
+        kind,
+        original,
+        thumbnail: kind === 'image' ? thumbnail : undefined,
+      });
+
+      if (!result.ok && 'code' in result) {
+        const status = result.code === 'validation' ? 400 : 500;
+        return res.status(status).json({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        url: result.data.url,
+        thumbnailUrl: result.data.thumbnailUrl,
+      });
+    } catch (error) {
+      console.error('[MESSAGE MEDIA ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر رفع الوسائط.',
       });
     }
   }
@@ -1517,6 +1716,38 @@ async function ensureMessagesTable(): Promise<void> {
         /* column already exists — ignore */
       }
 
+      // Media support for direct messages (images + voice). The original
+      // binary lives in object storage; the DB keeps only the reference
+      // URL, an optional lightweight thumbnail URL, and small JSON metadata.
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN type TEXT NOT NULL DEFAULT 'text'
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN media_url TEXT
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN media_thumbnail TEXT
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+      try {
+        await followSql`
+          ALTER TABLE messages ADD COLUMN media_metadata TEXT
+        `;
+      } catch {
+        /* column already exists — ignore */
+      }
+
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`;
       await followSql`CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id)`;
@@ -1543,14 +1774,15 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
 
     const rows = await followSql`
       WITH conv AS (
-        SELECT
+         SELECT
           CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END AS other_id,
           id,
           sender_id,
           recipient_id,
           body,
           read,
-          created_at
+          created_at,
+          type
         FROM messages
         WHERE (sender_id = ${me} OR recipient_id = ${me}) AND conversation_id IS NULL
       )
@@ -1559,7 +1791,8 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
         body,
         read,
         created_at,
-        sender_id
+        sender_id,
+        type
       FROM conv
       ORDER BY other_id, created_at DESC
     `;
@@ -1601,6 +1834,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
           body: r.body,
           createdAt: new Date(r.created_at).toISOString(),
           senderId: r.sender_id,
+          type: r.type || 'text',
         },
         unreadCount: unreadMap.get(String(r.other_id)) || 0,
       };
@@ -1676,15 +1910,32 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
         `;
 
     const messages: any[] = rows
-      .map((m: any) => ({
-        id: m.id,
-        senderId: m.sender_id,
-        recipientId: m.recipient_id,
-        body: m.body,
-        read: m.read,
-        status: m.status || 'sent',
-        createdAt: new Date(m.created_at).toISOString(),
-      }))
+      .map((m: any) => {
+        let parsedMeta: any = undefined;
+        if (m.media_metadata) {
+          try {
+            parsedMeta =
+              typeof m.media_metadata === 'string'
+                ? JSON.parse(m.media_metadata)
+                : m.media_metadata;
+          } catch {
+            parsedMeta = undefined;
+          }
+        }
+        return {
+          id: m.id,
+          senderId: m.sender_id,
+          recipientId: m.recipient_id,
+          body: m.body,
+          read: m.read,
+          status: m.status || 'sent',
+          createdAt: new Date(m.created_at).toISOString(),
+          type: m.type || 'text',
+          mediaUrl: m.media_url || undefined,
+          mediaThumbnail: m.media_thumbnail || undefined,
+          mediaMetadata: parsedMeta,
+        };
+      })
       .reverse();
 
     // If the current user is the recipient, fetching this thread means
@@ -1723,9 +1974,18 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
     await ensureMessagesTable();
 
     const me = req.user!.id;
-    const { recipientId, body } = req.body || {};
+    const {
+      recipientId,
+      body,
+      type,
+      mediaUrl,
+      thumbnail,
+      metadata,
+    } = req.body || {};
 
     const text = typeof body === 'string' ? body.trim() : '';
+    const msgType =
+      type === 'image' || type === 'audio' ? type : 'text';
 
     if (!recipientId || typeof recipientId !== 'string') {
       return res.status(400).json({
@@ -1734,16 +1994,36 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
       });
     }
 
-    if (!text) {
+    // Media messages may carry an optional text caption, but must reference a
+    // file we actually stored (never an arbitrary/third-party URL).
+    if (msgType !== 'text') {
+      const storageBase = `${process.env.SUPABASE_URL || ''}/storage/v1/object/public/${MESSAGE_MEDIA_BUCKET}/`;
+      if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.startsWith(storageBase)) {
+        return res.status(400).json({
+          success: false,
+          error: 'الوسائط غير صالحة.',
+        });
+      }
+      if (
+        thumbnail &&
+        (typeof thumbnail !== 'string' || !thumbnail.startsWith(storageBase))
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'معاينة الصورة غير صالحة.',
+        });
+      }
+    } else if (!text) {
       return res.status(400).json({
         success: false,
         error: 'نص الرسالة مطلوب.',
       });
     }
 
-    // Message length validation (spam / abuse protection).
+    // Message length validation (spam / abuse protection) — only for the
+    // text portion; media messages carry no meaningful body length.
     const MAX_MESSAGE_LENGTH = 2000;
-    if (text.length > MAX_MESSAGE_LENGTH) {
+    if (msgType === 'text' && text.length > MAX_MESSAGE_LENGTH) {
       return res.status(400).json({
         success: false,
         error: 'الرسالة طويلة جداً (الحد الأقصى 2000 حرف).',
@@ -1796,21 +2076,37 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
     const id = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     const createdAt = new Date().toISOString();
 
+    // For media messages with no text caption, store a neutral, language-
+    // independent marker so the conversation list still renders something.
+    let finalBody = text;
+    if (msgType !== 'text' && !finalBody) {
+      finalBody = msgType === 'image' ? '📷' : '🎤';
+    }
+
+    const finalMetadata =
+      metadata && typeof metadata === 'object'
+        ? JSON.stringify(metadata)
+        : null;
+
     messageRecipientCooldown.set(cooldownKey, Date.now());
 
     await followSql`
-      INSERT INTO messages (id, sender_id, recipient_id, body, read, status, created_at)
-      VALUES (${id}, ${me}, ${recipientId}, ${text}, FALSE, 'sent', ${createdAt})
+      INSERT INTO messages (id, sender_id, recipient_id, body, read, status, created_at, type, media_url, media_thumbnail, media_metadata)
+      VALUES (${id}, ${me}, ${recipientId}, ${finalBody}, FALSE, 'sent', ${createdAt}, ${msgType}, ${mediaUrl ?? null}, ${thumbnail ?? null}, ${finalMetadata})
     `;
 
     const message = {
       id,
       senderId: me,
       recipientId,
-      body: text,
+      body: finalBody,
       read: false,
       status: 'sent',
       createdAt,
+      type: msgType,
+      mediaUrl: mediaUrl ?? undefined,
+      mediaThumbnail: thumbnail ?? undefined,
+      mediaMetadata: metadata && typeof metadata === 'object' ? metadata : undefined,
     };
 
     // Private messages are surfaced via the Messages badge (conversation
