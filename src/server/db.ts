@@ -3263,6 +3263,10 @@ class DatabaseStore {
       let viewerInterests: string[] = [];
       const engagedUserIds = new Set<string>();
       const engagedSalonIds = new Set<string>();
+      // Content-based affinity: the viewer's own interests PLUS the interests of
+      // authors they have genuinely interacted with. Drives interest matching even
+      // before the viewer has 10 interactions, and generalizes personalization.
+      const affinityInterests = new Set<string>();
 
       if (viewerId) {
         const vRows = await sql`
@@ -3271,31 +3275,40 @@ class DatabaseStore {
         viewerInterests = Array.isArray(vRows[0]?.interests)
           ? vRows[0].interests
           : [];
+        viewerInterests.forEach((i: string) => affinityInterests.add(i));
 
-        // Authors/salons the viewer liked.
+        // Authors/salons the viewer liked (+ the engaged authors' interests).
         const liked = await sql`
           SELECT
             CASE WHEN pl.post_type = 'user' THEN up.user_id ELSE sp.owner_id END AS author_id,
-            CASE WHEN pl.post_type = 'salon' THEN sp.salon_id ELSE NULL END AS salon_id
+            CASE WHEN pl.post_type = 'salon' THEN sp.salon_id ELSE NULL END AS salon_id,
+            CASE WHEN pl.post_type = 'user' THEN u2.interests ELSE o2.interests END AS author_interests
           FROM post_likes pl
           LEFT JOIN user_posts up ON up.id = pl.post_id AND pl.post_type = 'user'
+          LEFT JOIN users u2 ON u2.id = up.user_id
           LEFT JOIN salon_posts sp ON sp.id = pl.post_id AND pl.post_type = 'salon'
+          LEFT JOIN users o2 ON o2.id = sp.owner_id
           WHERE pl.user_id = ${viewerId}
         `;
         for (const r of liked as any[]) {
           if (r.author_id) engagedUserIds.add(String(r.author_id));
           if (r.salon_id) engagedSalonIds.add(String(r.salon_id));
+          if (Array.isArray(r.author_interests))
+            r.author_interests.forEach((i: string) => affinityInterests.add(i));
         }
 
-        // Authors the viewer commented on.
+        // Authors the viewer commented on (+ their interests).
         const commented = await sql`
-          SELECT DISTINCT up.user_id
+          SELECT up.user_id, u.interests AS author_interests
           FROM post_comments pc
           JOIN user_posts up ON up.id = pc.post_id
+          LEFT JOIN users u ON u.id = up.user_id
           WHERE pc.user_id = ${viewerId}
         `;
         for (const r of commented as any[]) {
           if (r.user_id) engagedUserIds.add(String(r.user_id));
+          if (Array.isArray(r.author_interests))
+            r.author_interests.forEach((i: string) => affinityInterests.add(i));
         }
 
         // Authors the viewer follows.
@@ -3307,7 +3320,8 @@ class DatabaseStore {
         }
       }
 
-      const viParam = viewerInterests;
+      // Interest matching uses the full affinity set (own + implied from interactions).
+      const viParam = Array.from(affinityInterests);
 
       const rows = await sql`
         SELECT
@@ -3413,8 +3427,17 @@ class DatabaseStore {
       const logMax = Math.log1p(maxEng);
 
       const engagedCount = engagedUserIds.size + engagedSalonIds.size;
-      // Gradual transition: 0 with no history -> 1 after ~10 real interactions.
-      const personalizationWeight = Math.min(engagedCount / 10, 1);
+      // Activity level: 0 for a brand-new user -> 1 after ~10 real interactions.
+      // Drives the gradual transition from Cold Start to a personalized feed.
+      const activity = Math.min(engagedCount / 10, 1);
+
+      // Interests (own + implied from interactions) influence ranking from the
+      // start; the weight grows a little as real activity accumulates.
+      const hasAffinity = affinityInterests.size > 0;
+      const interestWeight = hasAffinity ? 0.6 + 0.4 * activity : 0;
+      // Previous real interactions (likes/comments/follows) personalize more as
+      // the viewer engages more.
+      const personalWeight = activity;
 
       for (const p of posts) {
         const hours = Math.max(
@@ -3436,11 +3459,15 @@ class DatabaseStore {
             ((!!p.salonId && engagedSalonIds.has(p.salonId)) ||
               (!!p.ownerId && engagedUserIds.has(p.ownerId))));
 
-        // interestMatch (shared interests) + personalMatch (real engagement).
-        const personalSignal =
-          (p.interestMatch ? 1 : 0) + (personalMatch ? 1 : 0); // 0..2
+        const interestSignal = p.interestMatch ? 1 : 0; // 0..1
+        const interactionSignal = personalMatch ? 1 : 0; // 0..1
 
-        p.score = cold + personalizationWeight * personalSignal;
+        // Cold Start always contributes; personalization is layered on top and
+        // scales with genuine user activity.
+        p.score =
+          cold +
+          interestWeight * interestSignal +
+          personalWeight * interactionSignal;
       }
 
       posts.sort(
