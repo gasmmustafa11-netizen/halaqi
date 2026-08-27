@@ -23,6 +23,23 @@ import {
   UserPost
 } from '../types';
 
+async function ensureCommentReactionsTables(): Promise<void> {
+  await sql`
+    ALTER TABLE post_comments
+      ADD COLUMN IF NOT EXISTS likes INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS dislikes INTEGER NOT NULL DEFAULT 0
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      comment_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (comment_id, user_id)
+    )
+  `;
+}
+
 export interface UserWithAuth extends User {
   passwordHash?: string;
   salt?: string;
@@ -3919,8 +3936,12 @@ class DatabaseStore {
     }
   }
 
-  async getPostComments(postId: string): Promise<PostComment[]> {
+  async getPostComments(
+    postId: string,
+    userId?: string
+  ): Promise<PostComment[]> {
     try {
+      await ensureCommentReactionsTables();
       const rows = await sql`
         SELECT
           pc.id,
@@ -3929,7 +3950,14 @@ class DatabaseStore {
           u.name AS user_name,
           u.avatar AS user_avatar,
           pc.comment,
-          pc.created_at
+          pc.created_at,
+          COALESCE(pc.likes, 0) AS likes,
+          COALESCE(pc.dislikes, 0) AS dislikes,
+          ${
+            userId
+              ? sql`(SELECT cr.reaction FROM comment_reactions cr WHERE cr.comment_id = pc.id AND cr.user_id = ${userId} LIMIT 1)`
+              : sql`NULL::text`
+          } AS my_reaction
         FROM post_comments pc
         LEFT JOIN users u ON u.id = pc.user_id
         WHERE pc.post_id = ${postId}
@@ -3946,6 +3974,9 @@ class DatabaseStore {
         createdAt: c.created_at
           ? new Date(c.created_at).toISOString()
           : new Date().toISOString(),
+        likes: Number(c.likes || 0),
+        dislikes: Number(c.dislikes || 0),
+        myReaction: c.my_reaction || null,
       }));
     } catch (error: any) {
       console.error(
@@ -3955,6 +3986,73 @@ class DatabaseStore {
 
       // Neon هو مصدر الحقيقة؛ لا نرجع بيانات من الذاكرة القديمة.
       return [];
+    }
+  }
+
+  async setCommentReaction(
+    commentId: string,
+    userId: string,
+    reaction: 'like' | 'dislike' | null
+  ): Promise<{
+    success: boolean;
+    likes?: number;
+    dislikes?: number;
+    myReaction?: 'like' | 'dislike' | null;
+    error?: string;
+  }> {
+    try {
+      await ensureCommentReactionsTables();
+
+      const exists = await sql`
+        SELECT id FROM post_comments WHERE id = ${commentId} LIMIT 1
+      `;
+      if (!exists.length) {
+        return { success: false, error: 'التعليق غير موجود.' };
+      }
+
+      if (reaction === null) {
+        await sql`
+          DELETE FROM comment_reactions
+          WHERE comment_id = ${commentId} AND user_id = ${userId}
+        `;
+      } else {
+        await sql`
+          INSERT INTO comment_reactions (comment_id, user_id, reaction, created_at)
+          VALUES (${commentId}, ${userId}, ${reaction}, NOW())
+          ON CONFLICT (comment_id, user_id)
+          DO UPDATE SET reaction = EXCLUDED.reaction, created_at = NOW()
+        `;
+      }
+
+      const counts = await sql`
+        SELECT
+          COUNT(*) FILTER (WHERE reaction = 'like')::int AS likes,
+          COUNT(*) FILTER (WHERE reaction = 'dislike')::int AS dislikes
+        FROM comment_reactions
+        WHERE comment_id = ${commentId}
+      `;
+      const likes = Number(counts[0]?.likes || 0);
+      const dislikes = Number(counts[0]?.dislikes || 0);
+
+      await sql`
+        UPDATE post_comments SET likes = ${likes}, dislikes = ${dislikes}
+        WHERE id = ${commentId}
+      `;
+
+      const me = await sql`
+        SELECT reaction FROM comment_reactions
+        WHERE comment_id = ${commentId} AND user_id = ${userId} LIMIT 1
+      `;
+
+      return {
+        success: true,
+        likes,
+        dislikes,
+        myReaction: (me[0]?.reaction as 'like' | 'dislike' | null) || null,
+      };
+    } catch (error: any) {
+      console.error('فشل تفاعل التعليق:', error?.message || error);
+      return { success: false, error: 'تعذر تسجيل التفاعل.' };
     }
   }
 

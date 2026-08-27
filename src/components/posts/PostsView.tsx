@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Heart, MessageCircle, Send, Loader2 } from 'lucide-react';
+import { Heart, MessageCircle, Send, Loader2, ThumbsDown } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
 import { useAuth } from '../../context/AuthContext';
@@ -347,7 +347,8 @@ export const PostsView: React.FC<PostsViewProps> = ({
         // COMMENT_ROUTING_BY_POST_TYPE_V1
         const result = await api.getUnifiedPostComments(
           post.id,
-          getPostType(post)
+          getPostType(post),
+          user?.id
         );
 
         setComments((prev) => ({
@@ -414,6 +415,84 @@ export const PostsView: React.FC<PostsViewProps> = ({
       console.error('Add post comment error:', error);
     } finally {
       setLoadingAction(null);
+    }
+  };
+
+  const handleReact = async (
+    postId: string,
+    comment: PostComment,
+    reaction: 'like' | 'dislike'
+  ) => {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+
+    const nextReaction: 'like' | 'dislike' | null =
+      comment.myReaction === reaction ? null : reaction;
+
+    const prev = {
+      likes: comment.likes || 0,
+      dislikes: comment.dislikes || 0,
+      myReaction: comment.myReaction || null,
+    };
+
+    const compute = (
+      base: { likes: number; dislikes: number; myReaction: 'like' | 'dislike' | null },
+      reaction: 'like' | 'dislike' | null
+    ) => {
+      const next = { ...base };
+      if (base.myReaction === 'like') next.likes -= 1;
+      if (base.myReaction === 'dislike') next.dislikes -= 1;
+      if (reaction === 'like') next.likes += 1;
+      if (reaction === 'dislike') next.dislikes += 1;
+      next.myReaction = reaction;
+      return next;
+    };
+
+    const optimistic = compute(prev, nextReaction);
+
+    // Optimistic update for immediate feedback.
+    setComments((p) => ({
+      ...p,
+      [postId]: (p[postId] || []).map((c) =>
+        c.id === comment.id ? { ...c, ...optimistic } : c
+      ),
+    }));
+
+    try {
+      const res = await api.reactToComment(comment.id, nextReaction);
+      if (res.success) {
+        setComments((p) => ({
+          ...p,
+          [postId]: (p[postId] || []).map((c) =>
+            c.id === comment.id
+              ? {
+                  ...c,
+                  likes: res.likes ?? optimistic.likes,
+                  dislikes: res.dislikes ?? optimistic.dislikes,
+                  myReaction: res.myReaction ?? optimistic.myReaction,
+                }
+              : c
+          ),
+        }));
+      } else {
+        // Revert on failure.
+        setComments((p) => ({
+          ...p,
+          [postId]: (p[postId] || []).map((c) =>
+            c.id === comment.id ? { ...c, ...prev } : c
+          ),
+        }));
+      }
+    } catch (error) {
+      console.error('Comment reaction error:', error);
+      setComments((p) => ({
+        ...p,
+        [postId]: (p[postId] || []).map((c) =>
+          c.id === comment.id ? { ...c, ...prev } : c
+        ),
+      }));
     }
   };
 
@@ -693,7 +772,13 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                 key={comment.id}
                                 className="flex gap-2.5"
                               >
-                                <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-white/[0.12] bg-white/[0.06]">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onNavigate?.(`user:${comment.userId}`)
+                                  }
+                                  className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-white/[0.12] bg-white/[0.06] transition-all hover:border-[#D4AF37]/40"
+                                >
                                   {comment.userAvatar ? (
                                     <img
                                       src={comment.userAvatar}
@@ -705,14 +790,70 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                       {comment.userName?.charAt(0) || 'U'}
                                     </div>
                                   )}
-                                </div>
+                                </button>
 
                                 <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-3 py-2.5">
-                                  <div className="text-xs font-bold text-slate-200">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onNavigate?.(`user:${comment.userId}`)
+                                    }
+                                    className="text-xs font-bold text-slate-200 transition-colors hover:text-[#D4AF37]"
+                                  >
                                     {comment.userName}
-                                  </div>
+                                  </button>
                                   <div className="mt-1 text-sm leading-5 text-slate-400">
                                     {comment.comment}
+                                  </div>
+
+                                  <div className="mt-2 flex items-center gap-4">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleReact(post.id, comment, 'like')
+                                      }
+                                      className={`flex items-center gap-1.5 text-xs transition-colors ${
+                                        comment.myReaction === 'like'
+                                          ? 'text-[#D4AF37]'
+                                          : 'text-slate-400 hover:text-slate-200'
+                                      }`}
+                                      aria-pressed={comment.myReaction === 'like'}
+                                    >
+                                      <Heart
+                                        className="h-5 w-5"
+                                        fill={
+                                          comment.myReaction === 'like'
+                                            ? 'currentColor'
+                                            : 'none'
+                                        }
+                                      />
+                                      <span>{comment.likes || 0}</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleReact(post.id, comment, 'dislike')
+                                      }
+                                      className={`flex items-center gap-1.5 text-xs transition-colors ${
+                                        comment.myReaction === 'dislike'
+                                          ? 'text-rose-400'
+                                          : 'text-slate-400 hover:text-slate-200'
+                                      }`}
+                                      aria-pressed={
+                                        comment.myReaction === 'dislike'
+                                      }
+                                    >
+                                      <ThumbsDown
+                                        className="h-5 w-5"
+                                        fill={
+                                          comment.myReaction === 'dislike'
+                                            ? 'currentColor'
+                                            : 'none'
+                                        }
+                                      />
+                                      <span>{comment.dislikes || 0}</span>
+                                    </button>
                                   </div>
                                 </div>
                               </div>
