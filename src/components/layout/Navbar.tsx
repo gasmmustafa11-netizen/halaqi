@@ -9,7 +9,7 @@ import {
   Calendar,
   User,
   ShieldCheck,
-  Globe,
+  MessageSquare,
   Store,
   LogOut,
   Sparkles,
@@ -31,7 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery = '',
   onSearchChange,
 }) => {
-  const { t, language, setLanguage, isRtl } = useLanguage();
+  const { t, isRtl } = useLanguage();
   const { user, role, logout, openAuthModal, switchRoleDemo, mySalon } = useAuth();
 
   const salonStatus = mySalon?.status ?? null;
@@ -40,10 +40,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
     const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
-const toggleLanguage = () => {
-    setLanguage(language === 'ar' ? 'en' : 'ar');
-  };
-
     const loadNotifications = async () => {
     if (!user?.id) {
       setNotifications([]);
@@ -141,6 +137,29 @@ const toggleLanguage = () => {
     }, [user?.id]);
 
     const unreadCount = notifications.filter((item) => !item.read).length;
+
+  const [messageUnread, setMessageUnread] = useState<number>(0);
+
+  const loadMessageUnread = async () => {
+    if (!user?.id) {
+      setMessageUnread(0);
+      return;
+    }
+    try {
+      const convs = await api.getConversations();
+      const total = convs.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+      setMessageUnread(total);
+    } catch {
+      /* ignore transient failures */
+    }
+  };
+
+  useEffect(() => {
+    loadMessageUnread();
+    if (!user?.id) return;
+    const timer = setInterval(loadMessageUnread, 15000);
+    return () => clearInterval(timer);
+  }, [user?.id]);
 
 
   const navItems = [
@@ -386,6 +405,8 @@ const toggleLanguage = () => {
                                 );
                               } else if (notification.link === '/profile') {
                                 onNavigate('profile');
+                              } else if (notification.link === '/messages') {
+                                onNavigate('messages');
                               } else if (notification.link?.startsWith('/profile/')) {
                                 const userId = notification.link.slice('/profile/'.length).trim();
                                 if (userId) {
@@ -462,9 +483,26 @@ const toggleLanguage = () => {
                   </div>
                 )}
               </div>
+             )}
+
+            {/* Messages */}
+            {user && (
+              <button
+                type="button"
+                onClick={() => onNavigate('messages')}
+                title={isRtl ? 'الرسائل' : 'Messages'}
+                className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#262626] hover:bg-[#333] border border-[#333] text-[#D4AF37] transition-all"
+              >
+                <MessageSquare className="w-5 h-5" />
+                {messageUnread > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center border-2 border-[#141414]">
+                    {messageUnread > 99 ? '99+' : messageUnread}
+                  </span>
+                )}
+              </button>
             )}
 
-{/* Current Location Badge */}
+ {/* Current Location Badge */}
           <div className="hidden sm:flex flex-col items-end px-3 py-1 bg-[#262626]/60 rounded-xl border border-[#333]">
             <span className="text-[9px] text-gray-400 uppercase tracking-widest flex items-center gap-1">
               <MapPin className="w-2.5 h-2.5 text-[#D4AF37]" />
@@ -472,16 +510,6 @@ const toggleLanguage = () => {
             </span>
             <span className="text-xs font-semibold text-white">بغداد، المنصور</span>
           </div>
-
-          {/* Language Switcher */}
-          <button
-            onClick={toggleLanguage}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#262626] hover:bg-[#333] text-xs font-bold text-gray-200 transition-colors border border-[#333]"
-            title="تبديل اللغة"
-          >
-            <Globe className="w-3.5 h-3.5 text-[#D4AF37]" />
-            <span className="font-mono">{language === 'ar' ? 'EN' : 'عربي'}</span>
-          </button>
 
           {/* User Account / Profile */}
           {user ? (

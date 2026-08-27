@@ -13,7 +13,9 @@ import {
   UserRole,
   SalonPost,
   PostComment,
-  UserPost
+  UserPost,
+  Message,
+  Conversation
 } from '../types';
 
 const API_BASE =
@@ -1057,6 +1059,78 @@ export const api = {
     } catch (err) {
       console.error('API Error [cancelBooking]:', err);
       return { success: false, error: 'فشل في إلغاء الحجز' };
+    }
+  },
+
+  // Messaging / Direct Chat
+  async getConversations(): Promise<Conversation[]> {
+    try {
+      const res = await fetchWithAuth('/api/messages/conversations');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('[GET CONVERSATIONS]', data);
+        return [];
+      }
+      return data.conversations || [];
+    } catch (err) {
+      console.error('API Error [getConversations]:', err);
+      return [];
+    }
+  },
+
+  async getMessages(
+    userId: string,
+    before?: string
+  ): Promise<{ messages: Message[]; hasMore: boolean }> {
+    try {
+      const qs = before ? `?before=${encodeURIComponent(before)}` : '';
+      const res = await fetchWithAuth(`/api/messages/${userId}${qs}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { messages: [], hasMore: false };
+      }
+      return {
+        messages: data.messages || [],
+        hasMore: Boolean(data.hasMore),
+      };
+    } catch (err) {
+      console.error('API Error [getMessages]:', err);
+      return { messages: [], hasMore: false };
+    }
+  },
+
+  async sendMessage(
+    recipientId: string,
+    body: string
+  ): Promise<{ success: boolean; message?: Message; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/messages', {
+        method: 'POST',
+        body: JSON.stringify({ recipientId, body }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || 'فشل إرسال الرسالة' };
+      }
+      return { success: true, message: data.message };
+    } catch (err) {
+      console.error('API Error [sendMessage]:', err);
+      return {
+        success: false,
+        error: 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.',
+      };
+    }
+  },
+
+  async markMessagesRead(userId: string): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth(`/api/messages/${userId}/read`, {
+        method: 'POST',
+      });
+      return res.ok;
+    } catch (err) {
+      console.error('API Error [markMessagesRead]:', err);
+      return false;
     }
   },
 

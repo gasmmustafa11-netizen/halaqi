@@ -21,6 +21,7 @@ import { BookingWizardModal } from './components/booking/BookingWizardModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { SearchView } from './components/search/SearchView';
 import { PostsView } from './components/posts/PostsView';
+import { MessagesView } from './components/messaging/MessagesView';
 
 
 function AppContent() {
@@ -227,6 +228,8 @@ function AppContent() {
             }}
           />
         )}
+
+        {currentView === 'messages' && <MessagesView />}
       </main>
 
       {/* Footer */}
