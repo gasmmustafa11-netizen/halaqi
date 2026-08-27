@@ -3507,6 +3507,46 @@ class DatabaseStore {
               : `salon:${p.id}`,
       }));
 
+      // ----- Trending (real recent engagement, time-decayed) -----
+      // Uses only real likes/comments from the last TREND_WINDOW_HOURS, so old
+      // posts cannot stay trending. Newer engagement is weighted more (exponential
+      // decay by event age); the final score is also scaled by the post's own age
+      // so a fresh burst outranks an old post's lingering activity. Never creates
+      // fake activity — purely derived from real interaction timestamps.
+      const TREND_WINDOW_HOURS = 7 * 24;
+      const TREND_EVENT_HALF_LIFE_HOURS = 24; // newer engagement ~2x an event twice as old
+      const TREND_LAMBDA = Math.LN2 / TREND_EVENT_HALF_LIFE_HOURS;
+      const TREND_COMMENT_MULT = 1.5;
+      const POST_TREND_HALF_LIFE_HOURS = 72; // old posts' trending fades
+
+      const recentRows = await sql`
+        SELECT post_id, post_type, created_at, 1.0 AS kind_weight
+        FROM post_likes
+        WHERE created_at > NOW() - (${TREND_WINDOW_HOURS} * INTERVAL '1 hour')
+        UNION ALL
+        SELECT pc.post_id,
+               CASE WHEN up.id IS NOT NULL THEN 'user' ELSE 'salon' END AS post_type,
+               pc.created_at, ${TREND_COMMENT_MULT} AS kind_weight
+        FROM post_comments pc
+        LEFT JOIN user_posts up ON up.id = pc.post_id
+        WHERE pc.created_at > NOW() - (${TREND_WINDOW_HOURS} * INTERVAL '1 hour')
+      `;
+
+      const trendRawMap = new Map<string, number>(); // key: postId -> raw trending weight
+      let trendMax = 0;
+      for (const e of recentRows as any[]) {
+        const id = String(e.post_id);
+        const ageHours = Math.max(
+          0,
+          (Date.now() - new Date(e.created_at).getTime()) / 3600000
+        );
+        const raw =
+          (trendRawMap.get(id) || 0) +
+          Number(e.kind_weight) * Math.exp(-TREND_LAMBDA * ageHours);
+        trendRawMap.set(id, raw);
+        if (raw > trendMax) trendMax = raw;
+      }
+
       // ----- Cold Start ranking -----
       const now = Date.now();
       const HALF_LIFE_HOURS = 72;
@@ -3529,6 +3569,9 @@ class DatabaseStore {
       // Previous real interactions (likes/comments/follows) personalize more as
       // the viewer engages more.
       const personalWeight = activity;
+      // Trending is global (real recent engagement) and applies to every viewer,
+      // including brand-new ones on Cold Start — it never overrides personalization.
+      const trendWeight = 0.5;
 
       for (const p of posts) {
         const hours = Math.max(
@@ -3561,12 +3604,19 @@ class DatabaseStore {
         const interestSignal = Math.min(1, matchedWeight / 2.0); // 0..1
         const interactionSignal = personalMatch ? 1 : 0; // 0..1
 
-        // Cold Start always contributes; personalization is layered on top and
-        // scales with genuine user activity.
+        // Trending: recent-engagement velocity, decayed by the post's own age so
+        // an old post can't linger at the top indefinitely.
+        const postRecency = Math.pow(0.5, hours / POST_TREND_HALF_LIFE_HOURS);
+        const trendScore =
+          trendMax > 0 ? (trendRawMap.get(p.id) || 0) / trendMax * postRecency : 0; // 0..~1
+
+        // Cold Start always contributes; personalization + trending are layered on
+        // top and scale with genuine user activity / real engagement.
         p.score =
           cold +
           interestWeight * interestSignal +
-          personalWeight * interactionSignal;
+          personalWeight * interactionSignal +
+          trendWeight * trendScore;
       }
 
       posts.sort(
