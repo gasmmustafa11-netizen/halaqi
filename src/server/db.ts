@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { neon } from "@neondatabase/serverless";
+import { moderateContent } from "./moderation";
 
 const sql = neon(process.env.DATABASE_URL!);
 import crypto from 'crypto';
@@ -3665,13 +3666,19 @@ class DatabaseStore {
       caption?: string;
     },
     requestingUser: User
-  ): Promise<{ success: boolean; post?: UserPost; error?: string }> {
+  ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
     try {
       if (!data.imageUrl?.trim()) {
         return {
           success: false,
           error: 'صورة المنشور مطلوبة.',
         };
+      }
+
+      // Block abusive captions before they are saved.
+      const mod = moderateContent(data.caption || '');
+      if (mod.blocked) {
+        return { success: false, blocked: true, error: mod.message };
       }
 
       const post: UserPost = {
@@ -3735,7 +3742,7 @@ class DatabaseStore {
       caption: string;
     },
     requestingUser: User
-  ): Promise<{ success: boolean; post?: SalonPost; error?: string }> {
+  ): Promise<{ success: boolean; blocked?: boolean; post?: SalonPost; error?: string }> {
     if (requestingUser.role !== 'salon_owner' && requestingUser.role !== 'admin') {
       return { success: false, error: 'غير مسموح لك بنشر منشورات.' };
     }
@@ -3762,6 +3769,12 @@ class DatabaseStore {
 
     if (!data.imageUrl?.trim()) {
       return { success: false, error: 'صورة المنشور مطلوبة.' };
+    }
+
+    // Block abusive captions before they are saved.
+    const mod = moderateContent(data.caption || '');
+    if (mod.blocked) {
+      return { success: false, blocked: true, error: mod.message };
     }
 
     const post: SalonPost = {
@@ -4130,6 +4143,7 @@ class DatabaseStore {
     requestingUser: User
   ): Promise<{
     success: boolean;
+    blocked?: boolean;
     comment?: PostComment;
     error?: string;
   }> {
@@ -4139,6 +4153,12 @@ class DatabaseStore {
           success: false,
           error: 'التعليق لا يمكن أن يكون فارغاً.',
         };
+      }
+
+      // Block abusive comments before they are saved.
+      const mod = moderateContent(data.comment);
+      if (mod.blocked) {
+        return { success: false, blocked: true, error: mod.message };
       }
 
       const commentId =

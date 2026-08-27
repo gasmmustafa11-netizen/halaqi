@@ -1017,6 +1017,14 @@ app.post(
         req.user!
       );
 
+      if (result.blocked) {
+        return res.status(400).json({
+          success: false,
+          blocked: true,
+          error: result.error,
+        });
+      }
+
       if (!result.success) {
         return res.status(500).json({
           success: false,
@@ -2333,6 +2341,14 @@ app.post(
         req.user!
       );
 
+      if (result.blocked) {
+        return res.status(400).json({
+          success: false,
+          blocked: true,
+          error: result.error,
+        });
+      }
+
       if (!result.success) {
         return res.status(400).json({
           success: false,
@@ -2397,6 +2413,14 @@ app.post(
         },
         req.user!
       );
+
+      if (result.blocked) {
+        return res.status(400).json({
+          success: false,
+          blocked: true,
+          error: result.error,
+        });
+      }
 
       if (!result.success) {
         return res.status(400).json({
