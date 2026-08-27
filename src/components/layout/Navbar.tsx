@@ -184,8 +184,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     ),
   ];
 
+  const topItemClass = (active: boolean) =>
+    `flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-bold transition-all duration-300 ${
+      active
+        ? 'text-[#D4AF37] bg-[#D4AF37]/[0.10] shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20'
+        : 'text-gray-400 hover:text-gray-100 hover:bg-white/5'
+    }`;
+
+  const topIconClass = (active: boolean) =>
+    `w-5 h-5 transition-all duration-300 ${active ? 'scale-110' : ''}`;
+
   return (
-    <header className="sticky top-0 z-40 w-full bg-[#141414] border-b border-[#262626] px-4 sm:px-6 lg:px-8 py-3 shadow-xl transition-all">
+    <header className="sticky top-0 z-40 w-full bg-white/[0.06] backdrop-blur-2xl border-b border-white/[0.12] px-4 sm:px-6 lg:px-8 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         {/* Brand Logo */}
         <div
@@ -194,7 +204,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           }}
           className="flex items-center gap-3 cursor-pointer group shrink-0"
         >
-          <div className="w-10 h-10 bg-[#D4AF37] rounded-xl flex items-center justify-center font-black text-black text-xl shadow-lg group-hover:scale-105 transition-transform">
+          <div className="w-10 h-10 bg-[#D4AF37] rounded-2xl flex items-center justify-center font-black text-black text-xl shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 group-hover:scale-105 transition-transform">
             ح
           </div>
 
@@ -214,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Global Search Pill (Desktop) */}
         {onSearchChange && (
           <div className="hidden lg:flex flex-1 max-w-md mx-4">
-            <div className="relative flex items-center bg-[#262626] rounded-full px-4 py-2 border border-[#333] w-full focus-within:border-[#D4AF37] transition-all">
+            <div className="relative flex items-center bg-white/[0.06] rounded-full px-4 py-2 border border-white/[0.12] ring-1 ring-white/[0.05] w-full focus-within:border-[#D4AF37] transition-all">
               <Search className="w-4 h-4 text-[#D4AF37] ml-2 shrink-0" />
               <input
                 type="text"
@@ -239,13 +249,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                  isActive
-                    ? 'bg-[#D4AF37] text-black shadow-md'
-                    : 'text-gray-300 hover:text-white hover:bg-white/5'
-                }`}
+                className={topItemClass(isActive)}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className={topIconClass(isActive)} />
                 <span>{item.label}</span>
               </button>
             );
@@ -255,13 +261,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           {salonStatus === 'approved' && (
             <button
               onClick={() => onNavigate('salon_dashboard')}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                currentView === 'salon_dashboard'
-                  ? 'bg-[#D4AF37] text-black shadow-md'
-                  : 'text-amber-300/80 hover:text-amber-200 hover:bg-white/5'
-              }`}
+              className={topItemClass(currentView === 'salon_dashboard')}
             >
-              <Store className="w-3.5 h-3.5" />
+              <Store className={topIconClass(currentView === 'salon_dashboard')} />
               <span>لوحة الصالون</span>
             </button>
           )}
@@ -269,13 +271,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           {role === 'admin' && (
             <button
               onClick={() => onNavigate('admin')}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                currentView === 'admin'
-                  ? 'bg-[#D4AF37] text-black shadow-md'
-                  : 'text-red-400/80 hover:text-red-300 hover:bg-white/5'
-              }`}
+              className={topItemClass(currentView === 'admin')}
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
+              <ShieldCheck className={topIconClass(currentView === 'admin')} />
               <span>الإدارة</span>
             </button>
           )}
@@ -291,10 +289,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   type="button"
                   onClick={() => onNavigate('search')}
                   title={isRtl ? 'البحث' : 'Search'}
-                  className={`lg:hidden flex items-center justify-center w-10 h-10 rounded-xl border transition-all ${
+                  className={`lg:hidden flex items-center justify-center w-10 h-10 rounded-full border transition-all ${
                     currentView === 'search'
-                      ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
-                      : 'bg-[#262626] text-[#D4AF37] border-[#333] hover:bg-[#333]'
+                      ? 'text-[#D4AF37] bg-[#D4AF37]/[0.10] shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20'
+                      : 'bg-white/[0.06] text-[#D4AF37] border-white/[0.12] hover:bg-white/10'
                   }`}
                 >
                   <Search className="w-5 h-5" />
@@ -315,7 +313,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }
                   }}
                   title={isRtl ? 'الإشعارات' : 'Notifications'}
-                  className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#262626] hover:bg-[#333] border border-[#333] text-[#D4AF37] transition-all"
+                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] ring-1 ring-white/[0.05] text-[#D4AF37] transition-all"
                 >
                   <Bell className="w-5 h-5" />
 
@@ -327,7 +325,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
 
                 {isNotificationsOpen && (
-                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-3 w-auto sm:w-[390px] max-w-[calc(100vw-1.5rem)] bg-[#111111]/95 backdrop-blur-xl border border-white/[0.08] rounded-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.65)] z-[100] overflow-hidden ring-1 ring-[#D4AF37]/5">
+                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-3 w-auto sm:w-[390px] max-w-[calc(100vw-1.5rem)] bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-[24px] shadow-[0_8px_32px_rgba(0,0,0,0.6)] z-[100] overflow-hidden ring-1 ring-white/[0.05]">
 
                     {/* Header */}
                     <div className="px-5 py-4 border-b border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent">
@@ -501,7 +499,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={() => onNavigate('messages')}
                 title={isRtl ? 'الرسائل' : 'Messages'}
-                className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#262626] hover:bg-[#333] border border-[#333] text-[#D4AF37] transition-all"
+                className="relative flex items-center justify-center w-10 h-10 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] ring-1 ring-white/[0.05] text-[#D4AF37] transition-all"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -525,7 +523,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
  {/* Current Location Badge */}
-          <div className="hidden sm:flex flex-col items-end px-3 py-1 bg-[#262626]/60 rounded-xl border border-[#333]">
+          <div className="hidden sm:flex flex-col items-end px-3 py-1 bg-white/[0.06] rounded-full border border-white/[0.12] ring-1 ring-white/[0.05]">
             <span className="text-[9px] text-gray-400 uppercase tracking-widest flex items-center gap-1">
               <MapPin className="w-2.5 h-2.5 text-[#D4AF37]" />
               الموقع الحالي
@@ -538,7 +536,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="relative">
               <button
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                className="w-10 h-10 rounded-full border-2 border-[#D4AF37] bg-gray-800 flex items-center justify-center p-0.5 shadow-lg overflow-hidden hover:brightness-110 transition-all"
+                className="w-10 h-10 rounded-full border-2 border-[#D4AF37] bg-gray-800 flex items-center justify-center p-0.5 shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 overflow-hidden hover:brightness-110 transition-all"
               >
                 {user.avatar ? (
                   <img
@@ -555,7 +553,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* Dropdown Menu */}
               {isProfileDropdownOpen && (
-                <div className="fixed left-3 right-3 top-[76px] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-56 w-auto bg-[#141414] border border-[#262626] rounded-2xl p-2 shadow-2xl z-[100] text-xs space-y-1 animate-in fade-in zoom-in-95">
+                 <div className="fixed left-3 right-3 top-[76px] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-56 w-auto bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-2 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] z-[100] text-xs space-y-1 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-2 border-b border-[#262626]">
                     <p className="font-bold text-white truncate">{user.name}</p>
                     <p className="text-[10px] text-gray-400 font-mono" dir="ltr">
@@ -603,7 +601,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           ) : (
             <button
               onClick={openAuthModal}
-              className="px-4 py-2 rounded-xl bg-[#D4AF37] hover:bg-[#B8962D] text-black font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full bg-[#D4AF37] hover:bg-[#B8962D] text-black font-bold text-xs shadow-[0_0_16px_-2px_rgba(212,175,55,0.50)] ring-1 ring-[#D4AF37]/20 transition-all flex items-center gap-1.5"
             >
               <User className="w-3.5 h-3.5" />
               <span>{t('login')}</span>
