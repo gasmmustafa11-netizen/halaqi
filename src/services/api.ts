@@ -1842,4 +1842,149 @@ export const api = {
     }
   },
 
+  /* ===================== DISCOVER ===================== */
+
+  async getMyInterests(): Promise<{ success: boolean; interests: string[] }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/interests');
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success !== false,
+        interests: Array.isArray(data.interests) ? data.interests : [],
+      };
+    } catch (err) {
+      console.error('API Error [getMyInterests]:', err);
+      return { success: false, interests: [] };
+    }
+  },
+
+  async setMyInterests(interests: string[]): Promise<{ success: boolean; interests: string[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/interests', {
+        method: 'PUT',
+        body: JSON.stringify({ interests }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        interests: Array.isArray(data.interests) ? data.interests : [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [setMyInterests]:', err);
+      return { success: false, interests: [], error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async getDiscoverRecommendations(limit = 20): Promise<{ success: boolean; users: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/recommendations?limit=${limit}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        users: Array.isArray(data.users) ? data.users : [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getDiscoverRecommendations]:', err);
+      return { success: false, users: [], error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async sendConnectionRequest(userId: string): Promise<{ success: boolean; status?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/connect', {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, status: data.status, error: data.error };
+    } catch (err) {
+      console.error('API Error [sendConnectionRequest]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async acceptConnectionRequest(id: string): Promise<{ success: boolean; status?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/connections/${encodeURIComponent(id)}/accept`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, status: data.status, error: data.error };
+    } catch (err) {
+      console.error('API Error [acceptConnectionRequest]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async declineConnectionRequest(id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/connections/${encodeURIComponent(id)}/decline`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [declineConnectionRequest]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async getConnectionRequests(): Promise<{ success: boolean; requests: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/connections/requests', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: res.ok && data.success,
+        requests: Array.isArray(data.requests) ? data.requests : [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getConnectionRequests]:', err);
+      return { success: false, requests: [], error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async blockUser(userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/block', {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [blockUser]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async unblockUser(userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/discover/block/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [unblockUser]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async reportUser(userId: string, reason: string, details?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/discover/report', {
+        method: 'POST',
+        body: JSON.stringify({ userId, reason, details }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [reportUser]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
 };

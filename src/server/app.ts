@@ -2865,6 +2865,405 @@ app.put(
    STATIC FRONTEND
 ========================================================= */
 
+/* =========================================================
+   DISCOVER — meet someone new via shared interests
+   Self-contained: adds users.interests column + the
+   connection_requests, user_blocks and user_reports tables.
+   No existing tables/schemas are modified beyond the new
+   users.interests column.
+======================================================== */
+
+let discoverTablesReady: Promise<void> | null = null;
+
+async function ensureDiscoverTables(): Promise<void> {
+  if (!discoverTablesReady) {
+    discoverTablesReady = (async () => {
+      await followSql`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS interests TEXT[] NOT NULL DEFAULT '{}'
+      `;
+      await followSql`
+        CREATE TABLE IF NOT EXISTS connection_requests (
+          id TEXT PRIMARY KEY,
+          sender_id TEXT NOT NULL,
+          receiver_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await followSql`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conn_pending_unique
+          ON connection_requests (sender_id, receiver_id)
+          WHERE status = 'pending'
+      `;
+      await followSql`
+        CREATE TABLE IF NOT EXISTS user_blocks (
+          id TEXT PRIMARY KEY,
+          blocker_id TEXT NOT NULL,
+          blocked_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT user_blocks_unique_pair UNIQUE (blocker_id, blocked_id)
+        )
+      `;
+      await followSql`
+        CREATE TABLE IF NOT EXISTS user_reports (
+          id TEXT PRIMARY KEY,
+          reporter_id TEXT NOT NULL,
+          reported_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          details TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+    })()
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        discoverTablesReady = null;
+        throw err;
+      });
+  }
+
+  await discoverTablesReady;
+}
+
+/* ---------- Interests ---------- */
+
+app.get(
+  '/api/discover/interests',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const rows = await followSql`
+        SELECT interests FROM users WHERE id = ${currentUserId} LIMIT 1
+      `;
+      return res.json({
+        success: true,
+        interests: Array.isArray(rows[0]?.interests) ? rows[0].interests : [],
+      });
+    } catch (error) {
+      console.error('[DISCOVER INTERESTS GET]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الاهتمامات.' });
+    }
+  }
+);
+
+app.put(
+  '/api/discover/interests',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const raw = Array.isArray(req.body?.interests) ? req.body.interests : [];
+      const interests = raw
+        .filter((x: unknown) => typeof x === 'string')
+        .map((x: string) => x.slice(0, 40))
+        .filter((x: string, i: number, a: string[]) => x && a.indexOf(x) === i)
+        .slice(0, 20);
+
+      await followSql`
+        UPDATE users SET interests = ${interests} WHERE id = ${currentUserId}
+      `;
+      return res.json({ success: true, interests });
+    } catch (error) {
+      console.error('[DISCOVER INTERESTS PUT]', error);
+      return res.status(500).json({ success: false, error: 'تعذر حفظ الاهتمامات.' });
+    }
+  }
+);
+
+/* ---------- Recommendations ---------- */
+
+app.get(
+  '/api/discover/recommendations',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const limit = Math.min(
+        Math.max(parseInt(String(req.query.limit || '20'), 10) || 20, 1),
+        50
+      );
+
+      const me = await followSql`
+        SELECT interests FROM users WHERE id = ${currentUserId} LIMIT 1
+      `;
+      const myInterests: string[] = Array.isArray(me[0]?.interests) ? me[0].interests : [];
+
+      if (myInterests.length === 0) {
+        return res.json({ success: true, users: [] });
+      }
+
+      const rows = await followSql`
+        SELECT id, name, avatar, city, interests
+        FROM users
+        WHERE id != ${currentUserId}
+          AND COALESCE(is_active, true) = true
+          AND COALESCE(is_banned, false) = false
+          AND id NOT IN (
+            SELECT blocked_id FROM user_blocks WHERE blocker_id = ${currentUserId}
+            UNION
+            SELECT blocker_id FROM user_blocks WHERE blocked_id = ${currentUserId}
+          )
+          AND id NOT IN (
+            SELECT receiver_id FROM connection_requests
+            WHERE sender_id = ${currentUserId} AND status IN ('pending', 'accepted')
+            UNION
+            SELECT sender_id FROM connection_requests
+            WHERE receiver_id = ${currentUserId} AND status IN ('pending', 'accepted')
+          )
+          AND ${myInterests}::text[] && interests
+        ORDER BY array_length(interests, 1) DESC NULLS LAST, name ASC
+        LIMIT ${limit}
+      `;
+
+      const users = (rows as any[]).map((u: any) => {
+        const theirInterests: string[] = Array.isArray(u.interests) ? u.interests : [];
+        const shared = myInterests.filter((i) => theirInterests.includes(i));
+        return {
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar || undefined,
+          city: u.city || undefined,
+          interests: theirInterests,
+          sharedInterests: shared,
+        };
+      });
+
+      return res.json({ success: true, users });
+    } catch (error) {
+      console.error('[DISCOVER RECOMMENDATIONS]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الاقتراحات.' });
+    }
+  }
+);
+
+/* ---------- Connect / Connections ---------- */
+
+app.post(
+  '/api/discover/connect',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const targetUserId = String(req.body?.userId || '').trim();
+
+      if (!targetUserId || targetUserId === currentUserId) {
+        return res.status(400).json({ success: false, error: 'معرف المستخدم غير صالح.' });
+      }
+
+      const target = await followSql`
+        SELECT id FROM users WHERE id = ${targetUserId} AND COALESCE(is_banned, false) = false LIMIT 1
+      `;
+      if (!target[0]) {
+        return res.status(404).json({ success: false, error: 'المستخدم غير موجود.' });
+      }
+
+      const blocked = await followSql`
+        SELECT 1 FROM user_blocks
+        WHERE (blocker_id = ${currentUserId} AND blocked_id = ${targetUserId})
+           OR (blocker_id = ${targetUserId} AND blocked_id = ${currentUserId})
+        LIMIT 1
+      `;
+      if (blocked[0]) {
+        return res.status(400).json({ success: false, error: 'لا يمكن إرسال طلب لهذا المستخدم.' });
+      }
+
+      const id = 'conn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      await followSql`
+        INSERT INTO connection_requests (id, sender_id, receiver_id, status)
+        VALUES (${id}, ${currentUserId}, ${targetUserId}, 'pending')
+        ON CONFLICT (sender_id, receiver_id) WHERE status = 'pending' DO NOTHING
+      `;
+      return res.json({ success: true, status: 'pending' });
+    } catch (error) {
+      console.error('[DISCOVER CONNECT]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إرسال طلب الاتصال.' });
+    }
+  }
+);
+
+app.post(
+  '/api/discover/connections/:id/accept',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const id = String(req.params.id || '').trim();
+      const rows = await followSql`
+        UPDATE connection_requests
+        SET status = 'accepted', updated_at = NOW()
+        WHERE id = ${id} AND receiver_id = ${currentUserId} AND status = 'pending'
+        RETURNING id
+      `;
+      if (!rows[0]) {
+        return res.status(404).json({ success: false, error: 'طلب الاتصال غير موجود.' });
+      }
+      return res.json({ success: true, status: 'accepted' });
+    } catch (error) {
+      console.error('[DISCOVER ACCEPT]', error);
+      return res.status(500).json({ success: false, error: 'تعذر قبول الطلب.' });
+    }
+  }
+);
+
+app.post(
+  '/api/discover/connections/:id/decline',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const id = String(req.params.id || '').trim();
+      const rows = await followSql`
+        UPDATE connection_requests
+        SET status = 'declined', updated_at = NOW()
+        WHERE id = ${id} AND receiver_id = ${currentUserId} AND status = 'pending'
+        RETURNING id
+      `;
+      if (!rows[0]) {
+        return res.status(404).json({ success: false, error: 'طلب الاتصال غير موجود.' });
+      }
+      return res.json({ success: true, status: 'declined' });
+    } catch (error) {
+      console.error('[DISCOVER DECLINE]', error);
+      return res.status(500).json({ success: false, error: 'تعذر رفض الطلب.' });
+    }
+  }
+);
+
+app.get(
+  '/api/discover/connections/requests',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const rows = await followSql`
+        SELECT cr.id, cr.sender_id, u.name, u.avatar
+        FROM connection_requests cr
+        JOIN users u ON u.id = cr.sender_id
+        WHERE cr.receiver_id = ${currentUserId} AND cr.status = 'pending'
+        ORDER BY cr.created_at DESC
+      `;
+      return res.json({
+        success: true,
+        requests: (rows as any[]).map((r: any) => ({
+          id: r.id,
+          senderId: r.sender_id,
+          name: r.name,
+          avatar: r.avatar || undefined,
+        })),
+      });
+    } catch (error) {
+      console.error('[DISCOVER REQUESTS]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الطلبات.' });
+    }
+  }
+);
+
+/* ---------- Block / Unblock ---------- */
+
+app.post(
+  '/api/discover/block',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const targetUserId = String(req.body?.userId || '').trim();
+
+      if (!targetUserId || targetUserId === currentUserId) {
+        return res.status(400).json({ success: false, error: 'معرف المستخدم غير صالح.' });
+      }
+
+      const id = 'blk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      await followSql`
+        INSERT INTO user_blocks (id, blocker_id, blocked_id)
+        VALUES (${id}, ${currentUserId}, ${targetUserId})
+        ON CONFLICT (blocker_id, blocked_id) DO NOTHING
+      `;
+      await followSql`
+        DELETE FROM connection_requests
+        WHERE status = 'pending'
+          AND ((sender_id = ${currentUserId} AND receiver_id = ${targetUserId})
+            OR (sender_id = ${targetUserId} AND receiver_id = ${currentUserId}))
+      `;
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DISCOVER BLOCK]', error);
+      return res.status(500).json({ success: false, error: 'تعذر حظر المستخدم.' });
+    }
+  }
+);
+
+app.delete(
+  '/api/discover/block/:userId',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const targetUserId = String(req.params.userId || '').trim();
+      await followSql`
+        DELETE FROM user_blocks
+        WHERE blocker_id = ${currentUserId} AND blocked_id = ${targetUserId}
+      `;
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DISCOVER UNBLOCK]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إلغاء الحظر.' });
+    }
+  }
+);
+
+/* ---------- Report ---------- */
+
+app.post(
+  '/api/discover/report',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const currentUserId = req.user!.id;
+      const targetUserId = String(req.body?.userId || '').trim();
+      const reason = String(req.body?.reason || '').trim();
+      const details = typeof req.body?.details === 'string' ? req.body.details.slice(0, 500) : null;
+
+      if (!targetUserId || targetUserId === currentUserId) {
+        return res.status(400).json({ success: false, error: 'معرف المستخدم غير صالح.' });
+      }
+      if (!reason) {
+        return res.status(400).json({ success: false, error: 'سبب البلاغ مطلوب.' });
+      }
+
+      const target = await followSql`
+        SELECT id FROM users WHERE id = ${targetUserId} LIMIT 1
+      `;
+      if (!target[0]) {
+        return res.status(404).json({ success: false, error: 'المستخدم غير موجود.' });
+      }
+
+      const id = 'rpt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      await followSql`
+        INSERT INTO user_reports (id, reporter_id, reported_id, reason, details, status)
+        VALUES (${id}, ${currentUserId}, ${targetUserId}, ${reason}, ${details}, 'pending')
+      `;
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DISCOVER REPORT]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+    }
+  }
+);
+
 const distPath = path.resolve(process.cwd(), 'dist');
 
 if (process.env.NODE_ENV === 'production') {
