@@ -549,7 +549,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Discover */}
           <button
             type="button"
-            onClick={() => onNavigate('explore')}
+            onClick={() => onNavigate('discover')}
             title={isRtl ? 'استكشف' : 'Discover'}
             className="relative flex items-center justify-center w-10 h-10 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] ring-1 ring-white/[0.05] text-slate-200 shadow-[0_0_14px_-2px_rgba(255,255,255,0.18)] transition-all"
           >

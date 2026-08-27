@@ -11,6 +11,7 @@ export interface User {
   salonId?: string; // If salon owner or staff
   isActive?: boolean;
   isBanned?: boolean;
+  interests?: string[]; // Discover: user-selected interest ids
   createdAt: string;
 }
 

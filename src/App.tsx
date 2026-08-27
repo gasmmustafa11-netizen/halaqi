@@ -22,6 +22,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { SearchView } from './components/search/SearchView';
 import { PostsView } from './components/posts/PostsView';
 import { MessagesView } from './components/messaging/MessagesView';
+import { DiscoverView } from './components/discover/DiscoverView';
 
 
 function AppContent() {
@@ -254,6 +255,10 @@ function AppContent() {
             initialUserId={selectedMessageUserId}
             onNavigate={handleNavigate}
           />
+        )}
+
+        {currentView === 'discover' && (
+          <DiscoverView onNavigate={handleNavigate} />
         )}
       </main>
 
