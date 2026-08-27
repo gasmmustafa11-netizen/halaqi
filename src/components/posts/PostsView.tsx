@@ -55,6 +55,15 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
   // Comment edit / delete (owner only) via long-press.
   const [menuComment, setMenuComment] = useState<PostComment | null>(null);
+  const [menuRect, setMenuRect] = useState<{
+    top: number;
+    left: number;
+    bottom: number;
+    right: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [menuShown, setMenuShown] = useState(false);
   const [editingComment, setEditingComment] = useState<{
     id: string;
     postId: string;
@@ -65,6 +74,38 @@ export const PostsView: React.FC<PostsViewProps> = ({
     null
   );
   const longPressTimer = useRef<number | null>(null);
+
+  const haptic = (ms = 12) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try {
+        navigator.vibrate(ms);
+      } catch {
+        /* vibrate not supported */
+      }
+    }
+  };
+
+  const openMenu = (comment: PostComment, target: HTMLElement) => {
+    const r = target.getBoundingClientRect();
+    setMenuRect({
+      top: r.top,
+      left: r.left,
+      bottom: r.bottom,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+    });
+    setMenuComment(comment);
+    haptic();
+  };
+
+  const closeMenu = () => {
+    setMenuShown(false);
+    window.setTimeout(() => {
+      setMenuComment(null);
+      setMenuRect(null);
+    }, 140);
+  };
 
 
   const salonMap = useMemo(() => {
@@ -524,12 +565,24 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
   const getSalon = (post: SalonPost) => salonMap.get(post.salonId);
 
+  // Subtle open animation for the action sheet (close is handled in closeMenu).
+  useEffect(() => {
+    if (menuComment) {
+      const raf = requestAnimationFrame(() => setMenuShown(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setMenuShown(false);
+  }, [menuComment]);
+
   // ---- Long-press detection (owner only) to reveal Edit / Delete ----
-  const startLongPress = (comment: PostComment) => {
+  const startLongPress = (
+    comment: PostComment,
+    target: HTMLElement
+  ) => {
     if (comment.userId !== user?.id) return;
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = window.setTimeout(() => {
-      setMenuComment(comment);
+      openMenu(comment, target);
     }, 450);
   };
 
@@ -582,7 +635,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
   };
 
   const handleDeleteComment = async (comment: PostComment) => {
-    setMenuComment(null);
+    closeMenu();
     setActionLoading(`delete:${comment.id}`);
 
     try {
@@ -898,12 +951,15 @@ export const PostsView: React.FC<PostsViewProps> = ({
                               <div
                                 key={comment.id}
                                 className="flex gap-2.5"
-                                onTouchStart={() => startLongPress(comment)}
+                                onTouchStart={(event) =>
+                                  startLongPress(comment, event.currentTarget as HTMLElement)
+                                }
                                 onTouchEnd={clearLongPress}
                                 onTouchMove={clearLongPress}
                                 onContextMenu={(event) => {
                                   event.preventDefault();
-                                  if (isOwner) setMenuComment(comment);
+                                  if (isOwner)
+                                    openMenu(comment, event.currentTarget as HTMLElement);
                                 }}
                               >
                                 <button
@@ -1095,59 +1151,94 @@ export const PostsView: React.FC<PostsViewProps> = ({
         )}
       </div>
 
-      {/* Owner-only comment action menu (Edit / Delete) */}
-      {menuComment && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4"
-          onClick={() => setMenuComment(null)}
-        >
+      {/* Owner-only premium Glassmorphism action sheet (Edit / Delete) */}
+      {menuComment && menuRect && (
+        <>
+          {/* Dim backdrop + dismiss on outside tap */}
           <div
-            className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/[0.12] bg-[#1a1d29] shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-white/[0.08] px-4 py-3 text-sm text-slate-300">
-              {isRtl ? 'خيارات التعليق' : 'Comment options'}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingComment({
-                  id: menuComment.id,
-                  postId: menuComment.postId,
-                  text: menuComment.comment,
-                });
-                setCommentActionError(null);
-                setMenuComment(null);
-              }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 transition-colors hover:bg-white/[0.06]"
-            >
-              <Pencil className="h-4 w-4 text-[#D4AF37]" />
-              {isRtl ? 'تعديل التعليق' : 'Edit comment'}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeleteComment(menuComment)}
-              disabled={actionLoading === `delete:${menuComment.id}`}
-              className="flex w-full items-center gap-3 border-t border-white/[0.08] px-4 py-3 text-left text-sm text-rose-400 transition-colors hover:bg-white/[0.06] disabled:opacity-60"
-            >
-              <Trash2 className="h-4 w-4" />
-              {actionLoading === `delete:${menuComment.id}`
-                ? isRtl
-                  ? 'جارٍ الحذف...'
-                  : 'Deleting...'
-                : isRtl
-                  ? 'حذف التعليق'
-                  : 'Delete comment'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMenuComment(null)}
-              className="w-full border-t border-white/[0.08] px-4 py-3 text-center text-sm font-bold text-slate-400 transition-colors hover:text-slate-200"
-            >
-              {isRtl ? 'إلغاء' : 'Cancel'}
-            </button>
-          </div>
-        </div>
+            className="fixed inset-0 z-[45] bg-black/40 backdrop-blur-[2px]"
+            onClick={closeMenu}
+          />
+          {(() => {
+            const MENU_W = 244;
+            const MENU_H = 136;
+            const vw =
+              typeof window !== 'undefined' ? window.innerWidth : 360;
+            const vh =
+              typeof window !== 'undefined' ? window.innerHeight : 640;
+
+            // Place above the comment when there is room, otherwise below.
+            let top = menuRect.top - MENU_H - 8;
+            if (top < 8) top = menuRect.bottom + 8;
+            if (top + MENU_H > vh - 8) top = vh - MENU_H - 8;
+
+            // Align to the comment's edge (RTL: right, LTR: left), clamp on-screen.
+            let left = isRtl ? menuRect.right - MENU_W : menuRect.left;
+            left = Math.max(8, Math.min(left, vw - MENU_W - 8));
+
+            return (
+              <div
+                role="menu"
+                aria-label={isRtl ? 'خيارات التعليق' : 'Comment options'}
+                onClick={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
+                style={{
+                  position: 'fixed',
+                  top,
+                  left,
+                  width: MENU_W,
+                  WebkitUserSelect: 'none',
+                  userSelect: 'none',
+                  WebkitTouchCallout: 'none',
+                }}
+                className={`z-[60] origin-top select-none overflow-hidden rounded-2xl border border-white/[0.10] bg-white/[0.07] p-1.5 shadow-[0_10px_40px_-8px_rgba(0,0,0,0.7),0_0_22px_-6px_rgba(212,175,55,0.30)] ring-1 ring-white/[0.06] backdrop-blur-2xl transition-all duration-150 ease-out ${
+                  menuShown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                }`}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    haptic();
+                    setEditingComment({
+                      id: menuComment.id,
+                      postId: menuComment.postId,
+                      text: menuComment.comment,
+                    });
+                    setCommentActionError(null);
+                    closeMenu();
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-100 transition-colors hover:bg-white/[0.08] active:bg-white/[0.10]"
+                >
+                  <Pencil className="h-[18px] w-[18px] text-[#D4AF37]" />
+                  {isRtl ? 'تعديل' : 'Edit'}
+                </button>
+
+                <div className="my-0.5 h-px bg-white/[0.08]" />
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    haptic(18);
+                    handleDeleteComment(menuComment);
+                  }}
+                  disabled={actionLoading === `delete:${menuComment.id}`}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-rose-400 transition-colors hover:bg-rose-500/[0.10] active:bg-rose-500/[0.14] disabled:opacity-60"
+                >
+                  <Trash2 className="h-[18px] w-[18px]" />
+                  {actionLoading === `delete:${menuComment.id}`
+                    ? isRtl
+                      ? 'جارٍ الحذف...'
+                      : 'Deleting...'
+                    : isRtl
+                      ? 'حذف'
+                      : 'Delete'}
+                </button>
+              </div>
+            );
+          })()}
+        </>
       )}
     </main>
   );

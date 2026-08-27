@@ -28,7 +28,8 @@ async function ensureCommentReactionsTables(): Promise<void> {
   await sql`
     ALTER TABLE post_comments
       ADD COLUMN IF NOT EXISTS likes INTEGER NOT NULL DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS dislikes INTEGER NOT NULL DEFAULT 0
+      ADD COLUMN IF NOT EXISTS dislikes INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
   `;
   await sql`
     CREATE TABLE IF NOT EXISTS comment_reactions (
@@ -4440,6 +4441,9 @@ class DatabaseStore {
         };
       }
 
+      // Ensure the comment schema exists (adds updated_at if missing).
+      await ensureCommentReactionsTables();
+
       // Block abusive edits before they are saved (keep moderation working).
       const mod = moderateContent(trimmed);
       if (mod.blocked) {
@@ -4512,10 +4516,9 @@ class DatabaseStore {
       }
 
       // Modify the existing comment in place (do not create a new one).
-      const updatedAt = new Date().toISOString();
       await sql`
         UPDATE post_comments
-        SET comment = ${trimmed}, updated_at = ${updatedAt}
+        SET comment = ${trimmed}, updated_at = NOW()
         WHERE id = ${commentId}
       `;
 
