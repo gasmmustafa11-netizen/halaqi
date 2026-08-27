@@ -232,7 +232,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             ح
           </div>
 
-          <div className="flex flex-col">
+          <div className="hidden sm:flex flex-col">
             <span
               className="text-xl sm:text-2xl font-black text-white tracking-tight"
               style={{ fontFamily: 'Georgia, serif' }}
