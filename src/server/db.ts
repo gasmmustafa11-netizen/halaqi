@@ -3259,6 +3259,56 @@ class DatabaseStore {
     try {
       const viewerId = viewerUserId || '';
 
+      // ----- Viewer signals (power the Cold Start -> Personalized transition) -----
+      let viewerInterests: string[] = [];
+      const engagedUserIds = new Set<string>();
+      const engagedSalonIds = new Set<string>();
+
+      if (viewerId) {
+        const vRows = await sql`
+          SELECT interests FROM users WHERE id = ${viewerId} LIMIT 1
+        `;
+        viewerInterests = Array.isArray(vRows[0]?.interests)
+          ? vRows[0].interests
+          : [];
+
+        // Authors/salons the viewer liked.
+        const liked = await sql`
+          SELECT
+            CASE WHEN pl.post_type = 'user' THEN up.user_id ELSE sp.owner_id END AS author_id,
+            CASE WHEN pl.post_type = 'salon' THEN sp.salon_id ELSE NULL END AS salon_id
+          FROM post_likes pl
+          LEFT JOIN user_posts up ON up.id = pl.post_id AND pl.post_type = 'user'
+          LEFT JOIN salon_posts sp ON sp.id = pl.post_id AND pl.post_type = 'salon'
+          WHERE pl.user_id = ${viewerId}
+        `;
+        for (const r of liked as any[]) {
+          if (r.author_id) engagedUserIds.add(String(r.author_id));
+          if (r.salon_id) engagedSalonIds.add(String(r.salon_id));
+        }
+
+        // Authors the viewer commented on.
+        const commented = await sql`
+          SELECT DISTINCT up.user_id
+          FROM post_comments pc
+          JOIN user_posts up ON up.id = pc.post_id
+          WHERE pc.user_id = ${viewerId}
+        `;
+        for (const r of commented as any[]) {
+          if (r.user_id) engagedUserIds.add(String(r.user_id));
+        }
+
+        // Authors the viewer follows.
+        const follows = await sql`
+          SELECT following_id FROM user_follows WHERE follower_id = ${viewerId}
+        `;
+        for (const r of follows as any[]) {
+          if (r.following_id) engagedUserIds.add(String(r.following_id));
+        }
+      }
+
+      const viParam = viewerInterests;
+
       const rows = await sql`
         SELECT
           sp.id,
@@ -3281,8 +3331,10 @@ class DatabaseStore {
             WHERE pl.post_type = 'salon'
               AND pl.post_id = sp.id
               AND pl.user_id = ${viewerId}
-          ) AS liked_by_me
+          ) AS liked_by_me,
+          (owner.interests && ${viParam}::text[]) AS interest_match
         FROM salon_posts sp
+        LEFT JOIN users owner ON owner.id = sp.owner_id
 
         UNION ALL
 
@@ -3307,14 +3359,15 @@ class DatabaseStore {
             WHERE pl.post_type = 'user'
               AND pl.post_id = up.id
               AND pl.user_id = ${viewerId}
-          ) AS liked_by_me
+          ) AS liked_by_me,
+          (u.interests && ${viParam}::text[]) AS interest_match
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
 
         ORDER BY created_at DESC
       `;
 
-      return rows.map((p: any) => ({
+      const posts: any[] = (rows as any[]).map((p: any) => ({
         id: String(p.id),
         postType: p.post_type === 'user' ? 'user' : 'salon',
 
@@ -3337,7 +3390,90 @@ class DatabaseStore {
         commentCount: Number(p.comment_count || 0),
 
         liked: Boolean(p.liked_by_me),
+        interestMatch: Boolean(p.interest_match),
+        // Stable source key used by the diversity pass.
+        sourceId:
+          p.post_type === 'user'
+            ? p.user_id
+              ? String(p.user_id)
+              : `user:${p.id}`
+            : p.salon_id
+              ? String(p.salon_id)
+              : `salon:${p.id}`,
       }));
+
+      // ----- Cold Start ranking -----
+      const now = Date.now();
+      const HALF_LIFE_HOURS = 72;
+      let maxEng = 0;
+      for (const p of posts) {
+        const eng = p.likeCount + 2 * p.commentCount;
+        if (eng > maxEng) maxEng = eng;
+      }
+      const logMax = Math.log1p(maxEng);
+
+      const engagedCount = engagedUserIds.size + engagedSalonIds.size;
+      // Gradual transition: 0 with no history -> 1 after ~10 real interactions.
+      const personalizationWeight = Math.min(engagedCount / 10, 1);
+
+      for (const p of posts) {
+        const hours = Math.max(
+          0,
+          (now - new Date(p.createdAt).getTime()) / 3600000
+        );
+        const recency = Math.pow(0.5, hours / HALF_LIFE_HOURS); // (0,1]
+        const engagement =
+          logMax > 0
+            ? Math.log1p(p.likeCount + 2 * p.commentCount) / logMax
+            : 0; // (0,1]
+        const cold = 0.55 * recency + 0.45 * engagement;
+
+        const personalMatch =
+          (p.postType === 'user' &&
+            !!p.userId &&
+            engagedUserIds.has(p.userId)) ||
+          (p.postType === 'salon' &&
+            ((!!p.salonId && engagedSalonIds.has(p.salonId)) ||
+              (!!p.ownerId && engagedUserIds.has(p.ownerId))));
+
+        // interestMatch (shared interests) + personalMatch (real engagement).
+        const personalSignal =
+          (p.interestMatch ? 1 : 0) + (personalMatch ? 1 : 0); // 0..2
+
+        p.score = cold + personalizationWeight * personalSignal;
+      }
+
+      posts.sort(
+        (a, b) =>
+          b.score - a.score ||
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // ----- Content diversity: avoid 3+ consecutive posts from the same source -----
+      const diversify = (list: any[]) => {
+        const out: any[] = [];
+        const delayed: any[] = [];
+        for (const p of list) {
+          const last1 = out[out.length - 1];
+          const last2 = out[out.length - 2];
+          if (
+            last1 &&
+            last2 &&
+            last1.sourceId === p.sourceId &&
+            last2.sourceId === p.sourceId
+          ) {
+            delayed.push(p);
+          } else {
+            out.push(p);
+          }
+        }
+        out.push(...delayed);
+        return out;
+      };
+      const ranked = diversify(posts);
+
+      // Strip internal scoring fields before returning.
+      return ranked.map(({ score, interestMatch, sourceId, ...rest }: any) => rest);
     } catch (error: any) {
       console.error(
         '[getUnifiedPostsFeed] فشل جلب الـFeed الموحد:',
