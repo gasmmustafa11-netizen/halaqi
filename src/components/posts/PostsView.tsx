@@ -14,6 +14,7 @@ import {
   Pencil,
   Trash2,
   Quote,
+  ArrowLeft,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
@@ -800,24 +801,35 @@ export const PostsView: React.FC<PostsViewProps> = ({
         </header>
 
         {/* Posts / Reels sub-tab switcher (Reels is NOT a Bottom Nav item) */}
-        <div className="mb-6 flex items-center gap-2 rounded-2xl border border-white/[0.10] bg-white/[0.04] p-1.5 backdrop-blur-xl">
-          {([
-            { key: 'posts', label: isRtl ? 'المنشورات' : 'Posts' },
-            { key: 'reels', label: isRtl ? 'ريلز' : 'Reels' },
-          ] as const).map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setSubTab(t.key)}
-              className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${
-                subTab === t.key
-                  ? 'bg-[#D4AF37] text-black shadow-[0_4px_20px_-4px_rgba(212,175,55,0.5)]'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 to-transparent px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <button
+            type="button"
+            onClick={() => onNavigate?.('explore')}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white backdrop-blur-xl transition active:scale-95"
+            aria-label={isRtl ? 'رجوع' : 'Back'}
+          >
+            <ArrowLeft className={`h-5 w-5 ${isRtl ? 'rotate-180' : ''}`} />
+          </button>
+          <div className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.10] bg-white/[0.04] p-1.5 backdrop-blur-xl">
+            {([
+              { key: 'posts', label: isRtl ? 'المنشورات' : 'Posts' },
+              { key: 'reels', label: isRtl ? 'ريلز' : 'Reels' },
+            ] as const).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setSubTab(t.key)}
+                className={`flex-1 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                  subTab === t.key
+                    ? 'bg-[#D4AF37] text-black shadow-[0_4px_20px_-4px_rgba(212,175,55,0.5)]'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="h-10 w-10" />
         </div>
 
         {subTab === 'reels' ? (
@@ -851,7 +863,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
             </p>
           </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black">
             {visiblePosts.map((post, postIndex) => {
               const salon = getSalon(post);
 
@@ -874,15 +886,11 @@ export const PostsView: React.FC<PostsViewProps> = ({
                 <article
                   id={`post-${post.id}`}
                   key={post.id}
-                  className={`group overflow-hidden rounded-[24px] border shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl transition-all duration-300 ${
-                    selectedPostId === post.id
-                      ? 'border-[#D4AF37]/60 bg-[#D4AF37]/[0.10] ring-2 ring-[#D4AF37]/20'
-                      : 'border-white/[0.12] bg-white/[0.06] hover:border-[#D4AF37]/20 hover:bg-white/[0.08]'
-                  }`}
+                  className="relative h-[100dvh] w-full snap-start overflow-hidden bg-black"
                 >
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 px-4 py-4 text-start transition-colors hover:bg-white/[0.025] sm:px-5"
+                    className="absolute inset-x-0 top-[calc(max(0.75rem,env(safe-area-inset-top))+3rem)] z-20 flex w-full items-center gap-3 bg-gradient-to-b from-black/70 via-black/30 to-transparent px-4 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))] text-start"
                     onClick={() => {
                       if (isUserPost && userPost?.userId) {
                         onNavigate?.(`user:${userPost.userId}`);
@@ -943,11 +951,11 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
                   </button>
 
-                  <div className="relative overflow-hidden border-y border-white/[0.12] bg-black/40">
+                  <div className="absolute inset-0 z-0 bg-black">
                     <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/20 via-transparent to-white/[0.025]" />
                       <div
 
-                        className="POST_IMAGE_RENDER_V5_1 relative overflow-hidden bg-[#0b0b0b]"
+                        className="POST_IMAGE_RENDER_V5_1 absolute inset-0 bg-black"
 
                         style={{ aspectRatio: '4 / 5' }}
 
@@ -967,7 +975,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                               alt={post.caption || post.salonName || 'Halaqi post'}
 
-                              className="relative z-[1] block h-full w-full cursor-pointer object-cover transition-opacity duration-300"
+                              className="relative z-[1] block h-full w-full cursor-pointer object-contain bg-black"
 
                               loading="lazy"
 
@@ -998,15 +1006,15 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       </div>
                   </div>
 
-                  <div className="p-4 sm:p-5">
+                  <div className="absolute inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-10">
                     {post.caption && (
-                      <p className="mb-5 whitespace-pre-wrap text-sm leading-6 text-slate-300" dir="auto">
+                      <p className="mb-3 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]" dir="auto">
                         <CaptionText text={post.caption} />
                       </p>
                     )}
 
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col items-center gap-5">
+                      <div className="flex flex-col items-center gap-3">
                         <button
                           type="button"
                           onClick={() => handleLike(post)}
@@ -1045,14 +1053,24 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
 
                     {isCommentsOpen && (
-                      <div className="mt-5 rounded-2xl border border-white/[0.12] bg-white/[0.06] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl sm:p-4">
+                      <div className="absolute inset-x-0 bottom-0 z-40 max-h-[72%] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#0b0b0f]/95 p-4 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
                         <div className="mb-3 flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-300">
                             {isRtl ? 'التعليقات' : 'Comments'}
                           </span>
-                          <span className="text-[10px] text-slate-600">
-                            {post.commentCount}
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-slate-600">
+                              {post.commentCount}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenComments((o) => ({ ...o, [post.id]: false }))}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10"
+                              aria-label={isRtl ? 'إغلاق' : 'Close'}
+                            >
+                              <ArrowLeft className={`h-4 w-4 ${isRtl ? '' : 'rotate-180'}`} />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
