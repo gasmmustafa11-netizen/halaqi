@@ -150,7 +150,14 @@ const AudioPlayer: React.FC<{ url: string; duration?: number; isRtl: boolean }> 
         ref={audioRef}
         src={url}
         preload="metadata"
-        onLoadedMetadata={(e) => setTotal(e.currentTarget.duration || duration || 0)}
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration;
+          if (isFinite(d) && d > 0) setTotal(d);
+        }}
+        onDurationChange={(e) => {
+          const d = e.currentTarget.duration;
+          if (isFinite(d) && d > 0) setTotal(d);
+        }}
         onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -995,8 +1002,8 @@ export const MessagesView: React.FC<{
   ) : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4">
-        <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-[78dvh]">
+    <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4 h-full">
+        <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-full">
         <div className="grid h-full grid-cols-1 md:grid-cols-[340px_1fr]">
           {/* Inbox pane (hidden on mobile when a thread is open) */}
           <div
