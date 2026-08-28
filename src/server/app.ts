@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
-import { startAllBots, stopAllBots, isBotEngineEnabled } from './bots.js';
+import { startAllBots, stopAllBots, initBotEngine, runCronTick } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
 import {
   AuthenticatedRequest,
@@ -4232,9 +4232,11 @@ app.get(
   async (_req: AuthenticatedRequest, res: Response) => {
     try {
       const stats = await db.getBotStats();
+      // Report the persisted flag (source of truth), not the in-memory cache.
+      const enabled = await db.getBotControl();
       return res.json({
         success: true,
-        enabled: isBotEngineEnabled(),
+        enabled,
         ...stats,
       });
     } catch (error: any) {
@@ -4285,6 +4287,39 @@ app.post(
     }
   }
 );
+
+/* =========================================================
+   CRON: BOT ACTIVITY TICK
+   Triggered by Vercel Cron (or any scheduler) — NOT by the browser.
+   Reads the persisted START/STOP flag on every call, so bot activity is
+   fully independent of the admin page or any long-lived process.
+   Protected by VERCEL_CRON_SECRET (required only when the env is set).
+========================================================= */
+
+app.all(
+  '/api/cron/bots-tick',
+  async (req: Request, res: Response) => {
+    try {
+      const secret = process.env.VERCEL_CRON_SECRET;
+      if (secret) {
+        const auth = req.headers['authorization'];
+        if (auth !== `Bearer ${secret}`) {
+          return res.status(401).json({ success: false, error: 'unauthorized' });
+        }
+      }
+      await runCronTick();
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('[CRON BOTS]', error?.message || error);
+      return res.status(500).json({ success: false, error: 'tick failed' });
+    }
+  }
+);
+
+// Initialize the bot engine on the serverless entry (ensure tables + seed up
+// to 100 bots). No scheduler is started here; ticks are driven by the cron
+// job above. Safe to fire-and-forget at module load.
+void initBotEngine().catch(() => {});
 
 const distPath = path.resolve(process.cwd(), 'dist');
 

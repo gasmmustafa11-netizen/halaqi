@@ -127,7 +127,10 @@ function avatarFor(name: string): string {
 
 let engineStarted = false;
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
+// isEnabled is only a cache for the dev scheduler; production ticks always
+// read the persisted flag from the database (see runBotTick).
 let isEnabled = false;
+const BOTS_PER_CRON = 15; // bots acted upon per Vercel Cron invocation
 
 async function seedBotsIfNeeded(): Promise<void> {
   const existing = await db.countBots();
@@ -229,31 +232,59 @@ async function actAsBot(botId: string): Promise<void> {
   }
 }
 
-async function tick(): Promise<void> {
-  if (!isEnabled) return;
+async function ensureAndSeed(): Promise<void> {
+  await db.ensureBotTables();
+  await seedBotsIfNeeded();
+}
+
+/**
+ * Perform a single batch of bot activity. The persisted START/STOP flag is
+ * read from the database on EVERY call, so this is safe to trigger from a
+ * Vercel Cron job (no long-lived process / no browser required) and always
+ * reflects the latest admin setting — even if START was pressed after the
+ * serverless function booted.
+ */
+export async function runBotTick(batchSize: number = BOTS_PER_TICK): Promise<void> {
   try {
-    const bots = await db.getActiveBots(BOTS_PER_TICK);
+    const enabled = await db.getBotControl();
+    if (!enabled) return;
+    await ensureAndSeed(); // idempotent: seeds any missing bots
+    const bots = await db.getActiveBots(batchSize);
     await Promise.all(bots.map((b) => actAsBot(b.id)));
   } catch (e: any) {
     console.error('[BOTS] tick error:', e?.message || e);
   }
 }
 
-/** Boot the engine. Safe to call once at server start. */
-export async function startBotEngine(): Promise<void> {
+/** Convenience wrapper used by the cron endpoint (larger per-invocation batch). */
+export async function runCronTick(): Promise<void> {
+  await runBotTick(BOTS_PER_CRON);
+}
+
+/**
+ * Idempotent initialization for the serverless entry: ensures bot tables and
+ * seeds up to 100 bots. Does NOT start any scheduler (serverless-safe).
+ */
+export async function initBotEngine(): Promise<void> {
   if (engineStarted) return;
   engineStarted = true;
   try {
-    await db.ensureBotTables();
-    await seedBotsIfNeeded();
-    isEnabled = await db.getBotControl();
-    schedulerHandle = setInterval(() => {
-      void tick();
-    }, TICK_MS);
-    console.log(`[BOTS] engine started (enabled=${isEnabled}, target=${BOT_COUNT})`);
+    await ensureAndSeed();
+    console.log(`[BOTS] engine initialized (target=${BOT_COUNT})`);
   } catch (e: any) {
-    console.error('[BOTS] failed to start engine:', e?.message || e);
+    engineStarted = false; // allow retry on next call
+    console.error('[BOTS] init failed:', e?.message || e);
   }
+}
+
+/** Dev-only: persistent scheduler. Never used on Vercel serverless. */
+export async function startBotEngine(): Promise<void> {
+  await initBotEngine();
+  if (schedulerHandle) return;
+  schedulerHandle = setInterval(() => {
+    void runBotTick(BOTS_PER_TICK);
+  }, TICK_MS);
+  console.log('[BOTS] dev scheduler started');
 }
 
 /** Admin: enable all bot activity. */
