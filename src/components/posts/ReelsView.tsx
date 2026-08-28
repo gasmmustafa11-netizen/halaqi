@@ -155,7 +155,7 @@ const ReelItem: React.FC<{
         </button>
       )}
 
-      {/* Top controls (safe-area aware): delete (left) + mute (right) */}
+      {/* Top-left: delete (owner only) */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-12">
         <div className="pointer-events-auto">
           {canDelete && (
@@ -169,17 +169,18 @@ const ReelItem: React.FC<{
             </button>
           )}
         </div>
-        <div className="pointer-events-auto">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-xl"
-            title={muted ? (isRtl ? 'تشغيل الصوت' : 'Unmute') : isRtl ? 'كتم' : 'Mute'}
-          >
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </button>
-        </div>
       </div>
+
+      {/* Mute / unmute — top-right, placed below the header so it never
+          overlaps the "New Reel" button. Safe-area aware, premium glass. */}
+      <button
+        type="button"
+        onClick={onToggleMute}
+        className="absolute right-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.25rem)] z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-[0_4px_20px_rgba(0,0,0,0.45)] backdrop-blur-xl transition active:scale-95 hover:bg-black/55"
+        title={muted ? (isRtl ? 'تشغيل الصوت' : 'Unmute') : isRtl ? 'كتم' : 'Mute'}
+      >
+        {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+      </button>
 
       {/* Right action rail: Like + Comment */}
       <div className="absolute bottom-28 right-3 z-20 flex flex-col items-center gap-6">
