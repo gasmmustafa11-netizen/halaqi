@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
@@ -873,6 +874,7 @@ const MAX_THUMBNAIL_BYTES = 1024 * 1024; // 1 MB
 const IMAGE_MIME_WHITELIST = new Set([
   'image/jpeg',
   'image/png',
+  'image/webp',
   'image/webm',
 ]);
 
@@ -990,6 +992,108 @@ async function storeMessageMedia(params: {
   }
 
   return { ok: true, data: { url, thumbnailUrl } };
+}
+
+/* ----------------------------------------------------------------
+   SECURE MEDIA DELIVERY
+   The browser cannot load the raw Supabase URL directly because the
+   messages bucket is not publicly readable (and even if it were, we
+   must never expose storage credentials). Instead we wrap each stored
+   object reference in a short-lived, signed, same-origin URL that is
+   streamed by the server using the admin storage client. This works
+   for both sender and recipient, on any device, and with <img>/<audio>
+   tags (which cannot attach a Bearer token), because the signature is
+   embedded in the URL itself.
+   ---------------------------------------------------------------- */
+
+// Reuse the same HMAC secret the auth layer uses.
+const MEDIA_TOKEN_SECRET = process.env.HALAQI_AUTH_SECRET || '';
+const MEDIA_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+function b64url(input: string): string {
+  return Buffer.from(input).toString('base64url');
+}
+
+function signMediaToken(path: string): string {
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64url(
+    JSON.stringify({
+      p: path,
+      exp: Math.floor(Date.now() / 1000) + MEDIA_TOKEN_TTL_SECONDS,
+    })
+  );
+  const signature = crypto
+    .createHmac('sha256', MEDIA_TOKEN_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
+
+function verifyMediaToken(token: string): { p: string } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [header, payload, signature] = parts;
+    const expected = crypto
+      .createHmac('sha256', MEDIA_TOKEN_SECRET)
+      .update(`${header}.${payload}`)
+      .digest('base64url');
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      return null;
+    }
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      p: string;
+      exp: number;
+    };
+    if (data.exp < Math.floor(Date.now() / 1000)) return null;
+    return { p: data.p };
+  } catch {
+    return null;
+  }
+}
+
+/* Stored values may be either a full Supabase public URL or just the
+   object path; normalise to the object path used by the storage client. */
+function getMediaPathFromStored(stored?: string): string | undefined {
+  if (!stored) return undefined;
+  // Already a bare storage object path (no scheme) — normalise and use as-is.
+  if (!/^https?:\/\//.test(stored)) {
+    return stored.replace(/^\/+/, '');
+  }
+  // Robustly extract the object path from a Supabase public URL of the
+  // form  .../storage/v1/object/public/<bucket>/<path>. This tolerates a
+  // trailing slash on SUPABASE_URL and any bucket-name variance between
+  // upload time and read time, which previously made the proxy download a
+  // non-existent object (404) and broke images/audio for both users.
+  const m = stored.match(/\/storage\/v1\/object\/public\/[^/]+\/(.+)$/);
+  if (m) return m[1].replace(/^\/+/, '');
+  return stored;
+}
+
+/* Wrap a stored media reference into a signed, server-proxied URL. */
+function wrapMedia(stored?: string): string | undefined {
+  const p = getMediaPathFromStored(stored);
+  if (!p) return undefined;
+  return `/api/messages/media?token=${signMediaToken(p)}&u=${encodeURIComponent(p)}`;
+}
+
+function contentTypeFromExt(ext: string): string {
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    webm: 'audio/webm',
+    ogg: 'audio/ogg',
+    mp3: 'audio/mpeg',
+    mp4: 'audio/mp4',
+    m4a: 'audio/mp4',
+    aac: 'audio/aac',
+    wav: 'audio/wav',
+    bin: 'application/octet-stream',
+  };
+  return map[ext.toLowerCase()] || 'application/octet-stream';
 }
 
 app.post(
@@ -1136,6 +1240,70 @@ app.post(
         success: false,
         error: 'تعذر رفع الوسائط.',
       });
+    }
+  }
+);
+
+/* =========================================================
+   SECURE MEDIA STREAMING PROXY
+   Streams a message's media object from object storage using the
+   admin client. Access is gated by an HMAC-signed token (embedded in
+   the URL) that is scoped to exactly one object path, so the browser's
+   <img>/<audio> tags can load it without a Bearer header and without
+   ever exposing storage credentials. Works for both sender and recipient
+   regardless of whether the bucket is publicly readable.
+   ========================================================= */
+app.get(
+  '/api/messages/media',
+  async (req: Request, res: Response) => {
+    try {
+      const token = req.query.token;
+      const u = req.query.u;
+      const downloadFlag = req.query.download;
+      if (typeof token !== 'string' || typeof u !== 'string' || !token || !u) {
+        return res.status(400).json({ success: false, error: 'طلب غير صالح.' });
+      }
+
+      const payload = verifyMediaToken(token);
+      if (!payload || payload.p !== u) {
+        return res.status(403).json({ success: false, error: 'وصول مرفوض.' });
+      }
+
+      // Defense in depth: only serve objects from our media bucket.
+      if (u.includes('..') || u.startsWith('/') || !/^[\w\-./]+$/.test(u)) {
+        return res.status(400).json({ success: false, error: 'طلب غير صالح.' });
+      }
+
+      const client = getSupabaseStorageClient();
+      const { data, error } = await client.storage
+        .from(MESSAGE_MEDIA_BUCKET)
+        .download(u);
+
+      if (error || !data) {
+        console.error('[MESSAGE MEDIA STREAM] download failed:', error);
+        return res.status(404).json({ success: false, error: 'الوسائط غير موجودة.' });
+      }
+
+      const ext = (u.split('.').pop() || 'bin').toLowerCase();
+      const contentType =
+        (data as any).type && typeof (data as any).type === 'string'
+          ? (data as any).type
+          : contentTypeFromExt(ext);
+
+      const buf = Buffer.from(await (data as Blob).arrayBuffer());
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (downloadFlag === '1') {
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="halaqi-media.${ext}"`
+        );
+      }
+      return res.send(buf);
+    } catch (error) {
+      console.error('[MESSAGE MEDIA STREAM ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الوسائط.' });
     }
   }
 );
@@ -1931,8 +2099,8 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
           status: m.status || 'sent',
           createdAt: new Date(m.created_at).toISOString(),
           type: m.type || 'text',
-          mediaUrl: m.media_url || undefined,
-          mediaThumbnail: m.media_thumbnail || undefined,
+          mediaUrl: wrapMedia(m.media_url),
+          mediaThumbnail: wrapMedia(m.media_thumbnail),
           mediaMetadata: parsedMeta,
         };
       })
@@ -2104,8 +2272,8 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
       status: 'sent',
       createdAt,
       type: msgType,
-      mediaUrl: mediaUrl ?? undefined,
-      mediaThumbnail: thumbnail ?? undefined,
+      mediaUrl: wrapMedia(mediaUrl ?? undefined),
+      mediaThumbnail: wrapMedia(thumbnail ?? undefined),
       mediaMetadata: metadata && typeof metadata === 'object' ? metadata : undefined,
     };
 
