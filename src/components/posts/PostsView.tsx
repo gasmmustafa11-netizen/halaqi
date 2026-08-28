@@ -975,7 +975,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                               alt={post.caption || post.salonName || 'Halaqi post'}
 
-                              className="relative z-[1] block h-full w-full cursor-pointer object-contain bg-black"
+                              className="relative z-[1] block h-full w-full cursor-pointer object-cover bg-black"
 
                               loading="lazy"
 
@@ -1013,43 +1013,31 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       </p>
                     )}
 
-                    <div className="flex shrink-0 flex-col items-center gap-5">
-                      <div className="flex flex-col items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleLike(post)}
-                          disabled={isLikeLoading}
-                          className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition-all ${
-                            isLiked
-                              ? 'border-red-400/20 bg-red-400/[0.08] text-red-300'
-                              : 'border-white/[0.12] bg-white/[0.06] text-slate-400 hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white'
-                          }`}
-                        >
-                          <Heart
-                            className={`h-4 w-4 ${
-                              isLiked ? 'fill-current' : ''
-                            }`}
-                          />
-                          <span>{post.likeCount}</span>
-                        </button>
+                    <div className="absolute right-3 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-5">
+                      <button
+                        type="button"
+                        onClick={() => handleLike(post)}
+                        disabled={isLikeLoading}
+                        className={`flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90 ${isLiked ? 'text-red-400' : 'text-white'}`}
+                        aria-label={isRtl ? 'إعجاب' : 'Like'}
+                      >
+                        <Heart className={`h-7 w-7 ${isLiked ? 'fill-current' : ''}`} />
+                        <span className="text-[11px] font-bold">{post.likeCount}</span>
+                      </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleToggleComments(post)}
-                          className="flex h-10 items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.06] px-3 text-xs font-bold text-slate-400 transition-all hover:border-[#D4AF37]/20 hover:bg-[#D4AF37]/[0.05] hover:text-white"
-                        >
-                          {isCommentsLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <MessageCircle className="h-4 w-4" />
-                          )}
-                          <span>{post.commentCount}</span>
-                        </button>
-                      </div>
-
-                      <div className="hidden text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600 sm:block">
-                        HALAQI
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleComments(post)}
+                        className="flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90"
+                        aria-label={isRtl ? 'تعليقات' : 'Comments'}
+                      >
+                        {isCommentsLoading ? (
+                          <Loader2 className="h-7 w-7 animate-spin" />
+                        ) : (
+                          <MessageCircle className="h-7 w-7" />
+                        )}
+                        <span className="text-[11px] font-bold">{post.commentCount}</span>
+                      </button>
                     </div>
 
                     {isCommentsOpen && (
