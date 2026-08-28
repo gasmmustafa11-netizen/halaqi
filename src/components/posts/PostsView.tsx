@@ -12,6 +12,7 @@ import {
   ThumbsDown,
   Pencil,
   Trash2,
+  Quote,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
@@ -837,42 +838,52 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                   <div className="relative overflow-hidden border-y border-white/[0.12] bg-black/40">
                     <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/20 via-transparent to-white/[0.025]" />
-                    <div
+                      <div
 
-                      className="POST_IMAGE_RENDER_V5_1 relative overflow-hidden bg-[#0b0b0b]"
+                        className="POST_IMAGE_RENDER_V5_1 relative overflow-hidden bg-[#0b0b0b]"
 
-                      style={{ aspectRatio: '4 / 5' }}
+                        style={{ aspectRatio: '4 / 5' }}
 
-                    >
+                      >
 
-                      <div className="absolute inset-0 flex items-center justify-center bg-[#0b0b0b]">
+                        {post.imageUrl ? (
+                          <>
+                            <div className="absolute inset-0 flex items-center justify-center bg-[#0b0b0b]">
 
-                        <div className="h-8 w-8 animate-pulse rounded-full border border-[#D4AF37]/10 bg-[#D4AF37]/[0.03]" />
+                              <div className="h-8 w-8 animate-pulse rounded-full border border-[#D4AF37]/10 bg-[#D4AF37]/[0.03]" />
+
+                            </div>
+
+                            <img
+
+                              src={post.imageUrl}
+
+                              alt={post.caption || post.salonName || 'Halaqi post'}
+
+                              className="relative z-[1] block h-full w-full object-cover transition-opacity duration-300"
+
+                              loading="lazy"
+
+                              decoding="async"
+
+                              onError={(event) => {
+
+                                event.currentTarget.style.opacity = '0';
+
+                              }}
+
+                            />
+                          </>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-[#D4AF37]/[0.06] to-transparent px-6 text-center">
+                            <Quote className="h-7 w-7 text-[#D4AF37]/40" />
+                            <span className="text-xs text-slate-500">
+                              {isRtl ? 'منشور نصي' : 'Text post'}
+                            </span>
+                          </div>
+                        )}
 
                       </div>
-
-
-                      <img
-
-                        src={post.imageUrl}
-
-                        alt={post.caption || post.salonName || 'Halaqi post'}
-
-                        className="relative z-[1] block h-full w-full object-cover transition-opacity duration-300"
-
-                        loading="lazy"
-
-                        decoding="async"
-
-                        onError={(event) => {
-
-                          event.currentTarget.style.opacity = '0';
-
-                        }}
-
-                      />
-
-                    </div>
                   </div>
 
                   <div className="p-4 sm:p-5">

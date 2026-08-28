@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
+import { startAllBots, stopAllBots, isBotEngineEnabled } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
 import {
   AuthenticatedRequest,
@@ -4213,6 +4214,74 @@ app.post(
     } catch (error) {
       console.error('[DISCOVER REVEAL]', error);
       return res.status(500).json({ success: false, error: 'تعذر كشف الهوية.' });
+    }
+  }
+);
+
+/* =========================================================
+   ADMIN: BOT SYSTEM CONTROL
+   Lists bot stats and allows the admin to START/STOP all bot
+   activity. Stopping only disables the scheduler; bot data and
+   accounts are preserved.
+========================================================= */
+
+app.get(
+  '/api/admin/bots',
+  requireAuth,
+  requireRole('admin'),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      const stats = await db.getBotStats();
+      return res.json({
+        success: true,
+        enabled: isBotEngineEnabled(),
+        ...stats,
+      });
+    } catch (error: any) {
+      console.error('[ADMIN BOTS]', error?.message || error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب بيانات البوتات.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/bots/start',
+  requireAuth,
+  requireRole('admin'),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      await startAllBots();
+      const stats = await db.getBotStats();
+      return res.json({
+        success: true,
+        enabled: true,
+        message: 'تم تشغيل جميع البوتات.',
+        ...stats,
+      });
+    } catch (error: any) {
+      console.error('[ADMIN BOTS START]', error?.message || error);
+      return res.status(500).json({ success: false, error: 'تعذر تشغيل البوتات.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/bots/stop',
+  requireAuth,
+  requireRole('admin'),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      await stopAllBots();
+      const stats = await db.getBotStats();
+      return res.json({
+        success: true,
+        enabled: false,
+        message: 'تم إيقاف جميع البوتات (محتواها محفوظ).',
+        ...stats,
+      });
+    } catch (error: any) {
+      console.error('[ADMIN BOTS STOP]', error?.message || error);
+      return res.status(500).json({ success: false, error: 'تعذر إيقاف البوتات.' });
     }
   }
 );

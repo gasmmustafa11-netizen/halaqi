@@ -1478,6 +1478,55 @@ export const api = {
     }
   },
 
+  async getAdminBots(): Promise<{
+    success: boolean;
+    enabled: boolean;
+    total: number;
+    active: number;
+    stopped: number;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/admin/bots');
+      if (!res.ok) throw new Error('Unauthorized');
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [getAdminBots]:', err);
+      return { success: false, enabled: false, total: 0, active: 0, stopped: 0 };
+    }
+  },
+
+  async startAllBots(): Promise<{
+    success: boolean;
+    total: number;
+    active: number;
+    stopped: number;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/admin/bots/start', { method: 'POST' });
+      if (!res.ok) throw new Error('Unauthorized');
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [startAllBots]:', err);
+      return { success: false, total: 0, active: 0, stopped: 0 };
+    }
+  },
+
+  async stopAllBots(): Promise<{
+    success: boolean;
+    total: number;
+    active: number;
+    stopped: number;
+  }> {
+    try {
+      const res = await fetchWithAuth('/api/admin/bots/stop', { method: 'POST' });
+      if (!res.ok) throw new Error('Unauthorized');
+      return await res.json();
+    } catch (err) {
+      console.error('API Error [stopAllBots]:', err);
+      return { success: false, total: 0, active: 0, stopped: 0 };
+    }
+  },
+
   async updateUserRole(userId: string, role: UserRole): Promise<boolean> {
     try {
       const res = await fetchWithAuth(`/api/admin/users/${userId}/role`, {

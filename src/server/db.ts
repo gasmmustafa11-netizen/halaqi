@@ -1590,7 +1590,8 @@ class DatabaseStore {
   async getUserByIdFromNeon(id: string): Promise<UserWithAuth | undefined> {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at
+             password_hash, salt, is_active, is_banned, created_at,
+             is_bot, bot_enabled, bio
       FROM users
       WHERE id = ${id}
       LIMIT 1
@@ -1613,6 +1614,9 @@ class DatabaseStore {
       salt: u.salt || undefined,
       isActive: u.is_active ?? true,
       isBanned: u.is_banned ?? false,
+      isBot: u.is_bot ?? false,
+      botEnabled: u.bot_enabled ?? true,
+      bio: u.bio || undefined,
       createdAt: new Date(u.created_at).toISOString(),
     };
   }
@@ -1715,7 +1719,10 @@ class DatabaseStore {
         salt,
         is_active,
         is_banned,
-        created_at
+        created_at,
+        is_bot,
+        bot_enabled,
+        bio
       )
       VALUES (
         ${user.id},
@@ -1730,7 +1737,10 @@ class DatabaseStore {
         ${user.salt || null},
         ${user.isActive},
         ${user.isBanned},
-        ${user.createdAt}
+        ${user.createdAt},
+        ${user.isBot ?? false},
+        ${user.botEnabled ?? true},
+        ${user.bio || null}
       )
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
@@ -1743,7 +1753,10 @@ class DatabaseStore {
         password_hash = EXCLUDED.password_hash,
         salt = EXCLUDED.salt,
         is_active = EXCLUDED.is_active,
-        is_banned = EXCLUDED.is_banned
+        is_banned = EXCLUDED.is_banned,
+        is_bot = EXCLUDED.is_bot,
+        bot_enabled = EXCLUDED.bot_enabled,
+        bio = EXCLUDED.bio
     `;
 
     return true;
@@ -1766,7 +1779,8 @@ class DatabaseStore {
 
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at
+             password_hash, salt, is_active, is_banned, created_at,
+             is_bot, bot_enabled, bio
       FROM users
       WHERE LOWER(email) = ${normalized}
          OR phone = ${phone}
@@ -1790,6 +1804,9 @@ class DatabaseStore {
       salt: u.salt || undefined,
       isActive: u.is_active ?? true,
       isBanned: u.is_banned ?? false,
+      isBot: u.is_bot ?? false,
+      botEnabled: u.bot_enabled ?? true,
+      bio: u.bio || undefined,
       createdAt: new Date(u.created_at).toISOString(),
     };
   }
@@ -3663,21 +3680,25 @@ class DatabaseStore {
 
   async createUserPost(
     data: {
-      imageUrl: string;
+      imageUrl?: string;
       caption?: string;
     },
     requestingUser: User
   ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
     try {
-      if (!data.imageUrl?.trim()) {
+      const hasImage = Boolean(data.imageUrl?.trim());
+      const captionText = (data.caption || '').trim();
+
+      // A post must have at least an image or a caption.
+      if (!hasImage && !captionText) {
         return {
           success: false,
-          error: 'صورة المنشور مطلوبة.',
+          error: 'المنشور يحتاج صورة أو نص.',
         };
       }
 
       // Block abusive captions before they are saved.
-      const mod = moderateContent(data.caption || '');
+      const mod = moderateContent(captionText);
       if (mod.blocked) {
         return { success: false, blocked: true, error: mod.message };
       }
@@ -3687,8 +3708,8 @@ class DatabaseStore {
         userId: requestingUser.id,
         userName: requestingUser.name || 'مستخدم',
         userAvatar: requestingUser.avatar || undefined,
-        imageUrl: data.imageUrl.trim(),
-        caption: (data.caption || '').trim(),
+        imageUrl: hasImage ? data.imageUrl!.trim() : undefined,
+        caption: captionText,
         createdAt: new Date().toISOString(),
         likeCount: 0,
         commentCount: 0,
@@ -3710,7 +3731,7 @@ class DatabaseStore {
         (
           ${post.id},
           ${post.userId},
-          ${post.imageUrl},
+          ${post.imageUrl ?? null},
           ${post.caption},
           ${post.createdAt},
           ${post.createdAt},
@@ -4133,6 +4154,225 @@ class DatabaseStore {
         liked: false,
         likeCount: 0,
       };
+    }
+  }
+
+  // ===================== BOT SYSTEM =====================
+  // All bot data is stored alongside real users/posts via the existing
+  // infrastructure. Bots are flagged with is_bot and a per-bot enabled
+  // flag; the engine never books salons or performs payments.
+
+  async ensureBotTables(): Promise<void> {
+    try {
+      await sql`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS bot_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          ADD COLUMN IF NOT EXISTS bio TEXT
+      `;
+    } catch (e: any) {
+      console.error('[BOTS] ensure users bot columns:', e?.message || e);
+    }
+    await sql`
+      CREATE TABLE IF NOT EXISTS bot_profiles (
+        id TEXT PRIMARY KEY,
+        personality TEXT NOT NULL DEFAULT '',
+        interests TEXT NOT NULL DEFAULT '[]'
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS bot_control (
+        id TEXT PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      INSERT INTO bot_control (id, enabled)
+      VALUES ('global', FALSE)
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+
+  async getBotControl(): Promise<boolean> {
+    await this.ensureBotTables();
+    const rows = await sql`SELECT enabled FROM bot_control WHERE id = 'global' LIMIT 1`;
+    return Boolean(rows[0]?.enabled);
+  }
+
+  async setBotControl(enabled: boolean): Promise<void> {
+    await this.ensureBotTables();
+    await sql`
+      INSERT INTO bot_control (id, enabled, updated_at)
+      VALUES ('global', ${enabled}, NOW())
+      ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
+    `;
+  }
+
+  async getBotStats(): Promise<{ total: number; active: number; stopped: number }> {
+    await this.ensureBotTables();
+    const rows = await sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE is_bot AND bot_enabled)::int AS active,
+        COUNT(*) FILTER (WHERE is_bot AND NOT bot_enabled)::int AS stopped
+      FROM users
+    `;
+    const r = rows[0] || { total: 0, active: 0, stopped: 0 };
+    return {
+      total: Number(r.total || 0),
+      active: Number(r.active || 0),
+      stopped: Number(r.stopped || 0),
+    };
+  }
+
+  async countBots(): Promise<number> {
+    const rows = await sql`SELECT COUNT(*)::int AS c FROM users WHERE is_bot`;
+    return Number(rows[0]?.c || 0);
+  }
+
+  async createBot(bot: {
+    name: string;
+    avatar: string;
+    bio: string;
+    city: string;
+    personality: string;
+    interests: string[];
+  }): Promise<UserWithAuth | null> {
+    try {
+      const id = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const email = `${id}@halaqi.bot`;
+      const phone = `0${Math.floor(7000000000 + Math.random() * 2999999999)}`;
+      const newUser: UserWithAuth = {
+        id,
+        name: bot.name.trim(),
+        email,
+        phone,
+        role: 'customer',
+        city: bot.city,
+        avatar: bot.avatar,
+        bio: bot.bio,
+        isBot: true,
+        botEnabled: true,
+        isActive: true,
+        isBanned: false,
+        createdAt: new Date().toISOString(),
+      };
+      this.state.users.push(newUser);
+      await this.persistUserToNeon(id);
+      await sql`
+        INSERT INTO bot_profiles (id, personality, interests)
+        VALUES (${id}, ${bot.personality}, ${JSON.stringify(bot.interests)})
+        ON CONFLICT (id) DO UPDATE SET personality = EXCLUDED.personality, interests = EXCLUDED.interests
+      `;
+      return newUser;
+    } catch (e: any) {
+      console.error('[BOTS] createBot failed:', e?.message || e);
+      return null;
+    }
+  }
+
+  async getActiveBots(limit: number): Promise<UserWithAuth[]> {
+    const rows = await sql`
+      SELECT id, name, avatar, city, bio, bot_enabled
+      FROM users WHERE is_bot AND bot_enabled ORDER BY random() LIMIT ${limit}
+    `;
+    return rows as any[];
+  }
+
+  async getBotProfile(botId: string): Promise<{ personality: string; interests: string[] } | null> {
+    const rows = await sql`SELECT personality, interests FROM bot_profiles WHERE id = ${botId} LIMIT 1`;
+    if (!rows.length) return null;
+    let interests: string[] = [];
+    try {
+      interests = JSON.parse(rows[0].interests || '[]');
+    } catch {
+      interests = [];
+    }
+    return { personality: rows[0].personality || '', interests };
+  }
+
+  async getRandomHumanUsers(count: number, excludeId?: string): Promise<UserWithAuth[]> {
+    const rows = await sql`
+      SELECT id, name, avatar, city, bio FROM users
+      WHERE is_bot IS NOT TRUE AND is_active IS NOT FALSE AND is_banned IS NOT TRUE
+        ${excludeId ? sql`AND id <> ${excludeId}` : sql``}
+      ORDER BY random()
+      LIMIT ${count}
+    `;
+    return rows as any[];
+  }
+
+  async getRandomUserPosts(count: number): Promise<{ id: string; userId: string }[]> {
+    const rows = await sql`SELECT id, user_id FROM user_posts ORDER BY random() LIMIT ${count}`;
+    return rows as any[];
+  }
+
+  async followUser(followerId: string, followingId: string): Promise<boolean> {
+    if (followerId === followingId) return false;
+    try {
+      await sql`
+        INSERT INTO user_follows (id, follower_id, following_id)
+        SELECT
+          'follow_' || ${Date.now()} || '_' || substr(md5(random()::text), 1, 8),
+          ${followerId},
+          ${followingId}
+        WHERE NOT EXISTS (
+          SELECT 1 FROM user_follows WHERE follower_id = ${followerId} AND following_id = ${followingId}
+        )
+        AND EXISTS (
+          SELECT 1 FROM users WHERE id = ${followingId} AND is_bot IS NOT TRUE
+        )
+      `;
+      return true;
+    } catch (e: any) {
+      console.error('[BOTS] followUser failed:', e?.message || e);
+      return false;
+    }
+  }
+
+  async unfollowUser(followerId: string, followingId: string): Promise<boolean> {
+    try {
+      await sql`DELETE FROM user_follows WHERE follower_id = ${followerId} AND following_id = ${followingId}`;
+      return true;
+    } catch (e: any) {
+      console.error('[BOTS] unfollowUser failed:', e?.message || e);
+      return false;
+    }
+  }
+
+  async sendDirectMessage(
+    senderId: string,
+    recipientId: string,
+    body: string,
+    media?: { type: 'image' | 'audio'; mediaUrl: string; thumbnail?: string; metadata?: any }
+  ): Promise<boolean> {
+    if (senderId === recipientId) return false;
+    try {
+      const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const createdAt = new Date().toISOString();
+      const msgType = media?.type ?? 'text';
+      const finalBody =
+        body && body.trim()
+          ? body.trim()
+          : msgType === 'image'
+            ? '📷'
+            : '🎤';
+      await sql`
+        INSERT INTO messages (
+          id, sender_id, recipient_id, body, read, status, created_at, type,
+          media_url, media_thumbnail, media_metadata
+        )
+        VALUES (
+          ${id}, ${senderId}, ${recipientId}, ${finalBody}, FALSE, 'sent', ${createdAt}, ${msgType},
+          ${media?.mediaUrl ?? null}, ${media?.thumbnail ?? null},
+          ${media?.metadata ? JSON.stringify(media.metadata) : null}
+        )
+      `;
+      return true;
+    } catch (e: any) {
+      console.error('[BOTS] sendDirectMessage failed:', e?.message || e);
+      return false;
     }
   }
 
@@ -5339,7 +5579,8 @@ export async function loadUsersFromNeon(): Promise<void> {
   try {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at
+             password_hash, salt, is_active, is_banned, created_at,
+             is_bot, bot_enabled, bio
       FROM users
     `;
 
@@ -5357,6 +5598,9 @@ export async function loadUsersFromNeon(): Promise<void> {
         salt: u.salt || undefined,
         isActive: u.is_active ?? true,
         isBanned: u.is_banned ?? false,
+        isBot: u.is_bot ?? false,
+        botEnabled: u.bot_enabled ?? true,
+        bio: u.bio || undefined,
         createdAt: new Date(u.created_at).toISOString(),
       }));
 

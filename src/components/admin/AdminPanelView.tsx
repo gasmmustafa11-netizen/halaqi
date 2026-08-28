@@ -41,7 +41,9 @@ import {
   MapPin,
   Clock,
   Bell,
-  Play
+  Play,
+  Bot,
+  Square
 } from 'lucide-react';
 
 export const AdminPanelView: React.FC = () => {
@@ -81,6 +83,12 @@ export const AdminPanelView: React.FC = () => {
   const [settlementTotal, setSettlementTotal] = useState(0);
   const [isLoadingSettlements, setIsLoadingSettlements] = useState(false);
   const [isProcessingSettlements, setIsProcessingSettlements] = useState(false);
+
+  // Bot system state
+  const [botStats, setBotStats] = useState<{ total: number; active: number; stopped: number } | null>(null);
+  const [botEnabled, setBotEnabled] = useState<boolean>(false);
+  const [isLoadingBots, setIsLoadingBots] = useState<boolean>(false);
+  const [botBusy, setBotBusy] = useState<boolean>(false);
 
 
   // Coupon Creation Form State
@@ -145,6 +153,13 @@ export const AdminPanelView: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [user, isUserAdmin]);
+
+  // Load bot stats when the admin opens the Bots tab.
+  useEffect(() => {
+    if (activeTab === 'bots' && isUserAdmin) {
+      void loadBotStats();
+    }
+  }, [activeTab, isUserAdmin]);
 
 
   const loadSettlements = async () => {
@@ -277,6 +292,38 @@ export const AdminPanelView: React.FC = () => {
     settlementStatus,
     settlementPage,
   ]);
+
+  const loadBotStats = async () => {
+    if (!isUserAdmin) return;
+    setIsLoadingBots(true);
+    try {
+      const res = await api.getAdminBots();
+      if (res.success) {
+        setBotStats({ total: res.total, active: res.active, stopped: res.stopped });
+        setBotEnabled(Boolean(res.enabled));
+      }
+    } catch (error) {
+      console.error('Error loading bot stats:', error);
+    } finally {
+      setIsLoadingBots(false);
+    }
+  };
+
+  const handleToggleBots = async (enabled: boolean) => {
+    if (!isUserAdmin || botBusy) return;
+    setBotBusy(true);
+    try {
+      const res = enabled ? await api.startAllBots() : await api.stopAllBots();
+      if (res.success) {
+        setBotEnabled(enabled);
+        setBotStats({ total: res.total, active: res.active, stopped: res.stopped });
+      }
+    } catch (error) {
+      console.error('Error toggling bots:', error);
+    } finally {
+      setBotBusy(false);
+    }
+  };
 
   const loadSalonPosts = async () => {
     if (!isUserAdmin) return;
@@ -796,6 +843,7 @@ export const AdminPanelView: React.FC = () => {
           { id: 'coupons', label: 'كوبونات الخصم', icon: Tag, count: coupons.length },
           { id: 'security_tests', label: 'مصفوفة فحص الأمان (10 Tests)', icon: ShieldCheck },
                     { id: 'posts', label: 'المنشورات والتعليقات', icon: FileText, count: salonPosts.length },
+          { id: 'bots', label: 'البوتات', icon: Bot, count: (botStats?.total ?? 0) || undefined },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1643,6 +1691,87 @@ export const AdminPanelView: React.FC = () => {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* TAB: Bot System */}
+        {activeTab === 'bots' && (
+          <div className="space-y-5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-white">البوتات (حسابات تجريبية)</h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  100 حساب بوت تلقائي ينشر، يتفاعل، ويراسل لاختبار النظام. الإيقاف يعطّل النشاط فقط ولا يحذف البيانات.
+                </p>
+              </div>
+
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold ${
+                  botEnabled
+                    ? 'border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300'
+                    : 'border-white/[0.12] bg-white/[0.06] text-gray-400'
+                }`}
+              >
+                {botEnabled ? (
+                  <>
+                    <Play className="w-4 h-4" />
+                    <span>البوتات تعمل</span>
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-4 h-4" />
+                    <span>البوتات متوقفة</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {isLoadingBots && !botStats ? (
+              <div className="p-8 text-center text-sm text-gray-500">جاري تحميل بيانات البوتات...</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-4 rounded-2xl bg-[#141414] border border-[#262626]">
+                    <p className="text-[11px] text-gray-400">الإجمالي</p>
+                    <p className="mt-1 text-2xl font-black text-white">{botStats?.total ?? 0}</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-[#141414] border border-emerald-400/20">
+                    <p className="text-[11px] text-emerald-400">نشط</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-300">{botStats?.active ?? 0}</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-[#141414] border border-red-400/20">
+                    <p className="text-[11px] text-red-400">متوقف</p>
+                    <p className="mt-1 text-2xl font-black text-red-300">{botStats?.stopped ?? 0}</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBots(true)}
+                    disabled={botBusy || botEnabled}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-4 rounded-2xl font-black text-white bg-emerald-500 hover:bg-emerald-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Play className="w-5 h-5" />
+                    <span>تشغيل جميع البوتات</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBots(false)}
+                    disabled={botBusy || !botEnabled}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-4 rounded-2xl font-black text-white bg-red-500 hover:bg-red-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Square className="w-5 h-5" />
+                    <span>إيقاف جميع البوتات</span>
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-gray-500 leading-5">
+                  ملاحظة: البوتات تستخدم البنية التحتية الحالية (المنشورات، الإعجاب، التعليقات، المتابعة، والرسائل) ولا تقوم بحجز صالونات أبداً.
+                </p>
+              </>
+            )}
           </div>
         )}
 
