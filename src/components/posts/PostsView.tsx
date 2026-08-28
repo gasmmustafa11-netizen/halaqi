@@ -4,6 +4,7 @@ import React, {
   useState,
   useRef,
 } from 'react';
+import { notify } from '../../utils/notifications';
 import {
   Heart,
   MessageCircle,
@@ -1355,7 +1356,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                 if (!url) return;
                 const res = await saveImage(url);
                 if (!res.success && res.error) {
-                  window.alert(res.error);
+                  notify(res.error, 'error');
                 }
               }}
               className="flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-[#D4AF37] transition-all hover:bg-[#D4AF37]/[0.08]"

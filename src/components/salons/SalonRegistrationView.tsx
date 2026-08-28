@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { notify } from '../../utils/notifications';
 import {
   Store,
   MapPin,
@@ -30,7 +31,7 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
   const [area, setArea] = useState<string>('');
   const [address, setAddress] = useState<string>('');
   const [salonLocation, setSalonLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const handleGetSalonLocation = () => { navigator.geolocation.getCurrentPosition((position) => { setSalonLocation({ lat: position.coords.latitude, lng: position.coords.longitude }); }, () => alert('تعذر تحديد الموقع. فعّل GPS وأعطِ التطبيق صلاحية الموقع.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }); };
+  const handleGetSalonLocation = () => { navigator.geolocation.getCurrentPosition((position) => { setSalonLocation({ lat: position.coords.latitude, lng: position.coords.longitude }); }, () => notify('تعذر تحديد الموقع. فعّل GPS وأعطِ التطبيق صلاحية الموقع.', 'error'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }); };
   const [phone, setPhone] = useState<string>(user?.phone || '+964 780 ');
   const [whatsapp, setWhatsapp] = useState<string>(user?.phone || '+964 780 ');
   const [startingPrice, setStartingPrice] = useState<number>(15000);
@@ -125,7 +126,7 @@ export const SalonRegistrationView: React.FC<SalonRegistrationViewProps> = ({ on
     if (res.success) {
       setIsSubmitted(true);
     } else {
-      alert(res.error || 'فشل تسجيل الصالون');
+      notify(res.error || 'فشل تسجيل الصالون', 'error');
     }
   };
 

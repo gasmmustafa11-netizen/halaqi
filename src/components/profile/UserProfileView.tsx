@@ -27,6 +27,7 @@ import { api } from '../../services/api';
 import { compressImageToDataUrl } from '../../utils/compressImage';
 import { CaptionText } from '../posts/CaptionText';
 import { ImageViewer } from '../common/ImageViewer';
+import { notify, confirmDialog } from '../../utils/notifications';
 
 interface UserProfileViewProps {
   onNavigate?: (view: string) => void;
@@ -253,10 +254,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       if (res.success && res.caption) {
         setCaption(res.caption);
       } else {
-        alert(res.error || 'تعذر اقتراح تعليق.');
+        notify(res.error || 'تعذر اقتراح تعليق.', 'error');
       }
     } catch {
-      alert('تعذر اقتراح تعليق.');
+      notify('تعذر اقتراح تعليق.', 'error');
     } finally {
       setSuggesting(false);
     }
@@ -293,7 +294,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       const upload = await api.uploadImage(compressed);
 
       if (!upload.success || !upload.imageUrl) {
-        alert(upload.error || 'تعذر رفع الصورة.');
+        notify(upload.error || 'تعذر رفع الصورة.', 'error');
         return;
       }
 
@@ -303,11 +304,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       });
 
       if (!result.success) {
-        alert(result.error || 'تعذر نشر الصورة.');
+        notify(result.error || 'تعذر نشر الصورة.', 'error');
         return;
       }
 
-      alert('تم نشر الصورة بنجاح.');
+      notify('تم نشر الصورة بنجاح.', 'success');
       setComposerOpen(false);
       setComposerFile(null);
       setComposerPreview(null);
@@ -319,7 +320,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       setPosts((current) => [result.post, ...current]);
     } catch (error) {
       console.error('[CREATE USER POST]', error);
-      alert('حدث خطأ أثناء نشر الصورة.');
+      notify('حدث خطأ أثناء نشر الصورة.', 'error');
     } finally {
       setPublishing(false);
     }
@@ -343,7 +344,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
   const handleSaveProfile = async () => {
     if (!editName.trim()) {
-      alert('الاسم مطلوب.');
+      notify('الاسم مطلوب.', 'warning');
       return;
     }
 
@@ -357,7 +358,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       });
 
       if (!result.success) {
-        alert(result.error || 'تعذر تحديث الملف الشخصي.');
+        notify(result.error || 'تعذر تحديث الملف الشخصي.', 'error');
         return;
       }
 
@@ -367,7 +368,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       await refreshUser();
     } catch (error) {
       console.error('[EDIT PROFILE]', error);
-      alert('حدث خطأ أثناء تحديث الملف الشخصي.');
+      notify('حدث خطأ أثناء تحديث الملف الشخصي.', 'error');
     } finally {
       setSavingProfile(false);
     }
@@ -448,7 +449,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
         });
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(url);
-        alert('تم نسخ رابط الملف الشخصي.');
+        notify('تم نسخ رابط الملف الشخصي.', 'success');
       }
     } catch {
       // المستخدم ألغى المشاركة
@@ -957,12 +958,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const confirmed = window.confirm(
-                      language === 'ar'
-                        ? 'هل أنت متأكد من تسجيل الخروج من حسابك؟'
-                        : 'Are you sure you want to sign out of your account?'
-                    );
+                  onClick={async () => {
+                    const confirmed = await confirmDialog({
+                      message:
+                        language === 'ar'
+                          ? 'هل أنت متأكد من تسجيل الخروج من حسابك؟'
+                          : 'Are you sure you want to sign out of your account?',
+                      danger: true,
+                    });
 
                     if (!confirmed) return;
 

@@ -1,3 +1,4 @@
+import { notify } from '../utils/notifications';
 import {
   Salon,
   Barber,
@@ -994,7 +995,7 @@ export const api = {
       });
 
       if (!res.ok && typeof window !== 'undefined') {
-        window.alert(
+        notify(
           data?.error ||
           `فشل تحديث حالة الصالون. HTTP ${res.status}`
         );

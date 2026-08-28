@@ -13,6 +13,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { notify, confirmDialog } from '../../utils/notifications';
 import {
   ShieldAlert,
   Store,
@@ -206,12 +207,12 @@ export const AdminPanelView: React.FC = () => {
       );
 
       if (!result.success) {
-        alert(result.error || 'تعذر تحديث التسويات.');
+        notify(result.error || 'تعذر تحديث التسويات.', 'error');
         return;
       }
 
       await loadSettlements();
-      alert('تم تحديث التسويات بنجاح.');
+      notify('تم تحديث التسويات بنجاح.', 'success');
     } finally {
       setIsProcessingSettlements(false);
     }
@@ -226,14 +227,15 @@ export const AdminPanelView: React.FC = () => {
       const result = await api.processAdminSettlementEnforcement();
 
       if (!result.success) {
-        alert(result.error || 'تعذر معالجة المتأخرات.');
+        notify(result.error || 'تعذر معالجة المتأخرات.', 'error');
         return;
       }
 
       await loadSettlements();
 
-      alert(
-        `تمت المعالجة.\nالمتأخرات: ${result.markedOverdue || 0}\nالموقوف: ${result.suspended || 0}`
+      notify(
+        `تمت المعالجة. المتأخرات: ${result.markedOverdue || 0} — الموقوف: ${result.suspended || 0}`,
+        'info'
       );
     } finally {
       setIsProcessingSettlements(false);
@@ -246,14 +248,15 @@ export const AdminPanelView: React.FC = () => {
     const amount = Number(item.commissionAmount || 0);
 
     if (amount <= 0) {
-      alert('لا توجد عمولة مستحقة.');
+      notify('لا توجد عمولة مستحقة.', 'info');
       return;
     }
 
     if (
-      !window.confirm(
-        `تسجيل استلام ${amount.toLocaleString()} د.ع من ${item.salonName}؟`
-      )
+      !(await confirmDialog({
+        message: `تسجيل استلام ${amount.toLocaleString()} د.ع من ${item.salonName}؟`,
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -267,14 +270,14 @@ export const AdminPanelView: React.FC = () => {
       );
 
       if (!result.success) {
-        alert(result.error || 'تعذر تسجيل الدفع.');
+        notify(result.error || 'تعذر تسجيل الدفع.', 'error');
         return;
       }
 
       await loadSettlements();
       await loadAdminData();
 
-      alert('تم تسجيل الدفع بنجاح.');
+      notify('تم تسجيل الدفع بنجاح.', 'success');
     } finally {
       setIsProcessingSettlements(false);
     }
@@ -361,13 +364,13 @@ export const AdminPanelView: React.FC = () => {
   };
 
   const handleAdminDeletePost = async (postId: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+    if (!(await confirmDialog({ message: 'هل أنت متأكد من حذف هذا المنشور؟', danger: true }))) return;
 
     try {
       const result = await api.deleteSalonPost(postId);
 
       if (!result.success) {
-        alert(result.error || 'تعذر حذف المنشور.');
+        notify(result.error || 'تعذر حذف المنشور.', 'error');
         return;
       }
 
@@ -379,10 +382,10 @@ export const AdminPanelView: React.FC = () => {
         return next;
       });
 
-      alert('تم حذف المنشور بنجاح.');
+      notify('تم حذف المنشور بنجاح.', 'success');
     } catch (error) {
       console.error('Admin delete post error:', error);
-      alert('حدث خطأ أثناء حذف المنشور.');
+      notify('حدث خطأ أثناء حذف المنشور.', 'error');
     }
   };
 
@@ -443,9 +446,11 @@ export const AdminPanelView: React.FC = () => {
     status: 'approved' | 'pending' | 'suspended' | 'banned'
   ) => {
     if (status === 'banned') {
-      const confirmed = window.confirm(
-        'تحذير: حظر الصالون نهائيًا سيجعله غير ظاهر لجميع المستخدمين ولن يمكن فتح صفحته. هل أنت متأكد؟'
-      );
+      const confirmed = await confirmDialog({
+        message:
+          'تحذير: حظر الصالون نهائيًا سيجعله غير ظاهر لجميع المستخدمين ولن يمكن فتح صفحته. هل أنت متأكد؟',
+        danger: true,
+      });
 
       if (!confirmed) return;
 
@@ -454,7 +459,7 @@ export const AdminPanelView: React.FC = () => {
       });
 
       if (!success) {
-        window.alert('تعذر حظر الصالون نهائيًا.');
+        notify('تعذر حظر الصالون نهائيًا.', 'error');
         return;
       }
 
@@ -465,15 +470,24 @@ export const AdminPanelView: React.FC = () => {
       return;
     }
     if (status === 'suspended') {
-      const reason = window.prompt('اكتب سبب إيقاف الصالون:');
-      if (!reason?.trim()) return;
+      const reasonRes = await confirmDialog({
+        message: 'اكتب سبب إيقاف الصالون:',
+        input: { placeholder: 'سبب الإيقاف' },
+      });
+      if (!reasonRes.confirmed) return;
+      const reason = reasonRes.value?.trim() || '';
+      if (!reason) return;
 
-      const hoursInput = window.prompt('مدة الإيقاف بالساعات (مثلاً 24):', '24');
-      if (hoursInput === null) return;
+      const hoursRes = await confirmDialog({
+        message: 'مدة الإيقاف بالساعات (مثلاً 24):',
+        input: { defaultValue: '24', placeholder: '24' },
+      });
+      if (!hoursRes.confirmed) return;
+      const hoursInput = hoursRes.value;
 
       const hours = Number(hoursInput);
       if (!Number.isFinite(hours) || hours <= 0) {
-        window.alert('مدة الإيقاف غير صحيحة');
+        notify('مدة الإيقاف غير صحيحة', 'warning');
         return;
       }
 
@@ -519,7 +533,7 @@ export const AdminPanelView: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm('هل أنت متأكد من حذف هذا الحساب نهائياً؟')) {
+    if (await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الحساب نهائياً؟', danger: true })) {
       await api.deleteUser(userId);
       await loadAdminData();
     }
@@ -746,7 +760,7 @@ export const AdminPanelView: React.FC = () => {
                     await api.markNotificationAsRead(notification.id);
                     await loadAdminData();
                   } else {
-                    alert('فشلت الموافقة على الصالون');
+                    notify('فشلت الموافقة على الصالون', 'error');
                   }
                 }}
                 className="flex-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 transition"
@@ -765,7 +779,7 @@ export const AdminPanelView: React.FC = () => {
                     await api.markNotificationAsRead(notification.id);
                     await loadAdminData();
                   } else {
-                    alert('فشل رفض الصالون');
+                    notify('فشل رفض الصالون', 'error');
                   }
                 }}
                 className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 transition"
@@ -1169,12 +1183,12 @@ export const AdminPanelView: React.FC = () => {
                               type="button"
                               title="حذف التعليق"
                               onClick={async () => {
-                                if (!confirm('هل أنت متأكد من حذف هذا التعليق؟')) return;
+                                if (!(await confirmDialog({ message: 'هل أنت متأكد من حذف هذا التعليق؟', danger: true }))) return;
 
                                 const result = await api.deletePostComment(comment.id);
 
                                 if (!result.success) {
-                                  alert(result.error || 'تعذر حذف التعليق.');
+                                  notify(result.error || 'تعذر حذف التعليق.', 'error');
                                   return;
                                 }
 

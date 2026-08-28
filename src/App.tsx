@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { NotificationsProvider } from './components/common/NotificationsProvider';
 import { BookingProvider, useBooking } from './context/BookingContext';
 import { Salon } from './types';
 import { api } from './services/api';
@@ -332,9 +333,11 @@ export default function App() {
   return (
     <AuthProvider>
       <LanguageProvider>
-        <BookingProvider>
-          <AppContent />
-        </BookingProvider>
+        <NotificationsProvider>
+          <BookingProvider>
+            <AppContent />
+          </BookingProvider>
+        </NotificationsProvider>
       </LanguageProvider>
     </AuthProvider>
   );

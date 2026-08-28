@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { REPORT_REASONS } from '../../constants/reportReasons';
+import { confirmDialog } from '../../utils/notifications';
 
 interface DiscoverUser {
   id: string;
@@ -161,7 +162,7 @@ const AnonymousChat: React.FC<{
   };
 
   const end = async () => {
-    if (!window.confirm(isRtl ? 'إنهاء المحادثة؟ ستُخفى هوياتكما.' : 'End the conversation? Identities stay hidden.')) return;
+    if (!(await confirmDialog({ message: isRtl ? 'إنهاء المحادثة؟ ستُخفى هوياتكما.' : 'End the conversation? Identities stay hidden.', danger: true }))) return;
     await api.endDiscoverConversation(convId);
     setEnded(true);
     showToast(isRtl ? 'تم إنهاء المحادثة' : 'Conversation ended');
@@ -412,7 +413,7 @@ export const DiscoverView: React.FC<{ onNavigate: (view: string) => void }> = ({
 
   const block = async (id: string) => {
     setMenuOpen(false);
-    if (!window.confirm(isRtl ? 'هل تريد حظر هذا المستخدم؟' : 'Block this user?')) return;
+    if (!(await confirmDialog({ message: isRtl ? 'هل تريد حظر هذا المستخدم؟' : 'Block this user?', danger: true }))) return;
     setActioning(true);
     const res = await api.blockUser(id);
     setActioning(false);

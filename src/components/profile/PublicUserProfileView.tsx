@@ -17,6 +17,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { ImageViewer } from '../common/ImageViewer';
 import { REPORT_REASONS } from '../../constants/reportReasons';
 import { UserRole } from '../../types';
+import { notify, confirmDialog } from '../../utils/notifications';
 
 interface PublicUser {
   id: string;
@@ -158,7 +159,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
       const result = await api.toggleFollow(userId);
 
       if (!result.success) {
-        alert(result.error || 'تعذر تحديث المتابعة.');
+        notify(result.error || 'تعذر تحديث المتابعة.', 'error');
         return;
       }
 
@@ -167,7 +168,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
       setFollowingCount(Number(result.followingCount || 0));
     } catch (followError) {
       console.error('[PUBLIC PROFILE FOLLOW]', followError);
-      alert('تعذر تحديث المتابعة.');
+      notify('تعذر تحديث المتابعة.', 'error');
     } finally {
       setFollowLoading(false);
     }
@@ -199,7 +200,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
         });
       } else {
         await navigator.clipboard.writeText(url);
-        alert('تم نسخ رابط الملف الشخصي.');
+        notify('تم نسخ رابط الملف الشخصي.', 'success');
       }
     } catch {
       // User cancelled share.
@@ -209,14 +210,14 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   // FEATURE 6: block / unblock
   const handleBlock = async () => {
     if (actionLoading) return;
-    if (!window.confirm(isRtl ? 'هل تريد حظر هذا المستخدم؟' : 'Block this user?')) return;
+    if (!(await confirmDialog({ message: isRtl ? 'هل تريد حظر هذا المستخدم؟' : 'Block this user?', danger: true }))) return;
     setActionLoading(true);
     const res = await api.blockUser(userId);
     setActionLoading(false);
     if (res.success) {
       setIsBlocking(true);
     } else {
-      window.alert(res.error || (isRtl ? 'تعذر الحظر' : 'Could not block'));
+      notify(res.error || (isRtl ? 'تعذر الحظر' : 'Could not block'), 'error');
     }
   };
 
@@ -228,14 +229,14 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
     if (res.success) {
       setIsBlocking(false);
     } else {
-      window.alert(res.error || (isRtl ? 'تعذر إلغاء الحظر' : 'Could not unblock'));
+      notify(res.error || (isRtl ? 'تعذر إلغاء الحظر' : 'Could not unblock'), 'error');
     }
   };
 
   // FEATURE 6: report
   const submitReport = async () => {
     if (!reportReason) {
-      window.alert(isRtl ? 'اختر سبباً للبلاغ' : 'Choose a reason');
+      notify(isRtl ? 'اختر سبباً للبلاغ' : 'Choose a reason', 'warning');
       return;
     }
     setActionLoading(true);
@@ -245,9 +246,9 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
     setReportReason('');
     setReportDetails('');
     if (res.success) {
-      window.alert(isRtl ? 'تم إرسال البلاغ' : 'Report sent');
+      notify(isRtl ? 'تم إرسال البلاغ' : 'Report sent', 'success');
     } else {
-      window.alert(res.error || (isRtl ? 'تعذر الإرسال' : 'Could not send'));
+      notify(res.error || (isRtl ? 'تعذر الإرسال' : 'Could not send'), 'error');
     }
   };
 

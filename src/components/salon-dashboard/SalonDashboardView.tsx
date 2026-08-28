@@ -4,6 +4,7 @@ import { Salon, Service, Barber, Booking, SalonPost, PostComment } from '../../t
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { notify, confirmDialog } from '../../utils/notifications';
 import { compressImageToDataUrl } from '../../utils/compressImage';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import {
@@ -106,7 +107,7 @@ export const SalonDashboardView: React.FC = () => {
       const result = await api.togglePostLike(post.id);
 
       if (!result.success) {
-        alert(result.error || 'تعذر تنفيذ الإعجاب.');
+        notify(result.error || 'تعذر تنفيذ الإعجاب.', 'error');
         return;
       }
 
@@ -124,26 +125,26 @@ export const SalonDashboardView: React.FC = () => {
       );
     } catch (error) {
       console.error('Toggle post like error:', error);
-      alert('حدث خطأ أثناء تنفيذ الإعجاب.');
+      notify('حدث خطأ أثناء تنفيذ الإعجاب.', 'error');
     }
   };
 
   const handleDeleteSalonPost = async (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا المنشور؟')) return;
+    if (!(await confirmDialog({ message: 'هل أنت متأكد من حذف هذا المنشور؟', danger: true }))) return;
 
     try {
       const result = await api.deleteSalonPost(id);
 
       if (!result.success) {
-        alert(result.error || 'تعذر حذف المنشور.');
+        notify(result.error || 'تعذر حذف المنشور.', 'error');
         return;
       }
 
       setSalonPosts((prev) => prev.filter((post) => post.id !== id));
-      alert('تم حذف المنشور بنجاح.');
+      notify('تم حذف المنشور بنجاح.', 'success');
     } catch (error) {
       console.error('Delete salon post error:', error);
-      alert('حدث خطأ أثناء حذف المنشور.');
+      notify('حدث خطأ أثناء حذف المنشور.', 'error');
     }
   };
 
@@ -260,7 +261,7 @@ export const SalonDashboardView: React.FC = () => {
           setIsQrScannerOpen(false);
           setQrScannerError('');
           await loadDashboardData();
-          alert('تم تأكيد إتمام الخدمة بنجاح.');
+          notify('تم تأكيد إتمام الخدمة بنجاح.', 'success');
         },
         () => {
           // Ignore normal frame-by-frame scan misses.
@@ -305,7 +306,7 @@ export const SalonDashboardView: React.FC = () => {
         });
       }
     } catch (err: any) {
-      alert(err?.message || 'حدث خطأ أثناء حفظ الخدمة');
+      notify(err?.message || 'حدث خطأ أثناء حفظ الخدمة', 'error');
       return;
     }
     setIsServiceModalOpen(false);
@@ -314,7 +315,7 @@ export const SalonDashboardView: React.FC = () => {
   };
 
   const handleDeleteService = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذه الخدمة؟')) {
+    if (await confirmDialog({ message: 'هل أنت متأكد من حذف هذه الخدمة؟', danger: true })) {
       await api.deleteService(id);
       await loadDashboardData();
     }
@@ -342,7 +343,7 @@ export const SalonDashboardView: React.FC = () => {
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذا الحلاق؟')) {
+    if (await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الحلاق؟', danger: true })) {
       await api.deleteBarber(id);
       await loadDashboardData();
     }
@@ -893,7 +894,7 @@ export const SalonDashboardView: React.FC = () => {
                         const upload = await api.uploadImage(compressedImage);
 
                         if (!upload.success || !upload.imageUrl) {
-                          alert(upload.error || 'تعذر رفع الصورة.');
+                          notify(upload.error || 'تعذر رفع الصورة.', 'error');
                           return;
                         }
 
@@ -904,15 +905,15 @@ export const SalonDashboardView: React.FC = () => {
                         });
 
                         if (!result.success) {
-                          alert(result.error || 'تعذر نشر الصورة.');
+                          notify(result.error || 'تعذر نشر الصورة.', 'error');
                           return;
                         }
 
-                        alert('تم نشر الصورة بنجاح.');
+                        notify('تم نشر الصورة بنجاح.', 'success');
                         setSelectedPostImage(null);
                       } catch (error) {
                         console.error('Publish post error:', error);
-                        alert('حدث خطأ أثناء نشر الصورة.');
+                        notify('حدث خطأ أثناء نشر الصورة.', 'error');
                       } finally {
                         setIsPublishingPost(false);
                       }
@@ -983,7 +984,7 @@ export const SalonDashboardView: React.FC = () => {
             </div>
 
             <button
-              onClick={() => alert('تم حفظ التعديلات بنجاح!')}
+              onClick={() => notify('تم حفظ التعديلات بنجاح!', 'success')}
               className="px-6 py-2.5 rounded-xl bg-[#d4af37] text-black font-bold text-xs"
             >
               حفظ التعديلات
