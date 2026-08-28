@@ -262,30 +262,37 @@ export async function runCronTick(): Promise<void> {
 }
 
 /**
- * Idempotent initialization for the serverless entry: ensures bot tables and
- * seeds up to 100 bots. Does NOT start any scheduler (serverless-safe).
+ * Idempotent initialization for the serverless entry: ensures bot tables,
+ * seeds up to 100 bots, and starts the scheduler ONCE at cold start.
+ *
+ * The scheduler runs at module scope (server/container start) — NOT inside a
+ * request and NOT in the browser — so bot activity is completely independent
+ * of the Admin page, React state, navigation, or any client timer. Vercel Cron
+ * additionally hits /api/cron/bots-tick as a backup trigger for idle (frozen)
+ * containers. Each tick reads the persisted START/STOP flag from the database.
  */
 export async function initBotEngine(): Promise<void> {
   if (engineStarted) return;
   engineStarted = true;
   try {
     await ensureAndSeed();
-    console.log(`[BOTS] engine initialized (target=${BOT_COUNT})`);
+    if (!schedulerHandle) {
+      schedulerHandle = setInterval(() => {
+        void runBotTick(BOTS_PER_TICK);
+      }, TICK_MS);
+    }
+    console.log(`[BOTS] engine initialized + scheduler started (target=${BOT_COUNT})`);
   } catch (e: any) {
     engineStarted = false; // allow retry on next call
     console.error('[BOTS] init failed:', e?.message || e);
   }
 }
 
-/** Dev-only: persistent scheduler. Never used on Vercel serverless. */
+/** Dev/server entry: ensure the engine (and its server-side scheduler) is running. */
 export async function startBotEngine(): Promise<void> {
   await initBotEngine();
-  if (schedulerHandle) return;
-  schedulerHandle = setInterval(() => {
-    void runBotTick(BOTS_PER_TICK);
-  }, TICK_MS);
-  console.log('[BOTS] dev scheduler started');
 }
+
 
 /** Admin: enable all bot activity. */
 export async function startAllBots(): Promise<void> {
