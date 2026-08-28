@@ -35,6 +35,7 @@ interface Reel {
 
 interface ReelsViewProps {
   onBack?: () => void;
+  onNavigate?: (view: string) => void;
 }
 
 const REEL_MAX_NORMAL = 60;
@@ -48,7 +49,8 @@ const ReelItem: React.FC<{
   onToggleMute: () => void;
   onOpenComments: (reel: Reel) => void;
   onDelete: (reel: Reel) => void;
-}> = ({ reel, isRtl, muted, canDelete, onToggleMute, onOpenComments, onDelete }) => {
+  onNavigate: (view: string) => void;
+}> = ({ reel, isRtl, muted, canDelete, onToggleMute, onOpenComments, onDelete, onNavigate }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [liked, setLiked] = useState<boolean>(Boolean(reel.liked));
@@ -123,129 +125,129 @@ const ReelItem: React.FC<{
   return (
     <section
       ref={containerRef}
-      className="relative flex h-full w-full snap-start items-center justify-center overflow-hidden"
+      className="relative h-[100dvh] w-full snap-start overflow-hidden bg-black"
     >
-      {/* Centered 9:16 frame — never full-bleed, never stretched. */}
-      <div className="relative flex h-full max-h-full w-auto max-w-full items-center justify-center">
-        <div className="relative h-full max-h-full aspect-[9/16] max-w-full overflow-hidden rounded-[28px] border border-white/10 bg-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.85)] ring-1 ring-white/10">
-          <video
-            ref={videoRef}
-            src={`/api/reels/${reel.id}/video`}
-            className="h-full w-full bg-black object-contain"
-            playsInline
-            loop
-            muted={muted}
-            preload="auto"
-            onClick={togglePlay}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-          />
+      {/* Video fills the whole viewport (9:16 source, object-cover, never distorted) */}
+      <video
+        ref={videoRef}
+        src={`/api/reels/${reel.id}/video`}
+        className="absolute inset-0 h-full w-full bg-black object-cover"
+        playsInline
+        loop
+        muted={muted}
+        preload="auto"
+        onClick={togglePlay}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
 
-          {/* Center play affordance when paused */}
-          {!isPlaying && (
+      {/* Center play affordance when paused */}
+      {!isPlaying && (
+        <button
+          type="button"
+          onClick={togglePlay}
+          className="absolute inset-0 z-10 flex items-center justify-center"
+          aria-label={isRtl ? 'تشغيل' : 'Play'}
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-xl">
+            <Play className="h-7 w-7 translate-x-[1px]" />
+          </span>
+        </button>
+      )}
+
+      {/* Top controls (safe-area aware): delete (left) + mute (right) */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-12">
+        <div className="pointer-events-auto">
+          {canDelete && (
             <button
               type="button"
-              onClick={togglePlay}
-              className="absolute inset-0 z-10 flex items-center justify-center"
-              aria-label={isRtl ? 'تشغيل' : 'Play'}
+              onClick={() => onDelete(reel)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/30 bg-rose-950/50 text-rose-300 backdrop-blur-xl"
+              title={isRtl ? 'حذف الريل' : 'Delete Reel'}
             >
-              <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-xl">
-                <Play className="h-7 w-7 translate-x-[1px]" />
-              </span>
+              <Trash2 className="h-5 w-5" />
             </button>
           )}
-
-          {/* Top gradient: delete (left) + mute (right) */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between bg-gradient-to-b from-black/70 to-transparent p-3 pb-10">
-            <div className="pointer-events-auto">
-              {canDelete && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(reel)}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/30 bg-rose-950/50 text-rose-300 backdrop-blur-xl"
-                  title={isRtl ? 'حذف الريل' : 'Delete Reel'}
-                >
-                  <Trash2 className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-            <div className="pointer-events-auto">
-              <button
-                type="button"
-                onClick={onToggleMute}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-xl"
-                title={muted ? (isRtl ? 'تشغيل الصوت' : 'Unmute') : isRtl ? 'كتم' : 'Mute'}
-              >
-                {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Right action rail: Like + Comment */}
-          <div className="absolute bottom-24 right-3 flex flex-col items-center gap-5">
-            <button
-              type="button"
-              onClick={handleLike}
-              disabled={liking}
-              className="flex flex-col items-center gap-1"
-            >
-              <span
-                className={`flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 backdrop-blur-xl ${
-                  liked ? 'text-rose-500' : 'text-white'
-                }`}
-              >
-                <Heart className={`h-6 w-6 ${liked ? 'fill-rose-500' : ''}`} />
-              </span>
-              <span className="text-xs font-bold text-white drop-shadow">
-                {likeCount > 0 ? likeCount : ''}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onOpenComments(reel)}
-              className="flex flex-col items-center gap-1"
-            >
-              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
-                <MessageCircle className="h-6 w-6" />
-              </span>
-              <span className="text-xs font-bold text-white drop-shadow">
-                {reel.commentCount > 0 ? reel.commentCount : ''}
-              </span>
-            </button>
-          </div>
-
-          {/* Author + caption (bottom-left, safe-area aware) */}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-            <div className="flex items-center gap-2">
-              {reel.userAvatar ? (
-                <img
-                  src={reel.userAvatar}
-                  alt=""
-                  className="h-9 w-9 rounded-full border border-[#D4AF37]/40 object-cover"
-                />
-              ) : (
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#D4AF37]/15 text-sm font-bold text-[#D4AF37]">
-                  {(reel.userName || 'U').charAt(0)}
-                </div>
-              )}
-              <span className="text-sm font-bold text-white drop-shadow">
-                @{reel.userName || 'مستخدم'}
-              </span>
-            </div>
-            {reel.caption ? (
-              <p className="mt-2 line-clamp-3 text-sm leading-5 text-slate-200 drop-shadow">
-                {reel.caption}
-              </p>
-            ) : null}
-          </div>
+        </div>
+        <div className="pointer-events-auto">
+          <button
+            type="button"
+            onClick={onToggleMute}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-xl"
+            title={muted ? (isRtl ? 'تشغيل الصوت' : 'Unmute') : isRtl ? 'كتم' : 'Mute'}
+          >
+            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+          </button>
         </div>
       </div>
+
+      {/* Right action rail: Like + Comment */}
+      <div className="absolute bottom-28 right-3 z-20 flex flex-col items-center gap-6">
+        <button
+          type="button"
+          onClick={handleLike}
+          disabled={liking}
+          className="flex flex-col items-center gap-1"
+        >
+          <span
+            className={`flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 backdrop-blur-xl ${
+              liked ? 'text-rose-500' : 'text-white'
+            }`}
+          >
+            <Heart className={`h-6 w-6 ${liked ? 'fill-rose-500' : ''}`} />
+          </span>
+          <span className="text-xs font-bold text-white drop-shadow">
+            {likeCount > 0 ? likeCount : ''}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onOpenComments(reel)}
+          className="flex flex-col items-center gap-1"
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
+            <MessageCircle className="h-6 w-6" />
+          </span>
+          <span className="text-xs font-bold text-white drop-shadow">
+            {reel.commentCount > 0 ? reel.commentCount : ''}
+          </span>
+        </button>
+      </div>
+
+      {/* Author + caption (bottom-left, safe-area aware, clickable → profile) */}
+      <button
+        type="button"
+        onClick={() => onNavigate(`user:${reel.userId}`)}
+        className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left"
+      >
+        <div className="flex items-center gap-2">
+          {reel.userAvatar ? (
+            <img
+              src={reel.userAvatar}
+              alt=""
+              className="h-9 w-9 rounded-full border border-[#D4AF37]/40 object-cover"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#D4AF37]/15 text-sm font-bold text-[#D4AF37]">
+              {(reel.userName || 'U').charAt(0)}
+            </div>
+          )}
+          <span className="text-sm font-bold text-white drop-shadow">
+            @{reel.userName || 'مستخدم'}
+          </span>
+        </div>
+        {reel.caption ? (
+          <p className="line-clamp-3 text-sm leading-5 text-slate-200 drop-shadow">
+            {reel.caption}
+          </p>
+        ) : null}
+      </button>
     </section>
   );
 };
 
-export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
+export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const { isRtl } = useLanguage();
   const { user, openAuthModal } = useAuth();
 
@@ -451,9 +453,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
   const BackIcon = isRtl ? ArrowLeft : ArrowRight;
 
   return (
-    <div className="flex h-[calc(100vh-260px)] flex-col">
-      {/* Reels header */}
-      <div className="mb-3 flex items-center justify-between">
+    <div className="relative h-[100dvh] w-full bg-black">
+      {/* Reels header (overlaid on the video, safe-area aware) */}
+      <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-2">
           {onBack && (
             <button
@@ -495,9 +497,9 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
         />
       </div>
 
-      {/* Vertical Reels feed */}
+      {/* Vertical Reels feed — one Reel per screen, full viewport height */}
       {loading ? (
-        <div className="flex flex-1 items-center justify-center rounded-[24px] border border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl">
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
             <span className="text-xs text-slate-500">
@@ -506,7 +508,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
           </div>
         </div>
       ) : reels.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-[24px] border border-white/[0.12] bg-white/[0.06] px-6 py-16 text-center backdrop-blur-2xl">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/15 bg-[#D4AF37]/[0.05]">
             <Film className="h-6 w-6 text-[#D4AF37]/70" />
           </div>
@@ -528,7 +530,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
           </button>
         </div>
       ) : (
-        <div className="flex-1 snap-y snap-mandatory overflow-y-auto rounded-[24px] border border-white/[0.12] bg-black">
+        <div className="absolute inset-0 h-[100dvh] overflow-y-auto snap-y snap-mandatory">
           {reels.map((reel) => (
             <ReelItem
               key={reel.id}
@@ -539,6 +541,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack }) => {
               onToggleMute={() => setMuted((m) => !m)}
               onOpenComments={openComments}
               onDelete={handleDelete}
+              onNavigate={onNavigate ?? (() => {})}
             />
           ))}
         </div>

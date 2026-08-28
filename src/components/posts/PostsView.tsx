@@ -821,7 +821,9 @@ export const PostsView: React.FC<PostsViewProps> = ({
         </div>
 
         {subTab === 'reels' ? (
-          <ReelsView onBack={() => setSubTab('posts')} />
+          <div className="fixed inset-0 z-50 bg-black">
+            <ReelsView onBack={() => setSubTab('posts')} onNavigate={onNavigate} />
+          </div>
         ) : (
           loading ? (
           <div className="flex min-h-[420px] items-center justify-center rounded-[24px] border border-white/[0.12] bg-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">

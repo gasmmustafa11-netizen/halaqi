@@ -11,6 +11,7 @@ import {
   Heart,
   MessageCircle,
   MoreVertical,
+  Play,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -67,6 +68,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   // FEATURE 4: posted images grid + lightbox
   const [posts, setPosts] = useState<any[]>([]);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [viewerIsVideo, setViewerIsVideo] = useState(false);
 
   // FEATURE 6: block / report menu
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
@@ -556,14 +558,39 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
             {posts.map((post) => (
               <div
                 key={post.id}
-                onClick={() => post.imageUrl && setViewerUrl(post.imageUrl)}
+                onClick={() => {
+                  if (!post.imageUrl) return;
+                  if (post.mediaType === 'video') {
+                    setViewerIsVideo(true);
+                    setViewerUrl(`/api/reels/${post.id}/video`);
+                  } else {
+                    setViewerIsVideo(false);
+                    setViewerUrl(post.imageUrl);
+                  }
+                }}
                 className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
               >
-                <img
-                  src={post.imageUrl}
-                  alt={post.caption || post.salonName || 'منشور'}
-                  className="w-full h-full object-cover"
-                />
+                {post.mediaType === 'video' ? (
+                  <video
+                    src={`/api/reels/${post.id}/video`}
+                    className="w-full h-full object-cover"
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                  />
+                ) : (
+                  <img
+                    src={post.imageUrl}
+                    alt={post.caption || post.salonName || 'منشور'}
+                    className="w-full h-full object-cover"
+                  />
+                )}
+                {post.mediaType === 'video' && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Play className="h-8 w-8 text-white drop-shadow" />
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                   <div className="flex items-center gap-1 text-white">
                     <Heart size={16} />
@@ -580,7 +607,15 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
         )}
       </section>
 
-      <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
+      <ImageViewer
+        url={viewerUrl}
+        video={viewerIsVideo}
+        allowSave={!viewerIsVideo}
+        onClose={() => {
+          setViewerUrl(null);
+          setViewerIsVideo(false);
+        }}
+      />
 
       {/* FEATURE 6: Report dialog (glass) */}
       {reportOpen && (

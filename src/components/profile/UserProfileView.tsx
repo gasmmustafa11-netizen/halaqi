@@ -19,6 +19,7 @@ import {
     UserRound,
     Phone,
     Save,
+    Play,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -139,6 +140,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   // FEATURE: track the opened post so the owner can delete their own photo.
   const [viewerPost, setViewerPost] = useState<UserPost | null>(null);
+  // FEATURE: distinguish Reels (video) from images in the viewer.
+  const [viewerIsVideo, setViewerIsVideo] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -794,15 +797,38 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                       onClick={() => {
                         if (!post.imageUrl) return;
                         setViewerPost(post);
-                        setViewerUrl(post.imageUrl);
+                        if (post.mediaType === 'video') {
+                          setViewerIsVideo(true);
+                          setViewerUrl(`/api/reels/${post.id}/video`);
+                        } else {
+                          setViewerIsVideo(false);
+                          setViewerUrl(post.imageUrl);
+                        }
                       }}
                       className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
                     >
-                      <img
-                        src={post.imageUrl}
-                        alt={post.caption || post.salonName || 'منشور'}
-                        className="w-full h-full object-cover"
-                      />
+                      {post.mediaType === 'video' ? (
+                        <video
+                          src={`/api/reels/${post.id}/video`}
+                          className="w-full h-full object-cover"
+                          muted
+                          loop
+                          playsInline
+                          preload="metadata"
+                        />
+                      ) : (
+                        <img
+                          src={post.imageUrl}
+                          alt={post.caption || post.salonName || 'منشور'}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+
+                      {post.mediaType === 'video' && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Play className="h-8 w-8 text-white drop-shadow" />
+                        </div>
+                      )}
 
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                         <div className="flex items-center gap-1 text-white">
@@ -1630,7 +1656,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
       <ImageViewer
         url={viewerUrl}
-        allowSave
+        video={viewerIsVideo}
+        allowSave={!viewerIsVideo}
         allowDelete={Boolean(viewerPost && user && viewerPost.userId === user.id)}
         onDelete={
           viewerPost && user && viewerPost.userId === user.id
@@ -1640,6 +1667,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
         onClose={() => {
           setViewerUrl(null);
           setViewerPost(null);
+          setViewerIsVideo(false);
         }}
       />
     </div>

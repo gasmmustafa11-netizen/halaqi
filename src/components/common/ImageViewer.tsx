@@ -6,6 +6,8 @@ import { saveImage } from '../../utils/saveImage';
 interface ImageViewerProps {
   url: string | null;
   onClose: () => void;
+  /** Render a video (Reel) instead of an image. */
+  video?: boolean;
   /** Show a "Save Image" action inside the viewer. */
   allowSave?: boolean;
   /** Show a "Delete" action (only when the viewer can mutate the photo). */
@@ -23,6 +25,7 @@ interface ImageViewerProps {
 export const ImageViewer: React.FC<ImageViewerProps> = ({
   url,
   onClose,
+  video = false,
   allowSave = true,
   allowDelete = false,
   onDelete,
@@ -47,12 +50,24 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         <X className="h-5 w-5" />
       </button>
 
-      <img
-        src={url}
-        alt=""
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-full max-w-full rounded-xl object-contain"
-      />
+      {video ? (
+        <video
+          src={url}
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-full max-w-full rounded-xl object-contain"
+          controls
+          autoPlay
+          loop
+          playsInline
+        />
+      ) : (
+        <img
+          src={url}
+          alt=""
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-full max-w-full rounded-xl object-contain"
+        />
+      )}
 
       <div
         className={`absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 ${

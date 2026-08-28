@@ -3178,13 +3178,14 @@ class DatabaseStore {
           user_id,
           image_url,
           caption,
+          media_type,
+          duration,
           created_at,
           updated_at,
           like_count,
           comment_count
         FROM user_posts
         WHERE user_id = ${userId}
-          AND media_type IS DISTINCT FROM 'video'
         ORDER BY created_at DESC
       `;
 
@@ -3193,6 +3194,10 @@ class DatabaseStore {
         userId: p.user_id,
         imageUrl: p.image_url,
         caption: p.caption || '',
+        mediaType: (p.media_type === 'video' ? 'video' : 'image') as
+          | 'image'
+          | 'video',
+        duration: p.duration ? Number(p.duration) : undefined,
         createdAt: new Date(p.created_at).toISOString(),
         updatedAt: p.updated_at
           ? new Date(p.updated_at).toISOString()
