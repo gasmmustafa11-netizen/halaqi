@@ -349,7 +349,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
 
                 {isNotificationsOpen && (
-                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-3 w-auto sm:w-[390px] max-w-[calc(100vw-1.5rem)] bg-[#0b0d12]/70 backdrop-blur-3xl border border-white/[0.12] rounded-[24px] shadow-[0_8px_32px_rgba(0,0,0,0.6)] z-[100] overflow-hidden ring-1 ring-white/[0.05]">
+                  <div className="fixed inset-x-3 top-[76px] sm:absolute sm:right-0 sm:inset-x-auto sm:mt-3 w-auto sm:w-[390px] max-w-[calc(100vw-1.5rem)] bg-[#0b0d12]/85 backdrop-blur-3xl border border-white/[0.12] rounded-[24px] shadow-[0_8px_32px_rgba(0,0,0,0.6)] z-[100] overflow-hidden ring-1 ring-white/[0.05]">
 
                     {/* Header */}
                     <div className="px-5 py-4 border-b border-white/[0.07] bg-gradient-to-b from-white/[0.035] to-transparent">
