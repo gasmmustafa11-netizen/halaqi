@@ -25,7 +25,9 @@ const app = express();
 
 // CommonJS/Vercel: __dirname and __filename are provided by Node.js.
 
-app.use(express.json({ limit: '10mb' }));
+// Reels/video uploads arrive as base64 data URLs; a 60MB clip is ~80MB encoded,
+// so the JSON body limit must clear the video cap (handler still enforces 60MB).
+app.use(express.json({ limit: '80mb' }));
 
 /* =========================================================
    NEON COLD-START INITIALIZATION
@@ -881,6 +883,83 @@ app.get(
     }
   }
 );
+
+/* =========================================================
+   REELS VIDEO STREAMING (range-aware, same-origin proxy)
+   The <video> element points here instead of the raw Supabase URL so that:
+   - HTTP Range requests are always answered with 206 (required by Safari /
+     iOS and for smooth seeking); the browser never sees a black/blocked video.
+   - Playback is identical on Vercel (this route) and locally.
+   - It keeps using the existing Supabase Storage (no storage replacement);
+     the object is fetched server-side with the admin client so it works
+     whether the bucket is public or private. Reels are already public (the
+     feed is unauthenticated), so this does not weaken security.
+   ========================================================= */
+app.get('/api/reels/:id/video', async (req: Request, res: Response) => {
+  try {
+    const post = await db.getUserPostById(req.params.id);
+    if (!post || post.mediaType !== 'video' || !post.imageUrl) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    const url = new URL(post.imageUrl);
+    const pathMatch = url.pathname.match(/\/avatars\/(.+)$/);
+    if (!pathMatch) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+    const filePath = decodeURIComponent(pathMatch[1]);
+
+    const supabaseAdmin = getSupabaseStorageClient();
+    const { data, error } = await supabaseAdmin.storage
+      .from('avatars')
+      .download(filePath);
+    if (error || !data) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    const buf = Buffer.from(await (data as Blob).arrayBuffer());
+    const ext = filePath.split('.').pop()?.toLowerCase() || 'mp4';
+    const contentTypeMap: Record<string, string> = {
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+      mov: 'video/quicktime',
+      mkv: 'video/x-matroska',
+      ogg: 'video/ogg',
+    };
+    const contentType = contentTypeMap[ext] || 'video/mp4';
+
+    const total = buf.length;
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    const range = req.headers.range;
+    if (range) {
+      const m = /bytes=(\d+)-(\d*)/.exec(range);
+      const start = m ? parseInt(m[1], 10) : 0;
+      let end = m && m[2] ? parseInt(m[2], 10) : total - 1;
+      if (!m || Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        return res.status(416).json({ success: false, error: 'Range Not Satisfiable' });
+      }
+      if (end >= total) end = total - 1;
+      const chunk = buf.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('Content-Length', chunk.length);
+      return res.send(chunk);
+    }
+
+    res.status(200);
+    res.setHeader('Content-Length', total);
+    return res.send(buf);
+  } catch (err) {
+    console.error('[REELS VIDEO] stream error', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Stream failed' });
+    }
+  }
+});
 
 /* =========================================================
    ADMIN: user management (Premium grant + list)
