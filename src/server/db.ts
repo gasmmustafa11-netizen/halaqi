@@ -4192,6 +4192,9 @@ class DatabaseStore {
       VALUES ('global', FALSE)
       ON CONFLICT (id) DO NOTHING
     `;
+    // Backfill any legacy bot rows that were created before bot_enabled had a
+    // NOT NULL DEFAULT, so they are counted as active and can act.
+    await sql`UPDATE users SET bot_enabled = TRUE WHERE is_bot AND bot_enabled IS NULL`;
   }
 
   async getBotControl(): Promise<boolean> {
@@ -4214,16 +4217,18 @@ class DatabaseStore {
     const rows = await sql`
       SELECT
         COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE is_bot AND bot_enabled)::int AS active,
-        COUNT(*) FILTER (WHERE is_bot AND NOT bot_enabled)::int AS stopped
+        COUNT(*) FILTER (WHERE is_bot AND bot_enabled IS NOT FALSE)::int AS enabled
       FROM users
     `;
-    const r = rows[0] || { total: 0, active: 0, stopped: 0 };
-    return {
-      total: Number(r.total || 0),
-      active: Number(r.active || 0),
-      stopped: Number(r.stopped || 0),
-    };
+    const total = Number(rows[0]?.total || 0);
+    const enabledCount = Number(rows[0]?.enabled || 0);
+    // "Active" reflects bots that are actually allowed to act right now:
+    // account-enabled AND the global engine flag is ON. This makes the stats
+    // track real runtime behavior, not just the per-account flag.
+    const globalOn = await this.getBotControl();
+    const active = globalOn ? enabledCount : 0;
+    const stopped = total - active;
+    return { total, active, stopped };
   }
 
   async countBots(): Promise<number> {
@@ -4275,7 +4280,7 @@ class DatabaseStore {
   async getActiveBots(limit: number): Promise<UserWithAuth[]> {
     const rows = await sql`
       SELECT id, name, avatar, city, bio, bot_enabled
-      FROM users WHERE is_bot AND bot_enabled ORDER BY random() LIMIT ${limit}
+      FROM users WHERE is_bot AND bot_enabled IS NOT FALSE ORDER BY random() LIMIT ${limit}
     `;
     return rows as any[];
   }
