@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
@@ -240,6 +240,10 @@ export const MessagesView: React.FC<{
   // element (never the page) by setting scrollTop directly.
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
+  // Scroll anchor used to preserve the visible position when older messages are
+  // prepended (loading history). Saved right before the state update and
+  // restored in a layout effect so the view never jumps.
+  const loadOlderAnchor = useRef<{ height: number; top: number } | null>(null);
 
   const scrollThreadToBottom = useCallback(() => {
     const el = threadScrollRef.current;
@@ -278,6 +282,10 @@ export const MessagesView: React.FC<{
           before
         );
         if (before) {
+          const el = threadScrollRef.current;
+          loadOlderAnchor.current = el
+            ? { height: el.scrollHeight, top: el.scrollTop }
+            : null;
           setMessages((prev) => [...msgs, ...prev]);
         } else {
           setMessages(msgs);
@@ -296,6 +304,8 @@ export const MessagesView: React.FC<{
     async (otherId: string) => {
       setSelectedId(otherId);
       setError(null);
+      // Always open a conversation pinned to the newest message.
+      nearBottomRef.current = true;
       setMessages([]);
       await loadMessages(otherId);
       await api.markMessagesRead(otherId);
@@ -331,14 +341,18 @@ export const MessagesView: React.FC<{
     return () => clearInterval(timer);
   }, [selectedId, user?.id, loadMessages]);
 
-  // Pin the thread to the latest message when it first loads or when the
-  // user is already near the bottom. If they've scrolled up to read older
-  // messages, leave their scroll position untouched.
-  useEffect(() => {
+  // Pin the thread to the latest message when it first loads or when the user
+  // is already near the bottom. When older messages are prepended (history
+  // load), restore the exact previous scroll position so the view never jumps.
+  useLayoutEffect(() => {
     if (!selectedId) return;
     const el = threadScrollRef.current;
     if (!el) return;
-    if (nearBottomRef.current) {
+    if (loadOlderAnchor.current) {
+      const delta = el.scrollHeight - loadOlderAnchor.current.height;
+      el.scrollTop = loadOlderAnchor.current.top + delta;
+      loadOlderAnchor.current = null;
+    } else if (nearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, selectedId]);
@@ -580,7 +594,7 @@ export const MessagesView: React.FC<{
         </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
         {loadingConv && conversations.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-gray-500">
             <Loader2 className="w-6 h-6 animate-spin" />
@@ -662,7 +676,7 @@ export const MessagesView: React.FC<{
   );
 
   const threadPane = (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
       {/* Thread header */}
       <div className="px-3 py-3 border-b border-[#262626] flex items-center gap-2">
         <button
@@ -1002,8 +1016,8 @@ export const MessagesView: React.FC<{
   ) : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4 h-full">
-        <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-full">
+    <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4 h-full max-md:fixed max-md:inset-x-0 max-md:top-16 max-md:z-30 max-md:max-w-none max-md:px-0 max-md:py-0 max-md:mx-0 max-md:h-[calc(100dvh-4rem)]">
+        <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-full max-md:rounded-none max-md:border-0">
         <div className="grid h-full grid-cols-1 md:grid-cols-[340px_1fr]">
           {/* Inbox pane (hidden on mobile when a thread is open) */}
           <div
