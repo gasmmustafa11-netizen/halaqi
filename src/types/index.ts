@@ -12,6 +12,9 @@ export interface User {
   isActive?: boolean;
   isBanned?: boolean;
   interests?: string[]; // Discover: user-selected interest ids
+  isBot?: boolean; // Bot accounts are flagged internally and never shown as real humans
+  botEnabled?: boolean; // Whether automated activity is allowed for this bot
+  bio?: string;
   createdAt: string;
 }
 
@@ -296,7 +299,7 @@ export interface UserPost {
   userId: string;
   userName?: string;
   userAvatar?: string;
-  imageUrl: string;
+  imageUrl?: string; // Optional: text-only posts have no image
   caption: string;
   createdAt: string;
   updatedAt?: string;
