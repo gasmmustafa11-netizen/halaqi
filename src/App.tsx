@@ -22,6 +22,7 @@ import { BookingWizardModal } from './components/booking/BookingWizardModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { SearchView } from './components/search/SearchView';
 import { PostsView } from './components/posts/PostsView';
+import { PostDetailView } from './components/posts/PostDetailView';
 import { MessagesView } from './components/messaging/MessagesView';
 import { DiscoverView } from './components/discover/DiscoverView';
 
@@ -52,6 +53,11 @@ function AppContent() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedMessageUserId, setSelectedMessageUserId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  // FEATURE: dedicated Post Detail overlay opened directly from a notification.
+  const [postDetail, setPostDetail] = useState<{
+    postId: string;
+    commentId?: string;
+  } | null>(null);
   // Remembers the view the user was on before opening a public profile, so the
   // profile back button returns to the real previous screen instead of a
   // hardcoded destination.
@@ -126,6 +132,18 @@ function AppContent() {
         setSelectedPostId(postId);
         setCurrentView('posts');
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
+
+    // Open a post in the dedicated in-app Post Detail overlay (from a
+    // notification). The overlay sits above the current screen, so closing it
+    // returns the user to the state they came from (e.g. Notifications).
+    if (view.startsWith('postdetail:')) {
+      const rest = view.slice('postdetail:'.length).trim();
+      const [detailPostId, detailCommentId] = rest.split(':');
+      if (detailPostId) {
+        setPostDetail({ postId: detailPostId, commentId: detailCommentId || undefined });
         return;
       }
     }
@@ -322,6 +340,15 @@ function AppContent() {
 
       {/* Global Booking Flow Modal */}
       <BookingWizardModal onGoToBookings={() => handleNavigate('bookings')} />
+
+      {/* FEATURE: Post Detail overlay opened directly from notifications */}
+      {postDetail && (
+        <PostDetailView
+          postId={postDetail.postId}
+          focusCommentId={postDetail.commentId}
+          onClose={() => setPostDetail(null)}
+        />
+      )}
 
       {/* Global Auth Modal */}
       <AuthModal />

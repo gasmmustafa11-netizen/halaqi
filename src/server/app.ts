@@ -882,6 +882,38 @@ function getSupabaseStorageClient() {
   return supabaseStorageClient;
 }
 
+/* Removes the blob behind a Supabase Storage public URL. Returns ok:false when
+   the file cannot be deleted so the caller can abort the whole deletion (the
+   photo must not be reported as fully deleted). Non-Supabase URLs (data URLs,
+   external hosts) are treated as "nothing to delete" (ok:true). */
+async function deleteStoredMedia(
+  url: string
+): Promise<{ ok: boolean; error?: string }> {
+  const match = url.match(/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+  if (!match) return { ok: true };
+
+  const client = getSupabaseStorageClient();
+  if (!client) {
+    return { ok: false, error: 'تعذر الاتصال بمخزن الصور.' };
+  }
+
+  const bucket = decodeURIComponent(match[1]);
+  const objectPath = decodeURIComponent(match[2]);
+
+  try {
+    const result = await client.storage.from(bucket).remove([objectPath]);
+    if (result.error) {
+      return {
+        ok: false,
+        error: result.error.message || 'فشل حذف الملف من التخزين.',
+      };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'فشل حذف الملف من التخزين.' };
+  }
+}
+
 /* Media for direct messages is stored in the same object storage used for
    avatars (Supabase Storage). We keep a dedicated folder prefix so message
    binaries never mix with profile images, but reuse the existing, already
@@ -2933,6 +2965,62 @@ app.get('/api/user-posts/:id/comments', async (req: Request, res: Response) => {
     });
   }
 });
+
+/* FEATURE: delete a user's own published photo. The image blob is removed from
+   Supabase Storage FIRST; only after that succeeds do we delete the DB record.
+   If storage deletion fails, the DB record is left intact and the failure is
+   reported (the photo is never reported as fully deleted). Ownership is checked
+   here and re-checked in the DB layer. */
+app.delete(
+  '/api/user-posts/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      // Load the post to verify ownership and learn the storage URL.
+      const post = await db.getUserPostById(req.params.id);
+
+      if (!post) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'المنشور غير موجود.' });
+      }
+
+      const isOwner = post.userId === req.user!.id;
+      const isAdmin = req.user!.role === 'admin';
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: 'غير مسموح لك بحذف هذا المنشور.',
+        });
+      }
+
+      // 1) Delete the file from Supabase Storage first.
+      if (post.imageUrl) {
+        const storageResult = await deleteStoredMedia(post.imageUrl);
+        if (!storageResult.ok) {
+          return res.status(502).json({
+            success: false,
+            error: storageResult.error || 'تعذر حذف الصورة من التخزين.',
+          });
+        }
+      }
+
+      // 2) Only now delete the database record.
+      const result = await db.deleteUserPost(req.params.id, req.user!);
+      if (!result.success) {
+        return res.status(403).json({
+          success: false,
+          error: result.error || 'تعذر حذف المنشور.',
+        });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DELETE USER POST ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر حذف المنشور.' });
+    }
+  }
+);
 
 app.post(
   '/api/user-posts/:id/comments',

@@ -3919,6 +3919,72 @@ class DatabaseStore {
     }
   }
 
+  // FEATURE: delete a user's own published photo/post. Ownership (or admin) is
+  // enforced in SQL; cascades likes + comments so the photo is gone everywhere.
+  async deleteUserPost(
+    postId: string,
+    requestingUser: User
+  ): Promise<{ success: boolean; imageUrl?: string | null; error?: string }> {
+    try {
+      const deleteRows = await sql`
+        WITH post_check AS (
+          SELECT id, user_id
+          FROM user_posts
+          WHERE id = ${postId}
+          LIMIT 1
+        ),
+        owner_check AS (
+          SELECT
+            pc.id,
+            pc.user_id,
+            CASE
+              WHEN ${requestingUser.role} = 'admin' THEN true
+              WHEN pc.user_id = ${requestingUser.id} THEN true
+              ELSE false
+            END AS allowed
+          FROM post_check pc
+        ),
+        del_likes AS (
+          DELETE FROM post_likes pl
+          USING owner_check oc
+          WHERE oc.allowed AND pl.post_type = 'user' AND pl.post_id = oc.id
+          RETURNING 1
+        ),
+        del_comments AS (
+          DELETE FROM post_comments pcom
+          USING owner_check oc
+          WHERE oc.allowed AND pcom.post_id = oc.id
+          RETURNING 1
+        )
+        DELETE FROM user_posts up
+        USING owner_check oc
+        WHERE oc.allowed AND up.id = oc.id
+        RETURNING oc.allowed, up.image_url
+      `;
+
+      if (!deleteRows.length) {
+        const postExists = await sql`
+          SELECT id FROM user_posts WHERE id = ${postId} LIMIT 1
+        `;
+        if (!postExists.length) {
+          return { success: false, error: 'المنشور غير موجود.' };
+        }
+        return { success: false, error: 'غير مسموح لك بحذف هذا المنشور.' };
+      }
+
+      return {
+        success: true,
+        imageUrl: deleteRows[0]?.image_url ?? null,
+      };
+    } catch (error: any) {
+      console.error('فشل حذف منشور المستخدم من Neon:', error?.message || error);
+      return {
+        success: false,
+        error: 'تعذر حذف المنشور من قاعدة البيانات.',
+      };
+    }
+  }
+
   async togglePostLike(
     postId: string,
     requestingUser: User,
@@ -4594,7 +4660,7 @@ class DatabaseStore {
           message: `${requestingUser.name} علّق على منشورك`,
           messageEn: `${requestingUser.name} commented on your post`,
           type: 'post_comment',
-          link: `/posts?postId=${data.postId}`,
+          link: `/posts?postId=${data.postId}${commentId ? `&commentId=${commentId}` : ''}`,
         }).catch(() => {});
 
         // Interest Learning: reinforce the author's topics from a real comment.

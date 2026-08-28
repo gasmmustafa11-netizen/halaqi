@@ -416,25 +416,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 }
                               }
 
+                              // Post like/comment notifications: open the dedicated
+                              // Post Detail overlay ABOVE the notifications panel (so
+                              // pressing Back returns to this notifications state).
+                              if (
+                                notification.link === '/posts' ||
+                                notification.link?.startsWith('/posts?postId=')
+                              ) {
+                                const params = new URLSearchParams(
+                                  notification.link.split('?')[1] || ''
+                                );
+                                const postId = params.get('postId');
+                                const commentId = params.get('commentId');
+
+                                onNavigate(
+                                  postId
+                                    ? `postdetail:${postId}:${commentId || ''}`
+                                    : 'posts'
+                                );
+                                return;
+                              }
+
                               setIsNotificationsOpen(false);
 
                               if (notification.link === '/bookings') {
                                 onNavigate('bookings');
-                              } else if (
-                                notification.link === '/posts' ||
-                                notification.link?.startsWith('/posts?postId=')
-                              ) {
-                                const postId = notification.link.startsWith('/posts?postId=')
-                                  ? new URLSearchParams(
-                                      notification.link.split('?')[1] || ''
-                                    ).get('postId')
-                                  : null;
-
-                                onNavigate(
-                                  postId
-                                    ? `posts:${postId}`
-                                    : 'posts'
-                                );
                               } else if (notification.link === '/profile') {
                                 onNavigate('profile');
                               } else if (notification.link === '/messages') {

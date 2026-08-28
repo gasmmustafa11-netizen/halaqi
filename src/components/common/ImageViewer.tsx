@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Download } from 'lucide-react';
+import { X, Download, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { saveImage } from '../../utils/saveImage';
 
@@ -8,6 +8,10 @@ interface ImageViewerProps {
   onClose: () => void;
   /** Show a "Save Image" action inside the viewer. */
   allowSave?: boolean;
+  /** Show a "Delete" action (only when the viewer can mutate the photo). */
+  allowDelete?: boolean;
+  /** Called when the owner deletes the photo. */
+  onDelete?: () => void;
 }
 
 /**
@@ -20,10 +24,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   url,
   onClose,
   allowSave = true,
+  allowDelete = false,
+  onDelete,
 }) => {
   const { isRtl } = useLanguage();
 
   if (!url) return null;
+
+  const canDelete = allowDelete && Boolean(onDelete);
 
   return (
     <div
@@ -46,18 +54,37 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         className="max-h-full max-w-full rounded-xl object-contain"
       />
 
-      {allowSave && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            saveImage(url);
-          }}
-          className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#D4AF37] px-4 py-2.5 text-sm font-bold text-black transition-all hover:bg-[#B8962D]"
-        >
-          <Download className="h-4 w-4" />
-          {isRtl ? 'حفظ الصورة' : 'Save Image'}
-        </button>
-      )}
+      <div
+        className={`absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 ${
+          isRtl ? 'flex-row-reverse' : ''
+        }`}
+      >
+        {allowSave && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              saveImage(url);
+            }}
+            className="flex items-center gap-2 rounded-full bg-[#D4AF37] px-4 py-2.5 text-sm font-bold text-black transition-all hover:bg-[#B8962D]"
+          >
+            <Download className="h-4 w-4" />
+            {isRtl ? 'حفظ الصورة' : 'Save Image'}
+          </button>
+        )}
+
+        {canDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete?.();
+            }}
+            className="flex items-center gap-2 rounded-full bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition-all hover:bg-red-500"
+          >
+            <Trash2 className="h-4 w-4" />
+            {isRtl ? 'حذف الصورة' : 'Delete Photo'}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

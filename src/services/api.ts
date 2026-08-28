@@ -186,6 +186,39 @@ export const api = {
     }
   },
 
+  async deleteUserPost(id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/user-posts/${encodeURIComponent(id)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [deleteUserPost]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getUserPostComments(
+    postId: string
+  ): Promise<{ success: boolean; comments?: PostComment[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(
+        `/api/user-posts/${encodeURIComponent(postId)}/comments`
+      );
+      const data = await res.json();
+      return {
+        success: res.ok && data.success,
+        comments: data.comments,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getUserPostComments]:', err);
+      return { success: false, comments: [], error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
   async getUserPostsFeed(): Promise<{ success: boolean; posts?: UserPost[]; error?: string }> {
     try {
       const res = await fetchWithAuth('/api/user-posts/feed');
@@ -2056,6 +2089,27 @@ export const api = {
         success: false,
         error: 'تعذر الاتصال بالخادم',
       };
+    }
+  },
+
+  async addUserPostComment(
+    id: string,
+    comment: string
+  ): Promise<{ success: boolean; comment?: PostComment; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/user-posts/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ comment }),
+      });
+      const data = await res.json();
+      return {
+        success: res.ok && data.success,
+        comment: data.comment,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [addUserPostComment]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
     }
   },
 

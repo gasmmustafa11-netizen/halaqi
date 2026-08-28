@@ -137,6 +137,8 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
   // FEATURE 4: image lightbox for posted images
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  // FEATURE: track the opened post so the owner can delete their own photo.
+  const [viewerPost, setViewerPost] = useState<UserPost | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -456,6 +458,38 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
     }
   };
 
+  // FEATURE: permanently delete one of the user's own published photos.
+  // Confirmation uses the in-app Halaqi modal (never a native dialog), and the
+  // backend enforces ownership. Profile/gallery state is refreshed on success.
+  const handleDeletePost = async (postId: string) => {
+    const confirmed = await confirmDialog({
+      message: isRtl
+        ? 'هل تريد حذف هذه الصورة نهائياً؟ لا يمكن التراجع.'
+        : 'Delete this photo permanently? This cannot be undone.',
+      danger: true,
+      confirmText: isRtl ? 'حذف' : 'Delete',
+      cancelText: isRtl ? 'إلغاء' : 'Cancel',
+    });
+    if (!confirmed) return;
+
+    try {
+      const res = await api.deleteUserPost(postId);
+      if (res.success) {
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+        setViewerUrl(null);
+        setViewerPost(null);
+        notify(isRtl ? 'تم حذف الصورة بنجاح.' : 'Photo deleted.', 'success');
+      } else {
+        notify(
+          res.error || (isRtl ? 'تعذر حذف الصورة.' : 'Could not delete photo.'),
+          'error'
+        );
+      }
+    } catch {
+      notify(isRtl ? 'تعذر حذف الصورة.' : 'Could not delete photo.', 'error');
+    }
+  };
+
   const profileName =
     user?.name ||
     (user as any)?.fullName ||
@@ -757,7 +791,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                   {posts.map((post) => (
                     <div
                       key={post.id}
-                      onClick={() => post.imageUrl && setViewerUrl(post.imageUrl)}
+                      onClick={() => {
+                        if (!post.imageUrl) return;
+                        setViewerPost(post);
+                        setViewerUrl(post.imageUrl);
+                      }}
                       className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
                     >
                       <img
@@ -1590,7 +1628,20 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
+      <ImageViewer
+        url={viewerUrl}
+        allowSave
+        allowDelete={Boolean(viewerPost && user && viewerPost.userId === user.id)}
+        onDelete={
+          viewerPost && user && viewerPost.userId === user.id
+            ? () => handleDeletePost(viewerPost.id)
+            : undefined
+        }
+        onClose={() => {
+          setViewerUrl(null);
+          setViewerPost(null);
+        }}
+      />
     </div>
   );
 };
