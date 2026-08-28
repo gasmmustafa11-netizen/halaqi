@@ -18,6 +18,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import { saveImage } from '../../utils/saveImage';
 import { Salon, SalonPost, PostComment, UserPost } from '../../types';
 
 interface PostsViewProps {
@@ -74,6 +75,81 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [commentActionError, setCommentActionError] = useState<string | null>(
     null
   );
+
+  // FEATURE 1: Save Image / Dismiss Post
+  // Dismissed posts are stored per-user (composite key `type:id` so user and
+  // salon post ids never collide) and persisted in localStorage. Posts are
+  // never deleted from the database — only hidden in the feed client-side.
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set<string>());
+  const [imageMenuPost, setImageMenuPost] = useState<any | null>(null);
+  const [undoKey, setUndoKey] = useState<string | null>(null);
+  const undoTimer = useRef<number | null>(null);
+
+  const postKey = (post: any): string =>
+    `${getPostType(post)}:${post?.id || ''}`;
+
+  const dismissedStorageKey = user?.id
+    ? `halaqi:dismissed:${user.id}`
+    : null;
+
+  // Hydrate dismissed set from localStorage when the user changes.
+  useEffect(() => {
+    if (!dismissedStorageKey) {
+      setDismissedKeys(new Set<string>());
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(dismissedStorageKey);
+      const arr: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+      setDismissedKeys(new Set<string>(Array.isArray(arr) ? arr : []));
+    } catch {
+      setDismissedKeys(new Set<string>());
+    }
+  }, [dismissedStorageKey]);
+
+  const persistDismissed = (next: Set<string>) => {
+    if (!dismissedStorageKey) return;
+    try {
+      localStorage.setItem(
+        dismissedStorageKey,
+        JSON.stringify(Array.from(next))
+      );
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  };
+
+  const dismissPost = (key: string) => {
+    setDismissedKeys((current) => {
+      if (current.has(key)) return current;
+      const next = new Set<string>(current);
+      next.add(key);
+      persistDismissed(next);
+      return next;
+    });
+    setImageMenuPost(null);
+    setUndoKey(key);
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setUndoKey(null), 5000);
+  };
+
+  const undoDismiss = (key: string) => {
+    setDismissedKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set<string>(current);
+      next.delete(key);
+      persistDismissed(next);
+      return next;
+    });
+    setUndoKey(null);
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+  };
+
+  const visiblePosts = useMemo(
+    () => posts.filter((post) => !dismissedKeys.has(postKey(post))),
+    [posts, dismissedKeys]
+  );
+
   const longPressTimer = useRef<number | null>(null);
 
   const haptic = (ms = 12) => {
@@ -745,7 +821,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
-            {posts.map((post, postIndex) => {
+            {visiblePosts.map((post, postIndex) => {
               const salon = getSalon(post);
 
               // POSTS_IMAGE_LOADING_V4
@@ -860,11 +936,16 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                               alt={post.caption || post.salonName || 'Halaqi post'}
 
-                              className="relative z-[1] block h-full w-full object-cover transition-opacity duration-300"
+                              className="relative z-[1] block h-full w-full cursor-pointer object-cover transition-opacity duration-300"
 
                               loading="lazy"
 
                               decoding="async"
+
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setImageMenuPost(post);
+                              }}
 
                               onError={(event) => {
 
@@ -1250,6 +1331,69 @@ export const PostsView: React.FC<PostsViewProps> = ({
             );
           })()}
         </>
+      )}
+
+      {/* FEATURE 1: Save Image / Dismiss glass menu (opened by tapping a post image) */}
+      {imageMenuPost && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          onClick={() => setImageMenuPost(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-[24px] border border-white/[0.12] bg-white/[0.06] p-2 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-2 text-center text-[10px] uppercase tracking-widest text-slate-500">
+              {isRtl ? 'خيارات الصورة' : 'Image options'}
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                const url = imageMenuPost?.imageUrl;
+                setImageMenuPost(null);
+                if (!url) return;
+                const res = await saveImage(url);
+                if (!res.success && res.error) {
+                  window.alert(res.error);
+                }
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-[#D4AF37] transition-all hover:bg-[#D4AF37]/[0.08]"
+            >
+              {isRtl ? 'حفظ الصورة' : 'Save Image'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => dismissPost(postKey(imageMenuPost))}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-red-400 transition-all hover:bg-red-950/40"
+            >
+              {isRtl ? 'إخفاء المنشور' : 'Dismiss'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setImageMenuPost(null)}
+              className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-xs font-bold text-slate-400 transition-all hover:bg-white/5"
+            >
+              {isRtl ? 'إلغاء' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FEATURE 1: Undo toast after dismissing a post */}
+      {undoKey && (
+        <div className="fixed bottom-24 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/[0.12] bg-white/[0.08] px-5 py-3 text-xs text-white shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
+          <span>{isRtl ? 'تم إخفاء المنشور' : 'Post hidden'}</span>
+          <button
+            type="button"
+            onClick={() => undoDismiss(undoKey)}
+            className="font-black text-[#D4AF37]"
+          >
+            {isRtl ? 'تراجع' : 'Undo'}
+          </button>
+        </div>
       )}
     </main>
   );

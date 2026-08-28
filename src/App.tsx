@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { BookingProvider, useBooking } from './context/BookingContext';
@@ -51,16 +51,31 @@ function AppContent() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedMessageUserId, setSelectedMessageUserId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  // Remembers the view the user was on before opening a public profile, so the
+  // profile back button returns to the real previous screen instead of a
+  // hardcoded destination.
+  const prevProfileViewRef = useRef<string>('explore');
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  useEffect(() => {
-    async function loadSalons() {
-      const data = await api.getSalons({});
-      setAllSalons(data);
-    }
-    loadSalons();
+  // Loads the customer-facing salon list (Neon already excludes banned
+  // salons). Re-callable so we can refresh after an admin ban/unban.
+  const loadSalons = useCallback(async () => {
+    const data = await api.getSalons({});
+    setAllSalons(data);
   }, []);
+
+  useEffect(() => {
+    loadSalons();
+  }, [loadSalons]);
+
+  // FEATURE 5: when an admin bans/lifts a salon, refresh the customer-facing
+  // salon cache so banned salons disappear from the map/feed immediately.
+  useEffect(() => {
+    const handler = () => loadSalons();
+    window.addEventListener('halaqi:refresh-salons', handler);
+    return () => window.removeEventListener('halaqi:refresh-salons', handler);
+  }, [loadSalons]);
 
   const handleSelectSalon = (salon: Salon) => {
     setSelectedSalon(salon);
@@ -119,6 +134,8 @@ function AppContent() {
       const userId = view.slice('user:'.length).trim();
 
       if (userId) {
+        // Capture where we came from so the profile's back button can return.
+        prevProfileViewRef.current = currentView;
         setSelectedUserId(userId);
         setCurrentView('user_profile');
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -263,7 +280,10 @@ function AppContent() {
           ) : (
             <PublicUserProfileView
               userId={selectedUserId}
-              onBack={() => handleNavigate('search')}
+              onBack={() => {
+                setSelectedUserId(null);
+                handleNavigate(prevProfileViewRef.current || 'explore');
+              }}
               onNavigate={handleNavigate}
             />
           )

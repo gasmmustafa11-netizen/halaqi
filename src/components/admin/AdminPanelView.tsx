@@ -459,6 +459,9 @@ export const AdminPanelView: React.FC = () => {
       }
 
       await loadAdminData();
+      // FEATURE 5: refresh the customer-facing salon cache so the banned
+      // salon disappears from the main list/map/search immediately.
+      window.dispatchEvent(new Event('halaqi:refresh-salons'));
       return;
     }
     if (status === 'suspended') {
@@ -490,6 +493,8 @@ export const AdminPanelView: React.FC = () => {
     const success = await api.liftSalonSanction(salonId);
     if (success) {
       await loadAdminData();
+      // FEATURE 5: re-include the now-approved salon in the customer list.
+      window.dispatchEvent(new Event('halaqi:refresh-salons'));
     }
   };
 

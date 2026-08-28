@@ -3,6 +3,7 @@ import { User, Clock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
+import { REPORT_REASONS } from '../../constants/reportReasons';
 
 interface DiscoverUser {
   id: string;
@@ -49,13 +50,9 @@ const INTEREST_OPTIONS: { id: string; ar: string; en: string }[] = [
   { id: 'pets', ar: 'الحيوانات الأليفة', en: 'Pets' },
 ];
 
-const REPORT_REASONS = [
-  { id: 'spam', ar: 'رسائل مزعجة', en: 'Spam' },
-  { id: 'fake', ar: 'حساب وهمي', en: 'Fake account' },
-  { id: 'harassment', ar: 'تحرش أو إزعاج', en: 'Harassment' },
-  { id: 'inappropriate', ar: 'محتوى غير لائق', en: 'Inappropriate content' },
-  { id: 'other', ar: 'أخرى', en: 'Other' },
-];
+// The report-reason catalog is imported from src/constants/reportReasons.ts
+// to avoid duplication across views.
+
 
 const ANON_DURATION_MS = 40 * 60 * 1000;
 const WARN_MS = 10 * 60 * 1000;

@@ -69,6 +69,20 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
     loadData();
   }, [selectedCity, selectedType]);
 
+  // FEATURE 5: refresh the list when an admin bans/lifts a salon so the
+  // banned salon is removed from the main list immediately (server already
+  // excludes banned salons; this just invalidates the stale client cache).
+  useEffect(() => {
+    const handler = () => {
+      api
+        .getSalons({ city: selectedCity, type: selectedType })
+        .then((data) => setSalons(data))
+        .catch(() => {});
+    };
+    window.addEventListener('halaqi:refresh-salons', handler);
+    return () => window.removeEventListener('halaqi:refresh-salons', handler);
+  }, [selectedCity, selectedType]);
+
   const effectiveSearch = searchQuery || localSearch;
 
   const filteredSalons = salons.filter((s) => {

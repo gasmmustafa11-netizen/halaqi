@@ -649,6 +649,34 @@ export const api = {
     }
   },
 
+  async getFollowers(userId: string): Promise<{ success: boolean; users?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/users/${encodeURIComponent(userId)}/followers`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data?.error || 'تعذر تحميل المتابعين.' };
+      }
+      return { success: true, users: Array.isArray(data.users) ? data.users : [] };
+    } catch (error) {
+      console.error('[GET FOLLOWERS ERROR]', error);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getFollowing(userId: string): Promise<{ success: boolean; users?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/users/${encodeURIComponent(userId)}/following`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data?.error || 'تعذر تحميل الحسابات المتابَعة.' };
+      }
+      return { success: true, users: Array.isArray(data.users) ? data.users : [] };
+    } catch (error) {
+      console.error('[GET FOLLOWING ERROR]', error);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
   async toggleFollow(userId: string): Promise<{
     success: boolean;
     isFollowing?: boolean;
@@ -2144,6 +2172,26 @@ export const api = {
       return { success: res.ok && data.success, error: data.error };
     } catch (err) {
       console.error('API Error [blockUser]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  async getBlockStatus(
+    userId: string
+  ): Promise<{ success: boolean; isBlocking?: boolean; isBlockedBy?: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/users/${encodeURIComponent(userId)}/block-status`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data?.error || 'تعذر تحميل حالة الحظر.' };
+      }
+      return {
+        success: true,
+        isBlocking: Boolean(data.isBlocking),
+        isBlockedBy: Boolean(data.isBlockedBy),
+      };
+    } catch (err) {
+      console.error('API Error [getBlockStatus]:', err);
       return { success: false, error: 'تعذر الاتصال بالخادم' };
     }
   },

@@ -744,9 +744,29 @@ app.get(
       // حتى تُحمَل حالة الإعجاب الخاصة به من Neon مع الـFeed.
       const posts = await db.getUnifiedPostsFeed(req.user?.id);
 
+      // FEATURE 6: hide posts from users the viewer has blocked or been
+      // blocked by (only user posts carry an author id; salon posts are unaffected).
+      const viewerId = req.user?.id;
+      let visible = Array.isArray(posts) ? posts : [];
+
+      if (viewerId) {
+        try {
+          await ensureDiscoverTables();
+          const blockedPeers = await getBlockedPeerIds(viewerId);
+          if (blockedPeers.size > 0) {
+            visible = visible.filter(
+              (p: any) =>
+                !(p.postType === 'user' && p.userId && blockedPeers.has(p.userId))
+            );
+          }
+        } catch {
+          /* fall through — return unfiltered on lookup error */
+        }
+      }
+
       return res.json({
         success: true,
-        posts: Array.isArray(posts) ? posts : [],
+        posts: visible,
       });
     } catch (error) {
       console.error('[UNIFIED POSTS FEED ERROR]', error);
@@ -2009,6 +2029,22 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
       };
     });
 
+    // FEATURE 6: hide conversations with users the viewer has blocked or
+    // been blocked by.
+    try {
+      await ensureDiscoverTables();
+      const blockedPeers = await getBlockedPeerIds(me);
+      if (blockedPeers.size > 0) {
+        for (let i = conversations.length - 1; i >= 0; i--) {
+          if (blockedPeers.has(conversations[i].otherUser.id)) {
+            conversations.splice(i, 1);
+          }
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+
     // A recipient fetching their inbox means the (pending) incoming
     // messages have physically arrived on their device, so promote
     // 'sent' -> 'delivered'. 'read' is only set when they open the
@@ -2363,6 +2399,24 @@ app.get('/api/users/:id/public', async (req: Request, res: Response) => {
       });
     }
 
+    // FEATURE 6: enforce block at the API level — a user who has been blocked
+    // by this profile owner cannot view their profile.
+    const viewerId = (req as any).user?.id;
+    if (viewerId && viewerId !== userId) {
+      try {
+        await ensureDiscoverTables();
+        const blocked = await isBlockedPair(userId, viewerId);
+        if (blocked) {
+          return res.status(403).json({
+            success: false,
+            error: 'هذا المستخدم قام بحظرك ولا يمكنك عرض ملفه الشخصي.',
+          });
+        }
+      } catch {
+        /* fall through — do not block on lookup error */
+      }
+    }
+
     const publicUser = {
       id: user.id,
       name: user.name,
@@ -2450,6 +2504,84 @@ app.get(
         success: false,
         error: 'تعذر تحميل معلومات المتابعة.',
       });
+    }
+  }
+);
+
+/* ---------- Followers / Following lists (single source of truth: user_follows) ---------- */
+
+const toPublicUserSummary = (u: any) => ({
+  id: u.id,
+  name: u.name,
+  avatar: u.avatar ?? null,
+  city: u.city ?? null,
+  role: u.role,
+});
+
+function requireSelfOrAdmin(req: AuthenticatedRequest, targetUserId: string): boolean {
+  return targetUserId === req.user!.id || req.user!.role === 'admin';
+}
+
+app.get(
+  '/api/users/:id/followers',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureHalaqiFollowTable();
+      const targetUserId = String(req.params.id || '').trim();
+
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, error: 'معرّف المستخدم مطلوب.' });
+      }
+
+      if (!requireSelfOrAdmin(req, targetUserId)) {
+        return res.status(403).json({ success: false, error: 'غير مصرح لك بعرض هذه القائمة.' });
+      }
+
+      const rows = await followSql`
+        SELECT u.id, u.name, u.avatar, u.city, u.role
+        FROM user_follows f
+        JOIN users u ON u.id = f.follower_id
+        WHERE f.following_id = ${targetUserId}
+        ORDER BY f.created_at DESC
+      `;
+
+      return res.json({ success: true, users: (rows || []).map(toPublicUserSummary) });
+    } catch (error) {
+      console.error('[FOLLOWERS LIST ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل المتابعين.' });
+    }
+  }
+);
+
+app.get(
+  '/api/users/:id/following',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureHalaqiFollowTable();
+      const targetUserId = String(req.params.id || '').trim();
+
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, error: 'معرّف المستخدم مطلوب.' });
+      }
+
+      if (!requireSelfOrAdmin(req, targetUserId)) {
+        return res.status(403).json({ success: false, error: 'غير مصرح لك بعرض هذه القائمة.' });
+      }
+
+      const rows = await followSql`
+        SELECT u.id, u.name, u.avatar, u.city, u.role
+        FROM user_follows f
+        JOIN users u ON u.id = f.following_id
+        WHERE f.follower_id = ${targetUserId}
+        ORDER BY f.created_at DESC
+      `;
+
+      return res.json({ success: true, users: (rows || []).map(toPublicUserSummary) });
+    } catch (error) {
+      console.error('[FOLLOWING LIST ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل الحسابات المتابَعة.' });
     }
   }
 );
@@ -2606,7 +2738,25 @@ app.post(
 
 app.get('/api/users/:id/posts', async (req: Request, res: Response) => {
   try {
-    const posts = await db.getUserPosts(req.params.id);
+    const targetUserId = String(req.params.id || '').trim();
+    const viewerId = (req as any).user?.id;
+
+    // FEATURE 6: a viewer blocked by this user cannot access their posts.
+    if (viewerId && viewerId !== targetUserId) {
+      try {
+        await ensureDiscoverTables();
+        if (await isBlockedPair(targetUserId, viewerId)) {
+          return res.status(403).json({
+            success: false,
+            error: 'هذا المستخدم قام بحظرك ولا يمكنك عرض منشوراته.',
+          });
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    const posts = await db.getUserPosts(targetUserId);
 
     return res.json({
       success: true,
@@ -3303,6 +3453,13 @@ app.put(
       delete salon.suspensionStartedAt;
       delete salon.suspensionEndsAt;
 
+      // Persist the lifted sanction to Neon (source of truth), not just memory.
+      try {
+        await db.updateSalonStatusInNeon(req.params.id, 'approved', null);
+      } catch (persistError) {
+        console.error('[LIFT SANCTION PERSIST ERROR]', persistError);
+      }
+
       return res.json({
         success: true,
         salon,
@@ -3391,6 +3548,21 @@ app.get('/api/search', async (req: Request, res: Response) => {
       avatar: u.avatar || undefined,
     }));
 
+    // FEATURE 6: hide users the viewer has blocked or been blocked by.
+    const viewerId = (req as any).user?.id;
+    let visibleUsers = users;
+    if (viewerId) {
+      try {
+        await ensureDiscoverTables();
+        const blockedPeers = await getBlockedPeerIds(viewerId);
+        if (blockedPeers.size > 0) {
+          visibleUsers = users.filter((u: any) => !blockedPeers.has(u.id));
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
     const salonRows = await followSql`
       SELECT *
       FROM salons
@@ -3434,7 +3606,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
     return res.json({
       success: true,
       salons,
-      users,
+      users: visibleUsers,
     });
   } catch (error) {
     console.error('[SEARCH ERROR]', error);
@@ -4006,6 +4178,125 @@ app.post(
     } catch (error) {
       console.error('[DISCOVER REPORT]', error);
       return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+    }
+  }
+);
+
+/* ---------- Block helpers + block status (single source of truth: user_blocks) ---------- */
+
+// Users that `blockerId` has blocked.
+async function getBlockedUserIds(blockerId: string): Promise<Set<string>> {
+  const rows = await followSql`
+    SELECT blocked_id FROM user_blocks WHERE blocker_id = ${blockerId}
+  `;
+  return new Set((rows || []).map((r: any) => r.blocked_id));
+}
+
+// Users that have blocked `blockedId` (i.e. `blockedId` is blocked by them).
+async function getBlockerIds(blockedId: string): Promise<Set<string>> {
+  const rows = await followSql`
+    SELECT blocker_id FROM user_blocks WHERE blocked_id = ${blockedId}
+  `;
+  return new Set((rows || []).map((r: any) => r.blocker_id));
+}
+
+// Both directions between two users.
+async function getBlockedPeerIds(viewerId: string): Promise<Set<string>> {
+  const [blocked, blockers] = await Promise.all([
+    getBlockedUserIds(viewerId),
+    getBlockerIds(viewerId),
+  ]);
+  return new Set([...blocked, ...blockers]);
+}
+
+// True when `blockerId` has blocked `blockedId`.
+async function isBlockedPair(
+  blockerId: string,
+  blockedId: string
+): Promise<boolean> {
+  const rows = await followSql`
+    SELECT 1 FROM user_blocks
+    WHERE blocker_id = ${blockerId} AND blocked_id = ${blockedId}
+    LIMIT 1
+  `;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+app.get(
+  '/api/users/:id/block-status',
+  optionalAuthMiddleware,
+  async (req: any, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+      const targetUserId = String(req.params.id || '').trim();
+      const viewerId = req.user?.id;
+
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, error: 'معرّف المستخدم مطلوب.' });
+      }
+
+      const isBlocking = viewerId
+        ? await isBlockedPair(viewerId, targetUserId)
+        : false;
+      const isBlockedBy = viewerId
+        ? await isBlockedPair(targetUserId, viewerId)
+        : false;
+
+      return res.json({ success: true, isBlocking, isBlockedBy });
+    } catch (error) {
+      console.error('[BLOCK STATUS ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحميل حالة الحظر.' });
+    }
+  }
+);
+
+/* ---------- Admin: report management (read-only access for future UI) ---------- */
+
+app.get(
+  '/api/admin/reports',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await ensureDiscoverTables();
+
+      const rows = await followSql`
+        SELECT
+          r.id,
+          r.reporter_id,
+          r.reported_id,
+          r.reason,
+          r.details,
+          r.status,
+          r.created_at,
+          rep.name AS reporter_name,
+          rep.avatar AS reporter_avatar,
+          tgt.name AS reported_name,
+          tgt.avatar AS reported_avatar
+        FROM user_reports r
+        LEFT JOIN users rep ON rep.id = r.reporter_id
+        LEFT JOIN users tgt ON tgt.id = r.reported_id
+        ORDER BY r.created_at DESC
+        LIMIT 200
+      `;
+
+      return res.json({
+        success: true,
+        reports: (rows || []).map((r: any) => ({
+          id: r.id,
+          reporterId: r.reporter_id,
+          reporterName: r.reporter_name || null,
+          reportedId: r.reported_id,
+          reportedName: r.reported_name || null,
+          reason: r.reason,
+          details: r.details || '',
+          status: r.status,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (error) {
+      console.error('[ADMIN REPORTS ERROR]', error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب البلاغات.' });
     }
   }
 );

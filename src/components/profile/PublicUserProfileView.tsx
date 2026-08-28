@@ -8,8 +8,14 @@ import {
   UserRound,
   Loader2,
   MessageSquare,
+  Heart,
+  MessageCircle,
+  MoreVertical,
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useLanguage } from '../../context/LanguageContext';
+import { ImageViewer } from '../common/ImageViewer';
+import { REPORT_REASONS } from '../../constants/reportReasons';
 import { UserRole } from '../../types';
 
 interface PublicUser {
@@ -45,6 +51,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   onBack,
   onNavigate,
 }) => {
+  const { isRtl } = useLanguage();
   const [user, setUser] = useState<PublicUser | null>(null);
   const [salon, setSalon] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +62,18 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   const [followLoading, setFollowLoading] = useState(false);
   const [showBadgeTooltip, setShowBadgeTooltip] = useState(false);
   const badgeRef = useRef<HTMLDivElement>(null);
+
+  // FEATURE 4: posted images grid + lightbox
+  const [posts, setPosts] = useState<any[]>([]);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+
+  // FEATURE 6: block / report menu
+  const [blockMenuOpen, setBlockMenuOpen] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportDetails, setReportDetails] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Click-outside handler to close badge tooltip
   useEffect(() => {
@@ -89,6 +108,24 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
 
       setUser(result.user);
       setSalon(result.salon || null);
+
+      // FEATURE 6: load current block state for this profile.
+      try {
+        const bs = await api.getBlockStatus(userId);
+        if (bs.success) setIsBlocking(Boolean(bs.isBlocking));
+      } catch (bsError) {
+        console.error('[PUBLIC PROFILE BLOCK STATUS]', bsError);
+      }
+
+      // FEATURE 4: load the user's posted images for the profile grid.
+      try {
+        const postsResult = await api.getUserPosts(userId);
+        if (mounted && postsResult.success) {
+          setPosts(Array.isArray(postsResult.posts) ? postsResult.posts : []);
+        }
+      } catch (postsError) {
+        console.error('[PUBLIC PROFILE POSTS]', postsError);
+      }
 
       try {
         const followResult = await api.getFollowStatus(userId);
@@ -169,6 +206,51 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
     }
   };
 
+  // FEATURE 6: block / unblock
+  const handleBlock = async () => {
+    if (actionLoading) return;
+    if (!window.confirm(isRtl ? 'هل تريد حظر هذا المستخدم؟' : 'Block this user?')) return;
+    setActionLoading(true);
+    const res = await api.blockUser(userId);
+    setActionLoading(false);
+    if (res.success) {
+      setIsBlocking(true);
+    } else {
+      window.alert(res.error || (isRtl ? 'تعذر الحظر' : 'Could not block'));
+    }
+  };
+
+  const handleUnblock = async () => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    const res = await api.unblockUser(userId);
+    setActionLoading(false);
+    if (res.success) {
+      setIsBlocking(false);
+    } else {
+      window.alert(res.error || (isRtl ? 'تعذر إلغاء الحظر' : 'Could not unblock'));
+    }
+  };
+
+  // FEATURE 6: report
+  const submitReport = async () => {
+    if (!reportReason) {
+      window.alert(isRtl ? 'اختر سبباً للبلاغ' : 'Choose a reason');
+      return;
+    }
+    setActionLoading(true);
+    const res = await api.reportUser(userId, reportReason, reportDetails);
+    setActionLoading(false);
+    setReportOpen(false);
+    setReportReason('');
+    setReportDetails('');
+    if (res.success) {
+      window.alert(isRtl ? 'تم إرسال البلاغ' : 'Report sent');
+    } else {
+      window.alert(res.error || (isRtl ? 'تعذر الإرسال' : 'Could not send'));
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -196,7 +278,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
           onClick={onBack}
           className="mt-6 px-5 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-sm"
         >
-          العودة للبحث
+          {isRtl ? 'رجوع' : 'Back'}
         </button>
       </div>
     );
@@ -212,6 +294,47 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
         >
           <ArrowLeft className="w-5 h-5 text-white rtl:rotate-180" />
         </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setBlockMenuOpen((v) => !v)}
+            className="w-10 h-10 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center hover:bg-[#202020] transition-colors"
+            aria-label="المزيد"
+          >
+            <MoreVertical className="w-5 h-5 text-white" />
+          </button>
+
+          {blockMenuOpen && (
+            <div
+              className={`absolute ${isRtl ? 'left-0' : 'right-0'} mt-2 w-44 z-30 bg-white/[0.06] backdrop-blur-2xl border border-white/[0.12] rounded-2xl p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]`}
+            >
+              <button
+                onClick={() => {
+                  setBlockMenuOpen(false);
+                  if (isBlocking) {
+                    handleUnblock();
+                  } else {
+                    handleBlock();
+                  }
+                }}
+                className="w-full text-start px-3 py-2 rounded-xl text-red-400 hover:bg-red-950/40 text-xs transition-colors"
+              >
+                {isBlocking
+                  ? (isRtl ? 'إلغاء الحظر' : 'Unblock')
+                  : (isRtl ? 'حظر' : 'Block')}
+              </button>
+              <button
+                onClick={() => {
+                  setBlockMenuOpen(false);
+                  setReportOpen(true);
+                }}
+                className="w-full text-start px-3 py-2 rounded-xl text-gray-300 hover:bg-white/5 text-xs transition-colors"
+              >
+                {isRtl ? 'إبلاغ' : 'Report'}
+              </button>
+            </div>
+          )}
+        </div>
 
         <button
           onClick={handleShare}
@@ -338,7 +461,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
 
           <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-8">
             <div className="rounded-2xl bg-[#171717] border border-white/5 p-4 text-center">
-              <div className="text-xl font-black text-white">0</div>
+              <div className="text-xl font-black text-white">{posts.length}</div>
               <div className="text-[11px] text-gray-500 mt-1">منشور</div>
             </div>
 
@@ -411,20 +534,112 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
         </section>
       )}
 
-      {/* Empty social area */}
-      <section className="mt-5 rounded-[28px] bg-[#111111] border border-white/10 p-8 text-center">
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-[#D4AF37]/10 flex items-center justify-center">
-          <UserRound className="w-6 h-6 text-[#D4AF37]" />
-        </div>
+      {/* Posted images grid (FEATURE 4) */}
+      <section className="mt-5 rounded-[28px] bg-[#111111] border border-white/10 p-6">
+        <h2 className="text-lg font-black text-white mb-5">المنشورات</h2>
 
-        <h2 className="text-lg font-black text-white mt-4">
-          لا توجد منشورات بعد
-        </h2>
-
-        <p className="text-sm text-gray-500 mt-2">
-          عندما يبدأ هذا المستخدم بنشر المحتوى سيظهر هنا.
-        </p>
+        {posts.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-[#D4AF37]/10 flex items-center justify-center">
+              <UserRound className="w-6 h-6 text-[#D4AF37]" />
+            </div>
+            <h2 className="text-lg font-black text-white mt-4">
+              لا توجد منشورات بعد
+            </h2>
+            <p className="text-sm text-gray-500 mt-2">
+              عندما يبدأ هذا المستخدم بنشر المحتوى سيظهر هنا.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-1">
+            {posts.map((post) => (
+              <div
+                key={post.id}
+                onClick={() => post.imageUrl && setViewerUrl(post.imageUrl)}
+                className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
+              >
+                <img
+                  src={post.imageUrl}
+                  alt={post.caption || post.salonName || 'منشور'}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                  <div className="flex items-center gap-1 text-white">
+                    <Heart size={16} />
+                    <span className="font-semibold">{Number(post.likeCount || 0)}</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-white">
+                    <MessageCircle size={16} />
+                    <span className="font-semibold">{Number(post.commentCount || 0)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
+
+      <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
+
+      {/* FEATURE 6: Report dialog (glass) */}
+      {reportOpen && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-[24px] border border-white/[0.12] bg-white/[0.06] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
+            <h3 className="text-base font-black text-white">
+              {isRtl ? 'الإبلاغ عن المستخدم' : 'Report user'}
+            </h3>
+            <p className="text-xs text-gray-400 mt-1 mb-4">
+              {isRtl ? 'اختر السبب واكتب تفاصيل إن وُجدت' : 'Choose a reason and add details if needed'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {REPORT_REASONS.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setReportReason(r.id)}
+                  className={`px-3 py-2 rounded-xl text-xs border transition-all ${
+                    reportReason === r.id
+                      ? 'bg-[#D4AF37]/[0.12] text-[#D4AF37] border-[#D4AF37]/30'
+                      : 'bg-white/[0.04] text-gray-300 border-white/[0.12] hover:bg-white/10'
+                  }`}
+                >
+                  {isRtl ? r.ar : r.en}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={reportDetails}
+              onChange={(e) => setReportDetails(e.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder={isRtl ? 'تفاصيل (اختياري)' : 'Details (optional)'}
+              className="mt-4 w-full rounded-xl bg-white/[0.04] border border-white/[0.12] px-3 py-2 text-xs text-white placeholder-gray-500 outline-none focus:border-[#D4AF37]/30"
+            />
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={submitReport}
+                disabled={actionLoading}
+                className="flex-1 py-2.5 rounded-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition-all disabled:opacity-60"
+              >
+                {isRtl ? 'إرسال البلاغ' : 'Submit report'}
+              </button>
+              <button
+                onClick={() => {
+                  setReportOpen(false);
+                  setReportReason('');
+                  setReportDetails('');
+                }}
+                disabled={actionLoading}
+                className="flex-1 py-2.5 rounded-full bg-white/[0.06] hover:bg-white/10 border border-white/[0.12] text-gray-300 text-xs transition-all"
+              >
+                {isRtl ? 'إلغاء' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

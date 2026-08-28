@@ -26,6 +26,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { compressImageToDataUrl } from '../../utils/compressImage';
 import { CaptionText } from '../posts/CaptionText';
+import { ImageViewer } from '../common/ImageViewer';
 
 interface UserProfileViewProps {
   onNavigate?: (view: string) => void;
@@ -115,6 +116,26 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+
+  // FEATURE 3: followers / following list viewer
+  const [listKind, setListKind] = useState<'followers' | 'following' | null>(null);
+  const [listUsers, setListUsers] = useState<any[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+
+  const openFollowersList = async (kind: 'followers' | 'following') => {
+    setListKind(kind);
+    setListLoading(true);
+    setListUsers([]);
+    const res =
+      kind === 'followers'
+        ? await api.getFollowers(userId)
+        : await api.getFollowing(userId);
+    if (res.success) setListUsers(res.users || []);
+    setListLoading(false);
+  };
+
+  // FEATURE 4: image lightbox for posted images
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -377,6 +398,18 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
         setPostsError(postsResult.error || 'تعذر تحميل المنشورات.');
       }
 
+      // FEATURE 3: own/admin profile must show real follower counts from the
+      // user_follows source of truth (previously these stayed at 0).
+      try {
+        const status = await api.getFollowStatus(userId);
+        if (status.success && mounted) {
+          setFollowersCount(status.followersCount);
+          setFollowingCount(status.followingCount);
+        }
+      } catch {
+        /* keep defaults */
+      }
+
       setLoadingPosts(false);
     }
 
@@ -573,25 +606,33 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
             <div className="w-px bg-white/10" />
 
-            <div className="text-center">
+            <button
+              type="button"
+              onClick={() => openFollowersList('followers')}
+              className="text-center cursor-pointer hover:opacity-80 transition-opacity"
+            >
               <p className="text-xl font-bold text-[#D4AF37]">
                 {followersCount}
               </p>
               <p className="text-xs text-[#9CA3AF] mt-1">
                 متابع
               </p>
-            </div>
+            </button>
 
             <div className="w-px bg-white/10" />
 
-            <div className="text-center">
+            <button
+              type="button"
+              onClick={() => openFollowersList('following')}
+              className="text-center cursor-pointer hover:opacity-80 transition-opacity"
+            >
               <p className="text-xl font-bold text-[#D4AF37]">
                 {followingCount}
               </p>
               <p className="text-xs text-[#9CA3AF] mt-1">
                 يتابع
               </p>
-            </div>
+            </button>
           </div>
 
           {/* About */}
@@ -715,6 +756,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                   {posts.map((post) => (
                     <div
                       key={post.id}
+                      onClick={() => post.imageUrl && setViewerUrl(post.imageUrl)}
                       className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
                     >
                       <img
@@ -1473,6 +1515,79 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+
+      {/* FEATURE 3: Followers / Following list modal */}
+      {listKind && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          onClick={() => setListKind(null)}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-[24px] border border-white/[0.12] bg-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.07]">
+              <p className="text-sm font-black text-white">
+                {listKind === 'followers'
+                  ? (isRtl ? 'المتابعون' : 'Followers')
+                  : (isRtl ? 'يتابع' : 'Following')}
+              </p>
+              <button
+                type="button"
+                onClick={() => setListKind(null)}
+                className="w-8 h-8 rounded-full bg-white/5 text-gray-300 hover:bg-white/10 flex items-center justify-center"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto">
+              {listLoading ? (
+                <p className="px-5 py-10 text-center text-xs text-gray-400">
+                  {isRtl ? 'جارٍ التحميل...' : 'Loading...'}
+                </p>
+              ) : listUsers.length === 0 ? (
+                <p className="px-5 py-10 text-center text-xs text-gray-400">
+                  {isRtl ? 'لا يوجد' : 'Nothing here yet'}
+                </p>
+              ) : (
+                listUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setListKind(null);
+                      if (onNavigate) onNavigate(`user:${u.id}`);
+                    }}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-start transition-colors hover:bg-white/[0.04]"
+                  >
+                    {u.avatar ? (
+                      <img
+                        src={u.avatar}
+                        alt={u.name}
+                        className="h-10 w-10 rounded-full object-cover border border-white/10"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-[#181818] border border-white/10 flex items-center justify-center text-sm font-black text-[#D4AF37]">
+                        {(u.name || '؟').charAt(0)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-white">{u.name}</p>
+                      {u.city && (
+                        <p className="truncate text-[10px] text-gray-500">{u.city}</p>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />
     </div>
   );
 };
