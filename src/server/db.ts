@@ -4261,6 +4261,23 @@ class DatabaseStore {
     await sql`UPDATE user_posts SET image_url = ${url} WHERE id = ${id}`;
   }
 
+  /** One-time bot-media migration completion flag (stored in bot_media). */
+  async getBotMediaMigrationFlag(): Promise<boolean> {
+    try {
+      const rows = await sql`SELECT urls FROM bot_media WHERE role = 'migration_done' LIMIT 1`;
+      return rows[0]?.urls === 'done';
+    } catch {
+      return false;
+    }
+  }
+
+  async setBotMediaMigrationFlag(): Promise<void> {
+    await sql`
+      INSERT INTO bot_media (role, urls) VALUES ('migration_done', 'done')
+      ON CONFLICT (role) DO UPDATE SET urls = EXCLUDED.urls
+    `;
+  }
+
 
   async getBotControl(): Promise<boolean> {
     await this.ensureBotTables();
