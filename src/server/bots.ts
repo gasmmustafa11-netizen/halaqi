@@ -6,6 +6,7 @@
 //   startBotEngine()  -> ensures tables, seeds up to 100 bots (idempotent),
 //                        reads global enabled flag, and starts the scheduler.
 //   The global flag (bot_control row 'global') is toggled by the admin API.
+import { createClient } from '@supabase/supabase-js';
 import { db } from './db';
 
 const BOT_COUNT = 100;
@@ -97,16 +98,24 @@ const REPLIES = [
   'هلا بالطيبين، أهلاً وسهلا',
 ];
 
-const PICS = [
-  'https://picsum.photos/seed/halaqi1/600/600',
-  'https://picsum.photos/seed/halaqi2/600/600',
-  'https://picsum.photos/seed/halaqi3/600/600',
-  'https://picsum.photos/seed/halaqi4/600/600',
-  'https://picsum.photos/seed/halaqi5/600/600',
-  'https://picsum.photos/seed/halaqi6/600/600',
-  'https://picsum.photos/seed/halaqi7/600/600',
-  'https://picsum.photos/seed/halaqi8/600/600',
-];
+// Bot media pipeline.
+// Images are NOT served from external CDNs (DiceBear / Picsum) because those are
+// unreliable in production (broken/black images) and DiceBear is not a real
+// human photo. Instead we fetch real photos once and upload them into Halaqi's
+// own Supabase Storage bucket (already CSP-allowed and used for message media),
+// then persist the resulting Supabase URLs in `bot_media`. The browser always
+// loads from Halaqi's own infra, so images render reliably.
+const FEMALE_NAMES = new Set([
+  'زين العراق', 'سارة الحلوة', 'نور الزهراء', 'ليلى الشرقية', 'مريم البصريه',
+  'رنا الناصرية', 'دلع العراق', 'جنى بغداد', 'هبة الكاظمية', 'لمى الفرات',
+  'شهد النجف', 'رؤى الكربلائية', 'إيمان الحيدري', 'تالا البصريه', 'نورهان الساهر',
+  'ريم العبيدي', 'أمل الحكيم', 'بشرى الزبيدي', 'لجين الباجه جي', 'دعاء العراقية',
+  'فاطمة الحسيني', 'سلمى الدجيلي', 'يارا العبيدي', 'غدير الفلوجه',
+]);
+
+const FALLBACK_AVATAR_MEN = 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop';
+const FALLBACK_AVATAR_WOMEN = 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop';
+const FALLBACK_POST = 'https://images.unsplash.com/photo-1522337660859-02fbefca4702?w=600&h=750&fit=crop';
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -120,10 +129,98 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function avatarFor(name: string): string {
-  const seed = encodeURIComponent(name) + randInt(1, 9999);
-  return `https://api.dicebear.com/9.x/bottts/png?seed=${seed}&backgroundColor=transparent`;
+function botGender(name: string): 'men' | 'women' {
+  const base = name.replace(/\s+\d+$/, '');
+  return FEMALE_NAMES.has(base) ? 'women' : 'men';
 }
+
+// --- Supabase upload (reuses Halaqi's existing storage infra) -----------------
+let supabaseClient: any = null;
+function getSupabaseClient(): any {
+  if (!supabaseClient) {
+    supabaseClient = createClient(
+      process.env.SUPABASE_URL || '',
+      process.env.SUPABASE_SECRET_KEY || '',
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+    );
+  }
+  return supabaseClient;
+}
+
+const BOT_MEDIA_BUCKET = process.env.SUPABASE_MEDIA_BUCKET || 'avatars';
+
+async function uploadImageFromUrl(sourceUrl: string, folder: string, fileName: string): Promise<string | null> {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (!supabaseUrl || !/^https:\/\/.+\.supabase\.co$/.test(supabaseUrl) || !process.env.SUPABASE_SECRET_KEY) {
+      return null;
+    }
+    const res = await fetch(sourceUrl);
+    if (!res.ok) return null;
+    const ct = res.headers.get('content-type') || 'image/jpeg';
+    if (!ct.startsWith('image/')) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length) return null;
+    const ext = (ct.split('/')[1] || 'jpg').replace('x-', '');
+    const finalExt = ext === 'jpeg' ? 'jpg' : ext;
+    const name = `${folder}/${fileName}.${finalExt}`; // e.g. bot/avatars/men_1.jpg
+    const client = getSupabaseClient();
+    const { error } = await client.storage
+      .from(BOT_MEDIA_BUCKET)
+      .upload(name, buf, { contentType: ct, upsert: true, cacheControl: '31536000' });
+    if (error) {
+      console.error('[BOTS] media upload failed for', sourceUrl, error);
+      return null;
+    }
+    return client.storage.from(BOT_MEDIA_BUCKET).getPublicUrl(name).data.publicUrl;
+  } catch (e: any) {
+    console.error('[BOTS] uploadImageFromUrl error', e?.message || e);
+    return null;
+  }
+}
+
+let AVATAR_POOL_MEN: string[] = [];
+let AVATAR_POOL_WOMEN: string[] = [];
+let POST_IMAGE_POOL: string[] = [];
+
+async function buildBotMediaPools(): Promise<void> {
+  const stored = await db.loadBotMedia();
+  if (stored && (stored.men.length || stored.women.length || stored.posts.length)) {
+    AVATAR_POOL_MEN = stored.men;
+    AVATAR_POOL_WOMEN = stored.women;
+    POST_IMAGE_POOL = stored.posts;
+    return;
+  }
+  // Real human portraits (server-side fetch; only the uploaded Supabase URL
+  // reaches the browser, so the source host need not be CSP-allowed).
+  const menSources = Array.from({ length: 12 }, (_, i) => `https://randomuser.me/api/portraits/men/${i + 1}.jpg`);
+  const womenSources = Array.from({ length: 12 }, (_, i) => `https://randomuser.me/api/portraits/women/${i + 1}.jpg`);
+  // Real photos for posts, from a few reliable sources (first that fetches wins).
+  const postSources = [
+    ...Array.from({ length: 10 }, (_, i) => `https://picsum.photos/seed/halaqipost${i + 1}/600/600`),
+    ...Array.from({ length: 6 }, (_, i) => `https://loremflickr.com/600/600/iraq,baghdad,city,night?lock=${i + 1}`),
+  ];
+  const men = (await Promise.all(menSources.map((u, i) => uploadImageFromUrl(u, 'bot/avatars', `men_${i + 1}`)))).filter(Boolean) as string[];
+  const women = (await Promise.all(womenSources.map((u, i) => uploadImageFromUrl(u, 'bot/avatars', `women_${i + 1}`)))).filter(Boolean) as string[];
+  const posts = (await Promise.all(postSources.map((u, i) => uploadImageFromUrl(u, 'bot/posts', `post_${i + 1}`)))).filter(Boolean) as string[];
+  const finalMen = men.length ? men : [FALLBACK_AVATAR_MEN];
+  const finalWomen = women.length ? women : [FALLBACK_AVATAR_WOMEN];
+  const finalPosts = posts.length ? posts : [FALLBACK_POST];
+  AVATAR_POOL_MEN = finalMen;
+  AVATAR_POOL_WOMEN = finalWomen;
+  POST_IMAGE_POOL = finalPosts;
+  await db.saveBotMedia(finalMen, finalWomen, finalPosts);
+}
+
+function avatarForBot(name: string): string {
+  const pool = botGender(name) === 'women' ? AVATAR_POOL_WOMEN : AVATAR_POOL_MEN;
+  return pool.length ? pick(pool) : FALLBACK_AVATAR_MEN;
+}
+
+function postImageForBot(): string {
+  return POST_IMAGE_POOL.length ? pick(POST_IMAGE_POOL) : FALLBACK_POST;
+}
+
 
 let engineStarted = false;
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
@@ -147,7 +244,7 @@ async function seedBotsIfNeeded(): Promise<void> {
     ]);
     await db.createBot({
       name,
-      avatar: avatarFor(name),
+      avatar: avatarForBot(name),
       bio: `${bioPool} · ${name}`,
       city,
       personality: `${pick(PERSONALITIES)} (${name})`,
@@ -163,7 +260,7 @@ async function createTextPost(botId: string): Promise<void> {
 
 async function createImagePost(botId: string): Promise<void> {
   await db.createUserPost(
-    { imageUrl: pick(PICS), caption: pick(CAPTIONS) },
+    { imageUrl: postImageForBot(), caption: pick(CAPTIONS) },
     { id: botId } as any
   );
 }
@@ -232,9 +329,35 @@ async function actAsBot(botId: string): Promise<void> {
   }
 }
 
-async function ensureAndSeed(): Promise<void> {
-  await db.ensureBotTables();
-  await seedBotsIfNeeded();
+async function migrateExistingBotMedia(): Promise<void> {
+  // Update pre-existing bots that were seeded with DiceBear (robot) avatars.
+  const bots = await db.getAllBotsForMedia();
+  for (const b of bots) {
+    if (b.avatar && b.avatar.includes('dicebear')) {
+      await db.updateUserAvatarColumn(b.id, avatarForBot(b.name));
+    }
+  }
+  // Update pre-existing bot posts whose images still point at a broken host.
+  const postIds = await db.getBrokenBotPostIds();
+  for (const id of postIds) {
+    await db.updateUserPostImage(id, postImageForBot());
+  }
+}
+
+let seedingPromise: Promise<void> | null = null;
+function ensureAndSeed(): Promise<void> {
+  if (!seedingPromise) {
+    seedingPromise = (async () => {
+      await db.ensureBotTables();
+      await buildBotMediaPools();
+      await seedBotsIfNeeded();
+      await migrateExistingBotMedia();
+    })().catch((e: any) => {
+      console.error('[BOTS] ensureAndSeed failed:', e?.message || e);
+      seedingPromise = null; // reset so a later tick can retry
+    });
+  }
+  return seedingPromise;
 }
 
 /**
@@ -275,7 +398,11 @@ export async function initBotEngine(): Promise<void> {
   if (engineStarted) return;
   engineStarted = true;
   try {
-    await ensureAndSeed();
+    // Kick off seeding/media-upload in the background so the serverless cold
+    // start (module load) returns immediately and is never blocked by the
+    // ~100 bot inserts + media uploads. Bot activity begins as soon as the
+    // background work finishes; each tick also awaits ensureAndSeed (idempotent).
+    void ensureAndSeed();
     if (!schedulerHandle) {
       schedulerHandle = setInterval(() => {
         void runBotTick(BOTS_PER_TICK);

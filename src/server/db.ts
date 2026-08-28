@@ -4195,7 +4195,72 @@ class DatabaseStore {
     // Backfill any legacy bot rows that were created before bot_enabled had a
     // NOT NULL DEFAULT, so they are counted as active and can act.
     await sql`UPDATE users SET bot_enabled = TRUE WHERE is_bot AND bot_enabled IS NULL`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS bot_media (
+        role TEXT PRIMARY KEY,
+        urls TEXT NOT NULL DEFAULT '[]'
+      )
+    `;
   }
+
+  /** Loads the persisted bot media pools (Supabase URLs) if previously built. */
+  async loadBotMedia(): Promise<{ men: string[]; women: string[]; posts: string[] } | null> {
+    try {
+      const rows = await sql`SELECT role, urls FROM bot_media`;
+      const map: Record<string, string[]> = {};
+      for (const r of rows as any[]) {
+        try {
+          map[r.role] = JSON.parse(r.urls || '[]');
+        } catch {
+          map[r.role] = [];
+        }
+      }
+      if (!map['avatars_men'] && !map['avatars_women'] && !map['posts']) return null;
+      return {
+        men: map['avatars_men'] || [],
+        women: map['avatars_women'] || [],
+        posts: map['posts'] || [],
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async saveBotMedia(men: string[], women: string[], posts: string[]): Promise<void> {
+    await sql`
+      INSERT INTO bot_media (role, urls) VALUES
+        ('avatars_men', ${JSON.stringify(men)}),
+        ('avatars_women', ${JSON.stringify(women)}),
+        ('posts', ${JSON.stringify(posts)})
+      ON CONFLICT (role) DO UPDATE SET urls = EXCLUDED.urls
+    `;
+  }
+
+  /** Bots needing an avatar migration off DiceBear (real human photos). */
+  async getAllBotsForMedia(): Promise<{ id: string; name: string; avatar?: string }[]> {
+    const rows = await sql`SELECT id, name, avatar FROM users WHERE is_bot`;
+    return rows as any[];
+  }
+
+  async updateUserAvatarColumn(id: string, avatar: string): Promise<void> {
+    await sql`UPDATE users SET avatar = ${avatar} WHERE id = ${id}`;
+  }
+
+  /** Bot post image rows that still point at a non-Supabase (broken) host. */
+  async getBrokenBotPostIds(): Promise<string[]> {
+    const rows = await sql`
+      SELECT p.id FROM user_posts p
+      WHERE p.user_id IN (SELECT id FROM users WHERE is_bot)
+        AND p.image_url IS NOT NULL
+        AND p.image_url NOT LIKE '%supabase%'
+    `;
+    return (rows as any[]).map((r) => r.id);
+  }
+
+  async updateUserPostImage(id: string, url: string): Promise<void> {
+    await sql`UPDATE user_posts SET image_url = ${url} WHERE id = ${id}`;
+  }
+
 
   async getBotControl(): Promise<boolean> {
     await this.ensureBotTables();
