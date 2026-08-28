@@ -1018,10 +1018,10 @@ export const MessagesView: React.FC<{
   return (
     <div className="max-w-5xl mx-auto px-0 sm:px-4 py-4 h-full max-md:fixed max-md:inset-x-0 max-md:top-16 max-md:z-30 max-md:max-w-none max-md:px-0 max-md:py-0 max-md:mx-0 max-md:h-[calc(100dvh-4rem)]">
         <div className="bg-[#141414] border border-[#262626] rounded-3xl overflow-hidden h-full max-md:rounded-none max-md:border-0">
-        <div className="grid h-full grid-cols-1 md:grid-cols-[340px_1fr]">
+        <div className="grid h-full grid-cols-1 md:grid-cols-[340px_1fr] max-md:flex max-md:flex-col">
           {/* Inbox pane (hidden on mobile when a thread is open) */}
           <div
-            className={`h-full border-[#262626] md:border-e ${
+            className={`h-full min-h-0 border-[#262626] md:border-e ${
               selectedId ? 'hidden md:block' : 'block'
             }`}
           >
@@ -1029,7 +1029,7 @@ export const MessagesView: React.FC<{
           </div>
 
           {/* Thread pane */}
-          <div className={`h-full ${selectedId ? 'block' : 'hidden md:block'}`}>
+          <div className={`h-full min-h-0 ${selectedId ? 'block' : 'hidden md:block'}`}>
             {selectedId ? (
               threadPane
             ) : (
