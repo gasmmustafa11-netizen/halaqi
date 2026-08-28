@@ -955,9 +955,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/20 via-transparent to-white/[0.025]" />
                       <div
 
-                        className="POST_IMAGE_RENDER_V5_1 absolute inset-0 bg-black"
-
-                        style={{ aspectRatio: '4 / 5' }}
+                        className="POST_IMAGE_RENDER_V5_1 absolute inset-0"
 
                       >
 
@@ -1014,7 +1012,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     )}
 
                     {isCommentsOpen && (
-                      <div className="fixed inset-x-0 bottom-0 z-40 flex max-h-[80%] flex-col rounded-t-3xl border-t border-white/10 bg-black/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-2xl">
+                      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 flex max-h-[80%] flex-col rounded-t-3xl border-t border-white/10 bg-black/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-2xl">
                         <div className="mb-3 flex flex-shrink-0 items-center justify-between">
                           <span className="text-xs font-bold text-slate-300">
                             {isRtl ? 'التعليقات' : 'Comments'}
