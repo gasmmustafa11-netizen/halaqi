@@ -435,7 +435,22 @@ export const MessagesView: React.FC<{
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      // Pick a container/codec that both the sender and the recipient can
+      // actually decode in a mobile browser. Prefer MP4/AAC (plays on Safari
+      // iOS + Chrome) and fall back to WebM/Opus (Chrome/Android/Firefox).
+      const preferredMime = [
+        'audio/mp4;codecs=aac',
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+      ].find(
+        (t) =>
+          typeof MediaRecorder !== 'undefined' &&
+          MediaRecorder.isTypeSupported(t)
+      );
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
       recordChunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
@@ -935,6 +950,18 @@ export const MessagesView: React.FC<{
 
   /* Full-screen original image viewer (lazy: only the original URL is
      fetched when the user taps the thumbnail). */
+  const saveExt = (() => {
+    const mime = messages
+      .find((m) => m.mediaUrl === viewerUrl)
+      ?.mediaMetadata?.mime;
+    if (mime && mime.startsWith('image/')) {
+      const sub = mime.split('/')[1];
+      if (sub === 'jpeg') return 'jpg';
+      if (sub === 'webp') return 'webp';
+      if (sub) return sub;
+    }
+    return 'jpg';
+  })();
   const viewer = viewerUrl ? (
     <div
       className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
@@ -954,15 +981,15 @@ export const MessagesView: React.FC<{
         className="max-w-full max-h-full object-contain rounded-xl"
       />
       <a
-        href={viewerUrl}
-        download
+        href={`${viewerUrl}&download=1`}
+        download={`halaqi-image.${saveExt}`}
         target="_blank"
         rel="noreferrer"
         onClick={(e) => e.stopPropagation()}
         className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#D4AF37] hover:bg-[#B8962D] text-black text-sm font-bold transition-all"
       >
         <Download className="w-4 h-4" />
-        {isRtl ? 'حفظ الصورة الأصلية' : 'Save original'}
+        {isRtl ? 'حفظ الصورة' : 'Save Image'}
       </a>
     </div>
   ) : null;
