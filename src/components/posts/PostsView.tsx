@@ -1006,43 +1006,16 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       </div>
                   </div>
 
-                  <div className="absolute inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-10">
+                  <div className="absolute inset-x-0 bottom-0 z-20 flex items-end bg-gradient-to-t from-black/60 via-black/5 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
                     {post.caption && (
-                      <p className="mb-3 max-h-28 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]" dir="auto">
+                      <p className="mb-3 max-h-28 max-w-[80%] overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]" dir="auto">
                         <CaptionText text={post.caption} />
                       </p>
                     )}
 
-                    <div className="absolute right-3 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-5">
-                      <button
-                        type="button"
-                        onClick={() => handleLike(post)}
-                        disabled={isLikeLoading}
-                        className={`flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90 ${isLiked ? 'text-red-400' : 'text-white'}`}
-                        aria-label={isRtl ? 'إعجاب' : 'Like'}
-                      >
-                        <Heart className={`h-7 w-7 ${isLiked ? 'fill-current' : ''}`} />
-                        <span className="text-[11px] font-bold">{post.likeCount}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleToggleComments(post)}
-                        className="flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90"
-                        aria-label={isRtl ? 'تعليقات' : 'Comments'}
-                      >
-                        {isCommentsLoading ? (
-                          <Loader2 className="h-7 w-7 animate-spin" />
-                        ) : (
-                          <MessageCircle className="h-7 w-7" />
-                        )}
-                        <span className="text-[11px] font-bold">{post.commentCount}</span>
-                      </button>
-                    </div>
-
                     {isCommentsOpen && (
-                      <div className="absolute inset-x-0 bottom-0 z-40 max-h-[72%] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#0b0b0f]/95 p-4 shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
-                        <div className="mb-3 flex items-center justify-between">
+                      <div className="fixed inset-x-0 bottom-0 z-40 flex max-h-[80%] flex-col rounded-t-3xl border-t border-white/10 bg-black/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-2xl">
+                        <div className="mb-3 flex flex-shrink-0 items-center justify-between">
                           <span className="text-xs font-bold text-slate-300">
                             {isRtl ? 'التعليقات' : 'Comments'}
                           </span>
@@ -1061,7 +1034,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                           </div>
                         </div>
 
-                        <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
+                        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                           {postComments.length === 0 ? (
                               <div className="rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-5 text-center">
                               <p className="text-xs text-slate-600">
@@ -1231,7 +1204,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       )}
                         </div>
 
-                        <div className="mt-4 flex gap-2">
+                        <div className="mt-3 flex flex-shrink-0 gap-2">
                           <input
                             value={commentText[post.id] || ''}
                             onChange={(event) =>
@@ -1272,6 +1245,34 @@ export const PostsView: React.FC<PostsViewProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Like / Comment rail — vertical center, right side (Reels style) */}
+                  <div className="absolute right-3 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-5">
+                    <button
+                      type="button"
+                      onClick={() => handleLike(post)}
+                      disabled={isLikeLoading}
+                      className={`flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90 ${isLiked ? 'text-red-400' : 'text-white'}`}
+                      aria-label={isRtl ? 'إعجاب' : 'Like'}
+                    >
+                      <Heart className={`h-7 w-7 ${isLiked ? 'fill-current' : ''}`} />
+                      <span className="text-[11px] font-bold">{post.likeCount}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleComments(post)}
+                      className="flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90"
+                      aria-label={isRtl ? 'تعليقات' : 'Comments'}
+                    >
+                      {isCommentsLoading ? (
+                        <Loader2 className="h-7 w-7 animate-spin" />
+                      ) : (
+                        <MessageCircle className="h-7 w-7" />
+                      )}
+                      <span className="text-[11px] font-bold">{post.commentCount}</span>
+                    </button>
                   </div>
                 </article>
               );
