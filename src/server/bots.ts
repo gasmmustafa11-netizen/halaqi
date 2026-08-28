@@ -329,19 +329,78 @@ async function actAsBot(botId: string): Promise<void> {
   }
 }
 
-async function migrateExistingBotMedia(): Promise<void> {
-  // Update pre-existing bots that were seeded with DiceBear (robot) avatars.
-  const bots = await db.getAllBotsForMedia();
-  for (const b of bots) {
-    if (b.avatar && b.avatar.includes('dicebear')) {
-      await db.updateUserAvatarColumn(b.id, avatarForBot(b.name));
+// --- One-time backfill of pre-existing bot media (robust + idempotent) -------
+// Re-points ANY bot avatar / bot post image that is NOT hosted on Halaqi's own
+// Supabase Storage to a real, validated Supabase URL from `bot_media`. It never
+// writes DiceBear / Picsum / Unsplash again. Safe to call on every cold start:
+// it records a completion flag so the heavy work runs only once per deployment
+// lifecycle and is guarded by an in-process promise to prevent concurrency.
+let mediaMigrationPromise: Promise<void> | null = null;
+
+function botGenderForName(name: string): 'men' | 'women' {
+  return FEMALE_NAMES.has(name.replace(/\s+\d+$/, '')) ? 'women' : 'men';
+}
+
+async function migrateExistingBotMedia(force = false): Promise<void> {
+  // Load the validated Supabase media pools directly (self-contained; does not
+  // depend on the in-memory pools being populated yet).
+  const stored = await db.loadBotMedia();
+  const men = stored?.men?.length ? stored!.men : [];
+  const women = stored?.women?.length ? stored!.women : [];
+  const posts = stored?.posts?.length ? stored!.posts : [];
+  if (!men.length && !women.length && !posts.length) {
+    console.log('[BOTS] migrateExistingBotMedia: no Supabase pool available, skipping');
+    return;
+  }
+
+  if (!force) {
+    try {
+      if (await db.getBotMediaMigrationFlag()) {
+        console.log('[BOTS] migrateExistingBotMedia: already completed, skipping');
+        return;
+      }
+    } catch {
+      /* fall through and attempt */
     }
   }
-  // Update pre-existing bot posts whose images still point at a broken host.
-  const postIds = await db.getBrokenBotPostIds();
-  for (const id of postIds) {
-    await db.updateUserPostImage(id, postImageForBot());
+
+  // 1) Bot avatars: any non-Supabase avatar -> real human Supabase photo.
+  const bots = await db.getAllBotsForMedia();
+  let avatarsUpdated = 0;
+  for (const b of bots) {
+    if (!b.avatar || !b.avatar.includes('supabase')) {
+      const pool = botGenderForName(b.name) === 'women' ? women : men;
+      const target = pool.length ? pick(pool) : women[0] || men[0];
+      if (target) {
+        await db.updateUserAvatarColumn(b.id, target);
+        avatarsUpdated++;
+      }
+    }
   }
+
+  // 2) Bot post images: any non-Supabase image -> valid Supabase photo.
+  const postIds = await db.getBrokenBotPostIds();
+  let postsUpdated = 0;
+  for (const id of postIds) {
+    const target = posts.length ? pick(posts) : null;
+    if (target) {
+      await db.updateUserPostImage(id, target);
+      postsUpdated++;
+    }
+  }
+
+  try { await db.setBotMediaMigrationFlag(); } catch { /* ignore */ }
+  console.log(`[BOTS] migrateExistingBotMedia: done (avatars=${avatarsUpdated}, posts=${postsUpdated})`);
+}
+
+/** Idempotent, concurrency-safe entry point used by the engine. */
+export async function runBotMediaMigration(force = false): Promise<void> {
+  if (!mediaMigrationPromise) {
+    mediaMigrationPromise = migrateExistingBotMedia(force).finally(() => {
+      mediaMigrationPromise = null;
+    });
+  }
+  return mediaMigrationPromise;
 }
 
 let seedingPromise: Promise<void> | null = null;
@@ -351,7 +410,7 @@ function ensureAndSeed(): Promise<void> {
       await db.ensureBotTables();
       await buildBotMediaPools();
       await seedBotsIfNeeded();
-      await migrateExistingBotMedia();
+      await runBotMediaMigration();
     })().catch((e: any) => {
       console.error('[BOTS] ensureAndSeed failed:', e?.message || e);
       seedingPromise = null; // reset so a later tick can retry
