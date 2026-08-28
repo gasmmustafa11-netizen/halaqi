@@ -44,7 +44,8 @@ import {
   Bell,
   Play,
   Bot,
-  Square
+  Square,
+  Crown
 } from 'lucide-react';
 
 export const AdminPanelView: React.FC = () => {
@@ -536,6 +537,23 @@ export const AdminPanelView: React.FC = () => {
     if (await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الحساب نهائياً؟', danger: true })) {
       await api.deleteUser(userId);
       await loadAdminData();
+    }
+  };
+
+  // Grant or revoke Premium status (unlocks the 120s Reels limit).
+  const handleTogglePremiumUser = async (userId: string) => {
+    const target = usersList.find((u) => u.id === userId);
+    const next = !(target?.isPremium ?? false);
+    const res = await api.setUserPremium(userId, next);
+    if (res.success) {
+      setUsersList((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, isPremium: next } : u))
+      );
+      notify(next
+          ? 'تم منح حالة البريميوم للمستخدم.'
+          : 'تم إلغاء حالة البريميوم للمستخدم.', 'success');
+    } else {
+      notify(res.error || 'تعذر تحديث حالة البريميوم.', 'error');
     }
   };
 
@@ -1483,6 +1501,17 @@ export const AdminPanelView: React.FC = () => {
                           }`}
                         >
                           {u.isBanned ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => handleTogglePremiumUser(u.id)}
+                          title={u.isPremium ? 'إلغاء البريميوم' : 'منح البريميوم'}
+                          className={`p-1.5 rounded-lg border transition-all ${
+                            u.isPremium
+                              ? 'bg-[#D4AF37]/70 border-[#D4AF37] text-black'
+                              : 'bg-[#D4AF37]/10 border-[#D4AF37]/40 text-[#D4AF37]'
+                          }`}
+                        >
+                          <Crown className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteUser(u.id)}

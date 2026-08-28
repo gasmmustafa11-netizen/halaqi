@@ -15,6 +15,7 @@ export interface TokenPayload {
   email: string;
   role: UserRole;
   salonId?: string;
+  isPremium?: boolean;
   iat: number;
   exp: number;
 }
@@ -33,6 +34,7 @@ export function generateToken(user: User, expiresInDays: number = 365): string {
     email: user.email,
     role: user.role,
     salonId: user.salonId,
+    isPremium: user.isPremium,
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + expiresInDays * 24 * 60 * 60,
   };

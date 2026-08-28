@@ -14,6 +14,7 @@ export interface User {
   interests?: string[]; // Discover: user-selected interest ids
   isBot?: boolean; // Bot accounts are flagged internally and never shown as real humans
   botEnabled?: boolean; // Whether automated activity is allowed for this bot
+  isPremium?: boolean; // Premium members get extended Reels duration (120s vs 60s)
   bio?: string;
   createdAt: string;
 }
@@ -305,6 +306,8 @@ export interface UserPost {
   updatedAt?: string;
   likeCount: number;
   commentCount: number;
+  mediaType?: 'image' | 'video'; // Reels are stored as media_type='video'
+  duration?: number; // Video duration in seconds (Reels only)
 }
 
 export interface PostComment {

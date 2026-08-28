@@ -200,6 +200,21 @@ export const api = {
     }
   },
 
+  async getReelsFeed(): Promise<{ success: boolean; posts?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/reels');
+      const data = await res.json();
+      return {
+        success: res.ok && data.success,
+        posts: data.posts,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getReelsFeed]:', err);
+      return { success: false, posts: [], error: 'تعذر جلب الريلز.' };
+    }
+  },
+
   async getUserPostComments(
     postId: string
   ): Promise<{ success: boolean; comments?: PostComment[]; error?: string }> {
@@ -494,6 +509,8 @@ export const api = {
   async createUserPost(data: {
     imageUrl: string;
     caption?: string;
+    mediaType?: 'image' | 'video';
+    duration?: number;
   }): Promise<{
     success: boolean;
     post?: any;
@@ -505,6 +522,8 @@ export const api = {
         body: JSON.stringify({
           imageUrl: data.imageUrl,
           caption: data.caption || '',
+          mediaType: data.mediaType || 'image',
+          duration: typeof data.duration === 'number' ? data.duration : undefined,
         }),
       });
 
@@ -891,6 +910,29 @@ export const api = {
       return {
         success: false,
         error: 'تعذر رفع الصورة إلى الخادم',
+      };
+    }
+  },
+
+  async uploadVideo(dataUrl: string): Promise<{ success: boolean; videoUrl?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/uploads/video', {
+        method: 'POST',
+        body: JSON.stringify({ dataUrl }),
+      });
+
+      const data = await res.json();
+
+      return {
+        success: res.ok && data.success,
+        videoUrl: data.videoUrl,
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [uploadVideo]:', err);
+      return {
+        success: false,
+        error: 'تعذر رفع الفيديو إلى الخادم',
       };
     }
   },
@@ -1621,6 +1663,19 @@ export const api = {
       return res.ok;
     } catch {
       return false;
+    }
+  },
+
+  async setUserPremium(userId: string, isPremium: boolean): Promise<{ success: boolean; isPremium?: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/users/${userId}/premium`, {
+        method: 'PUT',
+        body: JSON.stringify({ isPremium }),
+      });
+      const data = await res.json();
+      return { success: res.ok && data.success, isPremium: data.isPremium, error: data.error };
+    } catch {
+      return { success: false, error: 'تعذر تحديث حالة البريميوم.' };
     }
   },
 

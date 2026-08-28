@@ -858,6 +858,73 @@ app.get('/api/user-posts/:postId', async (req: Request, res: Response) => {
 });
 
 /* =========================================================
+   REELS FEED (video posts only)
+   Public feed of Reels. Optional auth populates the per-viewer like state.
+   ========================================================= */
+app.get(
+  '/api/reels',
+  optionalAuthMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const posts = await db.getReelsFeed(req.user?.id);
+      return res.json({
+        success: true,
+        posts: Array.isArray(posts) ? posts : [],
+      });
+    } catch (error) {
+      console.error('[REELS FEED ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        posts: [],
+        error: 'تعذر جلب الريلز.',
+      });
+    }
+  }
+);
+
+/* =========================================================
+   ADMIN: user management (Premium grant + list)
+   The AdminPanel user-edit UI depends on these endpoints to grant
+   Premium status (which unlocks the extended 120s Reels limit).
+   ========================================================= */
+app.get(
+  '/api/admin/users',
+  requireAuth,
+  requireRole('admin'),
+  (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      const users = db.getState().users.map((u: any) => db.sanitizeUser(u));
+      return res.json({ success: true, users });
+    } catch (error) {
+      console.error('[ADMIN USERS]', error);
+      return res.status(500).json({ success: false, users: [] });
+    }
+  }
+);
+
+app.put(
+  '/api/admin/users/:id/premium',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const isPremium = Boolean(req.body?.isPremium);
+      const result = await db.setUserPremium(req.params.id, isPremium);
+      if (!result.success) {
+        return res.status(500).json({ success: false, error: result.error });
+      }
+      return res.json({ success: true, isPremium });
+    } catch (error) {
+      console.error('[ADMIN PREMIUM]', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر تحديث حالة البريميوم.',
+      });
+    }
+  }
+);
+
+/* =========================================================
    IMAGE UPLOAD (Supabase Storage)
    Re-added after the Neon migration removed it. Keeps images in
    external Supabase Storage (bucket: avatars) instead of storing
@@ -881,6 +948,11 @@ function getSupabaseStorageClient() {
   }
   return supabaseStorageClient;
 }
+
+// Ensure Reels schema extensions (media_type / duration / is_premium) exist.
+db.ensureReelsTables().catch((e: any) =>
+  console.error('[REELS MIGRATION]', e?.message || e)
+);
 
 /* Removes the blob behind a Supabase Storage public URL. Returns ok:false when
    the file cannot be deleted so the caller can abort the whole deletion (the
@@ -1231,6 +1303,98 @@ app.post(
 );
 
 /* =========================================================
+   REELS VIDEO UPLOAD (object storage, NOT the database)
+   Accepts a base64 data URL for a short video, validates the MIME type and
+   size server-side, and stores the binary in the same Supabase Storage
+   bucket used for post images. Reuses the existing storage architecture.
+   The caller's auth identity is the only trusted owner; storage credentials
+   are never returned.
+   ========================================================= */
+app.post(
+  '/api/uploads/video',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { dataUrl } = req.body || {};
+
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'الفيديو مطلوب.',
+        });
+      }
+
+      // Validate supported mobile video formats.
+      const match = dataUrl.match(
+        /^data:video\/(mp4|webm|mov|quicktime|ogg|x-matroska);base64,(.+)$/
+      );
+
+      if (!match) {
+        return res.status(400).json({
+          success: false,
+          error: 'صيغة الفيديو غير مدعومة. استخدم MP4 أو WebM.',
+        });
+      }
+
+      const rawExt = match[1];
+      const extension =
+        rawExt === 'quicktime'
+          ? 'mov'
+          : rawExt === 'x-matroska'
+          ? 'mkv'
+          : rawExt;
+      const contentType = `video/${rawExt}`;
+
+      // Size guard (~60MB decoded) to keep uploads reasonable.
+      const approxBytes = Math.floor((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75);
+      const MAX_BYTES = 60 * 1024 * 1024;
+      if (approxBytes > MAX_BYTES) {
+        return res.status(413).json({
+          success: false,
+          error: 'حجم الفيديو كبير جداً (الحد الأقصى 60 ميجابايت).',
+        });
+      }
+
+      const fileName = `${req.user!.id}_${Date.now()}.${extension}`;
+      const fileBuffer = Buffer.from(match[2], 'base64');
+
+      if (!/^https:\/\/.+\.supabase\.co$/.test(process.env.SUPABASE_URL || '')) {
+        console.error('[Video Upload] SUPABASE_URL missing or invalid.');
+        return res.status(500).json({ success: false, error: 'تعذر رفع الفيديو.' });
+      }
+
+      const supabaseAdmin = getSupabaseStorageClient();
+      const avatarBucket = 'avatars';
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(avatarBucket)
+        .upload(fileName, fileBuffer, {
+          contentType,
+          upsert: true,
+          cacheControl: '3600',
+        });
+
+      if (uploadError) {
+        console.error('[Video Upload] Supabase upload failed:', uploadError);
+        return res.status(500).json({ success: false, error: 'تعذر رفع الفيديو.' });
+      }
+
+      const { data: publicData } = supabaseAdmin.storage
+        .from(avatarBucket)
+        .getPublicUrl(fileName);
+
+      return res.status(201).json({
+        success: true,
+        videoUrl: publicData.publicUrl,
+      });
+    } catch (error) {
+      console.error('[Video Upload Error]:', error);
+      return res.status(500).json({ success: false, error: 'تعذر رفع الفيديو.' });
+    }
+  }
+);
+
+/* =========================================================
    MESSAGE MEDIA UPLOAD (object storage, NOT the database)
    Accepts a base64 data URL for an image or voice clip, validates
    MIME + size server-side, and stores the original binary in the
@@ -1420,19 +1584,42 @@ app.post(
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { imageUrl, caption } = req.body || {};
+      const {
+        imageUrl,
+        caption,
+        mediaType,
+        duration,
+      } = req.body || {};
 
       if (!imageUrl || typeof imageUrl !== 'string') {
         return res.status(400).json({
           success: false,
-          error: 'الصورة مطلوبة لإنشاء المنشور.',
+          error:
+            mediaType === 'video'
+              ? 'الفيديو مطلوب لإنشاء الريل.'
+              : 'الصورة مطلوبة لإنشاء المنشور.',
         });
+      }
+
+      // Enforce Reels duration limits server-side (Premium unlocks 120s).
+      if (mediaType === 'video' && typeof duration === 'number' && duration > 0) {
+        const limit = req.user!.isPremium ? 120 : 60;
+        if (duration > limit) {
+          return res.status(400).json({
+            success: false,
+            error: req.user!.isPremium
+              ? 'مدة الريل تتجاوز الحد المسموح (120 ثانية للبريميوم).'
+              : 'مدة الريل تتجاوز الحد المسموح (60 ثانية كحد أقصى).',
+          });
+        }
       }
 
       const result = await db.createUserPost(
         {
           imageUrl,
           caption: typeof caption === 'string' ? caption : '',
+          mediaType: mediaType === 'video' ? 'video' : 'image',
+          duration: typeof duration === 'number' ? duration : undefined,
         },
         req.user!
       );

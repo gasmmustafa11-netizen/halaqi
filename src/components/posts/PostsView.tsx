@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
+import { ReelsView } from './ReelsView';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { saveImage } from '../../utils/saveImage';
@@ -55,6 +56,9 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [directPostLoading, setDirectPostLoading] = useState(false);
+
+  // Posts section sub-tabs: image Posts feed vs Reels (video) feed.
+  const [subTab, setSubTab] = useState<'posts' | 'reels'>('posts');
 
   // Comment edit / delete (owner only) via long-press.
   const [menuComment, setMenuComment] = useState<PostComment | null>(null);
@@ -795,7 +799,31 @@ export const PostsView: React.FC<PostsViewProps> = ({
           </div>
         </header>
 
-        {loading ? (
+        {/* Posts / Reels sub-tab switcher (Reels is NOT a Bottom Nav item) */}
+        <div className="mb-6 flex items-center gap-2 rounded-2xl border border-white/[0.10] bg-white/[0.04] p-1.5 backdrop-blur-xl">
+          {([
+            { key: 'posts', label: isRtl ? 'المنشورات' : 'Posts' },
+            { key: 'reels', label: isRtl ? 'ريلز' : 'Reels' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setSubTab(t.key)}
+              className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${
+                subTab === t.key
+                  ? 'bg-[#D4AF37] text-black shadow-[0_4px_20px_-4px_rgba(212,175,55,0.5)]'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {subTab === 'reels' ? (
+          <ReelsView onBack={() => setSubTab('posts')} />
+        ) : (
+          loading ? (
           <div className="flex min-h-[420px] items-center justify-center rounded-[24px] border border-white/[0.12] bg-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05] backdrop-blur-2xl">
             <div className="flex flex-col items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] shadow-[0_0_40px_rgba(212,175,55,0.08)]">
@@ -1241,7 +1269,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
               );
             })}
           </div>
-        )}
+        ))}
       </div>
 
       {/* Owner-only premium Glassmorphism action sheet (Edit / Delete) */}

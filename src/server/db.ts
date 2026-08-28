@@ -1591,7 +1591,7 @@ class DatabaseStore {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
              password_hash, salt, is_active, is_banned, created_at,
-             is_bot, bot_enabled, bio
+             is_bot, bot_enabled, bio, is_premium
       FROM users
       WHERE id = ${id}
       LIMIT 1
@@ -1616,6 +1616,7 @@ class DatabaseStore {
       isBanned: u.is_banned ?? false,
       isBot: u.is_bot ?? false,
       botEnabled: u.bot_enabled ?? true,
+      isPremium: u.is_premium ?? false,
       bio: u.bio || undefined,
       createdAt: new Date(u.created_at).toISOString(),
     };
@@ -3183,6 +3184,7 @@ class DatabaseStore {
           comment_count
         FROM user_posts
         WHERE user_id = ${userId}
+          AND media_type IS DISTINCT FROM 'video'
         ORDER BY created_at DESC
       `;
 
@@ -3219,6 +3221,8 @@ class DatabaseStore {
           up.user_id,
           up.image_url,
           up.caption,
+          up.media_type,
+          up.duration,
           up.created_at,
           up.updated_at,
           up.like_count,
@@ -3252,6 +3256,10 @@ class DatabaseStore {
           : undefined,
         likeCount: Number(row.like_count || 0),
         commentCount: Number(row.comment_count || 0),
+        mediaType: (row.media_type === 'video' ? 'video' : 'image') as
+          | 'image'
+          | 'video',
+        duration: row.duration ? Number(row.duration) : undefined,
       } as UserPost;
     } catch (error: any) {
       console.error(
@@ -3484,6 +3492,7 @@ class DatabaseStore {
           u.interests AS author_interests
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
+        WHERE up.media_type IS DISTINCT FROM 'video'
 
         ORDER BY created_at DESC
       `;
@@ -3682,18 +3691,21 @@ class DatabaseStore {
     data: {
       imageUrl?: string;
       caption?: string;
+      mediaType?: 'image' | 'video';
+      duration?: number;
     },
     requestingUser: User
   ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
     try {
-      const hasImage = Boolean(data.imageUrl?.trim());
+      const hasMedia = Boolean(data.imageUrl?.trim());
       const captionText = (data.caption || '').trim();
+      const mediaType = data.mediaType === 'video' ? 'video' : 'image';
 
-      // A post must have at least an image or a caption.
-      if (!hasImage && !captionText) {
+      // A post must have at least media or a caption.
+      if (!hasMedia && !captionText) {
         return {
           success: false,
-          error: 'المنشور يحتاج صورة أو نص.',
+          error: 'المنشور يحتاج صورة أو فيديو أو نص.',
         };
       }
 
@@ -3708,11 +3720,13 @@ class DatabaseStore {
         userId: requestingUser.id,
         userName: requestingUser.name || 'مستخدم',
         userAvatar: requestingUser.avatar || undefined,
-        imageUrl: hasImage ? data.imageUrl!.trim() : undefined,
+        imageUrl: hasMedia ? data.imageUrl!.trim() : undefined,
         caption: captionText,
         createdAt: new Date().toISOString(),
         likeCount: 0,
         commentCount: 0,
+        mediaType,
+        duration: mediaType === 'video' ? Number(data.duration || 0) : undefined,
       };
 
       await sql`
@@ -3722,6 +3736,8 @@ class DatabaseStore {
           user_id,
           image_url,
           caption,
+          media_type,
+          duration,
           created_at,
           updated_at,
           like_count,
@@ -3733,6 +3749,8 @@ class DatabaseStore {
           ${post.userId},
           ${post.imageUrl ?? null},
           ${post.caption},
+          ${post.mediaType},
+          ${post.duration ?? null},
           ${post.createdAt},
           ${post.createdAt},
           0,
@@ -4267,6 +4285,103 @@ class DatabaseStore {
         urls TEXT NOT NULL DEFAULT '[]'
       )
     `;
+  }
+
+  /**
+   * Ensures the schema extensions required by the Reels (video posts) feature:
+   * - user_posts.media_type: 'image' (default) or 'video'
+   * - user_posts.duration: video length in seconds (Reels only)
+   * - users.is_premium: unlocks the extended 120s Reels limit for premium members
+   * Runs idempotently at server start.
+   */
+  async ensureReelsTables(): Promise<void> {
+    try {
+      await sql`
+        ALTER TABLE user_posts
+          ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image',
+          ADD COLUMN IF NOT EXISTS duration INTEGER
+      `;
+      await sql`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT FALSE
+      `;
+    } catch (e: any) {
+      console.error('[REELS] ensure schema:', e?.message || e);
+    }
+  }
+
+  /**
+   * Returns Reels (video posts) ordered newest-first. Like state is computed
+   * for the requesting viewer so the client can render the correct heart.
+   */
+  async getReelsFeed(viewerUserId?: string): Promise<any[]> {
+    try {
+      const viewerId = viewerUserId || '';
+      const rows = await sql`
+        SELECT
+          up.id,
+          up.user_id,
+          up.image_url,
+          up.caption,
+          up.media_type,
+          up.duration,
+          up.created_at,
+          up.updated_at,
+          up.like_count,
+          up.comment_count,
+          u.name AS user_name,
+          u.avatar AS user_avatar,
+          EXISTS(
+            SELECT 1 FROM post_likes pl
+            WHERE pl.post_type = 'user'
+              AND pl.post_id = up.id
+              AND pl.user_id = ${viewerId}
+          ) AS liked_by_me
+        FROM user_posts up
+        LEFT JOIN users u ON u.id = up.user_id
+        WHERE up.media_type = 'video'
+        ORDER BY up.created_at DESC
+      `;
+
+      return (rows as any[]).map((p: any) => ({
+        id: String(p.id),
+        userId: String(p.user_id),
+        userName: p.user_name || 'مستخدم',
+        userAvatar: p.user_avatar || undefined,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        mediaType: 'video' as const,
+        duration: p.duration ? Number(p.duration) : undefined,
+        createdAt: p.created_at
+          ? new Date(p.created_at).toISOString()
+          : new Date().toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+        liked: Boolean(p.liked_by_me),
+      }));
+    } catch (error: any) {
+      console.error('[getReelsFeed] فشل جلب الريلز:', error?.message || error);
+      return [];
+    }
+  }
+
+  /** Grants or revokes Premium status for a user (admin only). */
+  async setUserPremium(
+    userId: string,
+    isPremium: boolean
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      await sql`UPDATE users SET is_premium = ${isPremium} WHERE id = ${userId}`;
+      const st = this.getState().users.find((u) => u.id === userId);
+      if (st) st.isPremium = isPremium;
+      return { success: true };
+    } catch (e: any) {
+      console.error('[setUserPremium]', e?.message || e);
+      return { success: false, error: 'تعذر تحديث حالة البريميوم.' };
+    }
   }
 
   /** Loads the persisted bot media pools (Supabase URLs) if previously built. */
