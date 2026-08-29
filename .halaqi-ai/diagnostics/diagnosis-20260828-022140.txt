@@ -1,0 +1,315 @@
+=== HALAQI AI READ-ONLY DIAGNOSIS ===
+
+Problem: الصوت والصور داخل الرسائل
+
+=== GIT STATUS ===
+ M src/server/app.ts
+?? .halaqi-ai/
+?? src/server/_debug_media.ts
+
+=== RELEVANT FILES ===
+src/components/messaging/MessagesView.tsx
+src/server/_debug_media.ts
+src/server/message.media.test.ts
+
+=== API REFERENCES ===
+src/server/authMiddleware.ts:162:      error?.message || error
+src/server/db.ts:216:    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:231:    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:245:    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:301:    coverImage: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:303:      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:304:      'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:305:      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:334:    coverImage: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:336:      'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:337:      'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:338:      'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:367:    coverImage: 'https://images.unsplash.com/photo-1599351431202-1e0f0137899a?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:369:      'https://images.unsplash.com/photo-1599351431202-1e0f0137899a?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:370:      'https://images.unsplash.com/photo-1512690459411-b9245aed614b?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:399:    coverImage: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:401:      'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:402:      'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:431:    coverImage: 'https://images.unsplash.com/photo-1517832606299-7ae9b720a186?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:433:      'https://images.unsplash.com/photo-1517832606299-7ae9b720a186?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:462:    coverImage: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:464:      'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:493:    coverImage: 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:495:      'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:524:    coverImage: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=1200&auto=format&fit=crop&q=80',
+src/server/db.ts:526:      'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=800&auto=format&fit=crop&q=80',
+src/server/db.ts:546:    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:561:    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:575:    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:591:    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:605:    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:621:    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:637:    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:661:    image: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:674:    image: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:687:    image: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:699:    image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:711:    image: 'https://images.unsplash.com/photo-1599351431202-1e0f0137899a?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:726:    image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:739:    image: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:752:    image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:764:    image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:776:    image: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:791:    image: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&auto=format&fit=crop&q=80',
+src/server/db.ts:863:    customerAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+src/server/db.ts:936:    message: 'تم تأكيد حجزك رقم HLQ-2026-9842 في رويال لاونج غداً الساعة 05:00 م.',
+src/server/db.ts:937:    messageEn: 'Your booking HLQ-2026-9842 at Royal Lounge is confirmed for tomorrow at 05:00 PM.',
+src/server/db.ts:948:    message: 'استخدم الكود BAGHDAD20 للحصول على خصم 20% على حجوزات باقات VIP.',
+src/server/db.ts:949:    messageEn: 'Use promo code BAGHDAD20 for 20% off on VIP packages.',
+src/server/db.ts:1042:      coverImage: s.cover_image,
+src/server/db.ts:1072:      image: sv.image || undefined,
+src/server/db.ts:1091:          image,
+src/server/db.ts:1105:          ${service.image ?? null},
+src/server/db.ts:1125:        image: s.image ?? undefined,
+src/server/db.ts:1160:          image = ${next.image ?? null},
+src/server/db.ts:1180:        image: sv.image ?? undefined,
+src/server/db.ts:1187:        error?.message || error
+src/server/db.ts:1205:        error?.message || error
+src/server/db.ts:1233:      image: sv.image || undefined,
+src/server/db.ts:1269:      coverImage: s.cover_image,
+src/server/db.ts:1307:      coverImage: s.cover_image,
+src/server/db.ts:1351:      coverImage: s.cover_image,
+src/server/db.ts:1395:      coverImage: s.cover_image,
+src/server/db.ts:1427:        cover_image,
+src/server/db.ts:1455:        ${salon.coverImage},
+src/server/db.ts:1490:      coverImage: s.cover_image,
+src/server/db.ts:1536:      coverImage: s.cover_image,
+src/server/db.ts:1822:          error?.message || error
+src/server/db.ts:1918:      console.error('[REGISTER] Failed to persist new user to Neon:', error?.message || error);
+src/server/db.ts:1929:        message: `تم تسجيل مستخدم جديد: ${newUser.name} (${newUser.role === 'salon_owner' ? 'صاحب صالون' : 'زبون'})`,
+src/server/db.ts:1930:        messageEn: `A new ${newUser.role === 'salon_owner' ? 'salon owner' : 'customer'} registered: ${newUser.name}`,
+src/server/db.ts:1976:    message: string;
+src/server/db.ts:1977:    messageEn: string;
+src/server/db.ts:1988:      message: data.message,
+src/server/db.ts:1989:      messageEn: data.messageEn,
+src/server/db.ts:2003:      (id, user_id, actor_user_id, title, title_en, message, message_en, type, read, created_at, link)
+src/server/db.ts:2006:       ${notification.titleEn}, ${notification.message}, ${notification.messageEn},
+src/server/db.ts:2683:      console.error('[BOOKING] Failed to persist booking to Neon:', error?.message || error);
+src/server/db.ts:2692:      message: `تم حجز موعدك بنجاح في ${newBooking.salonName} يوم ${newBooking.date} الساعة ${newBooking.timeSlot} مع ${newBooking.barberName}.`,
+src/server/db.ts:2693:      messageEn: `Your appointment is confirmed at ${newBooking.salonName} on ${newBooking.date} at ${newBooking.timeSlot}.`,
+src/server/db.ts:2833:    // Invalidate QR immediately after successful use.
+src/server/db.ts:2881:        error?.message || error
+src/server/db.ts:2905:      message: `تم تأكيد إكمال موعدك في ${booking.salonName}. شكراً لاستخدامك حلاقي.`,
+src/server/db.ts:2906:      messageEn: `Your appointment at ${booking.salonName} has been completed successfully.`,
+src/server/db.ts:2918:        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName} بنجاح عبر QR.`,
+src/server/db.ts:2919:        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed successfully via QR.`,
+src/server/db.ts:2936:        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName}. قيمة الخدمة: ${booking.finalPrice.toLocaleString()} د.ع.`,
+src/server/db.ts:2937:        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed. Service value: ${booking.finalPrice.toLocaleString()} IQD.`,
+src/server/db.ts:2998:      message: `تم إلغاء حجزك رقم ${booking.bookingNumber} في ${booking.salonName}. أصبح الموعد متاحاً الآن للآخرين.`,
+src/server/db.ts:2999:      messageEn: `Booking ${booking.bookingNumber} has been cancelled.`,
+src/server/db.ts:3108:        imageUrl: p.image_url,
+src/server/db.ts:3118:      console.error('فشل جلب منشورات الصالون من Neon:', error.message);
+src/server/db.ts:3137:        imageUrl: p.image_url,
+src/server/db.ts:3149:        error.message
+src/server/db.ts:3161:          image_url,
+src/server/db.ts:3175:        imageUrl: p.image_url,
+src/server/db.ts:3187:        error?.message || error
+src/server/db.ts:3203:          up.image_url,
+src/server/db.ts:3228:        imageUrl: row.image_url,
+src/server/db.ts:3242:        error?.message || error
+src/server/db.ts:3267:          image_url,
+src/server/db.ts:3290:        imageUrl: p.image_url,
+src/server/db.ts:3304:        error?.message || error
+src/server/db.ts:3316:          up.image_url,
+src/server/db.ts:3334:        imageUrl: p.image_url,
+src/server/db.ts:3346:        error?.message || error
+src/server/db.ts:3424:          sp.image_url,
+src/server/db.ts:3453:          up.image_url,
+src/server/db.ts:3486:        imageUrl: p.image_url,
+src/server/db.ts:3658:        error?.message || error
+src/server/db.ts:3666:      imageUrl: string;
+src/server/db.ts:3672:      if (!data.imageUrl?.trim()) {
+src/server/db.ts:3682:        return { success: false, blocked: true, error: mod.message };
+src/server/db.ts:3690:        imageUrl: data.imageUrl.trim(),
+src/server/db.ts:3702:          image_url,
+src/server/db.ts:3713:          ${post.imageUrl},
+src/server/db.ts:3729:        error?.message || error
+src/server/db.ts:3742:      imageUrl: string;
+src/server/db.ts:3771:    if (!data.imageUrl?.trim()) {
+src/server/db.ts:3778:      return { success: false, blocked: true, error: mod.message };
+src/server/db.ts:3786:      imageUrl: data.imageUrl.trim(),
+src/server/db.ts:3798:        (id, salon_id, owner_id, salon_name, image_url, caption, created_at, updated_at, like_count, comment_count)
+src/server/db.ts:3801:         ${post.imageUrl}, ${post.caption}, ${post.createdAt}, ${post.createdAt}, 0, 0)
+src/server/db.ts:3805:      console.error('فشل حفظ المنشور في Neon:', error.message);
+src/server/db.ts:3875:        // Reproduce the exact original error messages.
+src/server/db.ts:3893:      console.error('فشل حذف المنشور من Neon:', error?.message || error);
+src/server/db.ts:4039:          message: `أعجب ${requestingUser.name || 'مستخدم'} بمنشورك.`,
+src/server/db.ts:4040:          messageEn: `${requestingUser.name || 'A user'} liked your post.`,
+src/server/db.ts:4088:        error?.message || error
+src/server/db.ts:4128:        error?.message || error
+src/server/db.ts:4162:        return { success: false, blocked: true, error: mod.message };
+src/server/db.ts:4267:          message: `${requestingUser.name} علّق على منشورك`,
+src/server/db.ts:4268:          messageEn: `${requestingUser.name} commented on your post`,
+src/server/db.ts:4294:        error?.message || error
+src/server/db.ts:4349:        error?.message || error
+src/server/db.ts:4419:      console.error('فشل تفاعل التعليق:', error?.message || error);
+src/server/db.ts:4450:        return { success: false, blocked: true, error: mod.message };
+src/server/db.ts:4542:      console.error('فشل تعديل التعليق من Neon:', error?.message || error);
+src/server/db.ts:4673:        error?.message || error
+src/server/db.ts:4848:            ? error.message
+src/server/db.ts:5042:            ? error.message
+src/server/db.ts:5169:            ? error.message
+src/server/db.ts:5258:            ? error.message
+src/server/db.ts:5264:  validateCoupon(code: string, bookingAmount: number): { valid: boolean; coupon?: Coupon; discount?: number; message?: string } {
+src/server/db.ts:5267:      return { valid: false, message: 'كوبون الخصم غير صحيح أو منتهي الصلاحية' };
+src/server/db.ts:5270:      return { valid: false, message: 'وصل هذا الكوبون إلى الحد الأقصى لعدد مرات الاستخدام' };
+src/server/db.ts:5273:      return { valid: false, message: `الحد الأدنى للاستفادة من هذا الكوبون هو ${coupon.minBookingAmount.toLocaleString()} د.ع` };
+src/server/db.ts:5295:      n.message,
+src/server/db.ts:5296:      n.message_en,
+src/server/db.ts:5304:      AND n.type != 'message'
+src/server/db.ts:5315:    message: n.message,
+src/server/db.ts:5316:    messageEn: n.message_en,
+src/server/db.ts:5366:    console.error('فشل تحميل المستخدمين من Neon:', error.message);
+src/server/db.ts:5425:        coverImage: s.cover_image,
+src/server/db.ts:5466:        image: s.image || undefined,
+src/server/db.ts:5562:        message: n.message,
+src/server/db.ts:5563:        messageEn: n.message_en,
+src/server/db.ts:5612:        imageUrl: p.image_url,
+src/server/db.ts:5687:    console.error('فشل تحميل باقي البيانات من Neon:', error.message);
+src/server/app.ts:305:    console.error('[MY SALON CHECK] Neon check failed:', error?.message || error);
+src/server/app.ts:353:        error?.message || error
+src/server/app.ts:412:      error?.message || error
+src/server/app.ts:449:      error?.message || error
+src/server/app.ts:489:        error?.message || error
+src/server/app.ts:519:        error?.message || error
+src/server/app.ts:539:        message: `تم تسجيل صالون جديد باسم ${newSalon.name} ويحتاج إلى موافقة المدير قبل نشره في الموقع.`,
+src/server/app.ts:540:        messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
+src/server/app.ts:596:      console.error('[SERVICES API] Neon lookup failed:', error?.message || error);
+src/server/app.ts:840:   IMAGE UPLOAD (Supabase Storage)
+src/server/app.ts:841:   Re-added after the Neon migration removed it. Keeps images in
+src/server/app.ts:864:/* Media for direct messages is stored in the same object storage used for
+src/server/app.ts:865:   avatars (Supabase Storage). We keep a dedicated folder prefix so message
+src/server/app.ts:866:   binaries never mix with profile images, but reuse the existing, already
+src/server/app.ts:868:const MESSAGE_MEDIA_BUCKET = process.env.SUPABASE_MEDIA_BUCKET || 'avatars';
+src/server/app.ts:869:const MESSAGE_MEDIA_FOLDER = 'msg';
+src/server/app.ts:870:const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+src/server/app.ts:871:const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
+src/server/app.ts:874:const IMAGE_MIME_WHITELIST = new Set([
+src/server/app.ts:875:  'image/jpeg',
+src/server/app.ts:876:  'image/png',
+src/server/app.ts:877:  'image/webm',
+src/server/app.ts:880:const AUDIO_MIME_WHITELIST = new Set([
+src/server/app.ts:881:  'audio/webm',
+src/server/app.ts:882:  'audio/ogg',
+src/server/app.ts:883:  'audio/mpeg',
+src/server/app.ts:884:  'audio/mp3',
+src/server/app.ts:885:  'audio/mp4',
+src/server/app.ts:886:  'audio/m4a',
+src/server/app.ts:887:  'audio/aac',
+src/server/app.ts:888:  'audio/wav',
+src/server/app.ts:889:  'audio/x-wav',
+src/server/app.ts:892:type StoredMedia = { url: string; thumbnailUrl?: string };
+src/server/app.ts:894:/* Validates a base64 data URL, decodes it, enforces size + MIME, and uploads
+src/server/app.ts:897:async function storeMessageMedia(params: {
+src/server/app.ts:899:  kind: 'image' | 'audio';
+src/server/app.ts:903:  { ok: true; data: StoredMedia } | { ok: false; error: string; code: 'validation' | 'storage' }
+src/server/app.ts:922:    params.kind === 'image' ? IMAGE_MIME_WHITELIST : AUDIO_MIME_WHITELIST;
+src/server/app.ts:927:  const max = params.kind === 'image' ? MAX_IMAGE_BYTES : MAX_AUDIO_BYTES;
+src/server/app.ts:933:        params.kind === 'image'
+src/server/app.ts:940:    console.error('[Message Media] SUPABASE_URL missing or invalid.');
+src/server/app.ts:945:  const bucket = MESSAGE_MEDIA_BUCKET;
+src/server/app.ts:952:  const originalName = `${MESSAGE_MEDIA_FOLDER}/${params.userId}_${ts}_o.${ext}`;
+src/server/app.ts:955:    .upload(originalName, buffer, {
+src/server/app.ts:962:    console.error('[Message Media] upload failed:', upErr);
+src/server/app.ts:970:  if (params.kind === 'image' && params.thumbnail) {
+src/server/app.ts:975:      if (IMAGE_MIME_WHITELIST.has(tBaseMime) && tBuf.length <= MAX_THUMBNAIL_BYTES) {
+src/server/app.ts:977:        const tName = `${MESSAGE_MEDIA_FOLDER}/${params.userId}_${ts}_t.${tExt}`;
+src/server/app.ts:980:          .upload(tName, tBuf, {
+src/server/app.ts:997:   SECURE MEDIA DELIVERY
+src/server/app.ts:999:   messages bucket is not publicly readable (and even if it were, we
+src/server/app.ts:1003:   for both sender and recipient, on any device, and with <img>/<audio>
+src/server/app.ts:1009:const MEDIA_TOKEN_SECRET = process.env.HALAQI_AUTH_SECRET || '';
+src/server/app.ts:1010:const MEDIA_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+src/server/app.ts:1016:function signMediaToken(path: string): string {
+src/server/app.ts:1021:      exp: Math.floor(Date.now() / 1000) + MEDIA_TOKEN_TTL_SECONDS,
+src/server/app.ts:1025:    .createHmac('sha256', MEDIA_TOKEN_SECRET)
+src/server/app.ts:1031:function verifyMediaToken(token: string): { p: string } | null {
+src/server/app.ts:1037:      .createHmac('sha256', MEDIA_TOKEN_SECRET)
+src/server/app.ts:1056:function getMediaPathFromStored(stored?: string): string | undefined {
+src/server/app.ts:1058:  const base = `${process.env.SUPABASE_URL || ''}/storage/v1/object/public/${MESSAGE_MEDIA_BUCKET}/`;
+src/server/app.ts:1065:/* Wrap a stored media reference into a signed, server-proxied URL. */
+src/server/app.ts:1066:function wrapMedia(stored?: string): string | undefined {
+src/server/app.ts:1067:  const p = getMediaPathFromStored(stored);
+src/server/app.ts:1069:  return `/api/messages/media?token=${signMediaToken(p)}&u=${encodeURIComponent(p)}`;
+src/server/app.ts:1074:    jpg: 'image/jpeg',
+src/server/app.ts:1075:    jpeg: 'image/jpeg',
+src/server/app.ts:1076:    png: 'image/png',
+src/server/app.ts:1077:    webp: 'image/webp',
+src/server/app.ts:1078:    gif: 'image/gif',
+src/server/app.ts:1079:    webm: 'audio/webm',
+src/server/app.ts:1080:    ogg: 'audio/ogg',
+src/server/app.ts:1081:    mp3: 'audio/mpeg',
+src/server/app.ts:1082:    m4a: 'audio/mp4',
+src/server/app.ts:1083:    aac: 'audio/aac',
+src/server/app.ts:1084:    wav: 'audio/wav',
+src/server/app.ts:1091:  '/api/uploads/image',
+src/server/app.ts:1105:        /^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/
+src/server/app.ts:1118:        extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
+src/server/app.ts:1127:        console.error('[Image Upload] SUPABASE_URL missing or invalid.');
+src/server/app.ts:1137:      const { error: uploadError } = await supabaseAdmin.storage
+src/server/app.ts:1139:        .upload(fileName, fileBuffer, {
+src/server/app.ts:1145:      if (uploadError) {
+src/server/app.ts:1146:        console.error('[Image Upload] Supabase upload failed:', uploadError);
+src/server/app.ts:1159:        imageUrl: publicData.publicUrl,
+src/server/app.ts:1162:      console.error('[Image Upload Error]:', error);
+src/server/app.ts:1172:   MESSAGE MEDIA UPLOAD (object storage, NOT the database)
+src/server/app.ts:1173:   Accepts a base64 data URL for an image or voice clip, validates
+src/server/app.ts:1176:   the returned public URL + metadata (see POST /api/messages).
+src/server/app.ts:1178:   upload owner; storage credentials are never returned.
+src/server/app.ts:1181:  '/api/messages/media',
+src/server/app.ts:1187:      if (kind !== 'image' && kind !== 'audio') {
+src/server/app.ts:1201:      if (kind === 'image' && thumbnail && typeof thumbnail !== 'string') {
+src/server/app.ts:1208:      const result = await storeMessageMedia({
+src/server/app.ts:1212:        thumbnail: kind === 'image' ? thumbnail : undefined,
+src/server/app.ts:1229:      console.error('[MESSAGE MEDIA ERROR]', error);
+src/server/app.ts:1239:   SECURE MEDIA STREAMING PROXY
+src/server/app.ts:1240:   Streams a message's media object from object storage using the
+src/server/app.ts:1243:   <img>/<audio> tags can load it without a Bearer header and without
+src/server/app.ts:1248:  '/api/messages/media',
+src/server/app.ts:1258:      const payload = verifyMediaToken(token);
+src/server/app.ts:1263:      // Defense in depth: only serve objects from our media bucket.
+src/server/app.ts:1270:        .from(MESSAGE_MEDIA_BUCKET)
+src/server/app.ts:1274:        console.error('[MESSAGE MEDIA STREAM] download failed:', error);
+src/server/app.ts:1291:          `attachment; filename="halaqi-media.${ext}"`
+src/server/app.ts:1296:      console.error('[MESSAGE MEDIA STREAM ERROR]', error);
+src/server/app.ts:1326:        'Write a short, friendly social-media caption for a beauty/salon photo post. ' +
+src/server/app.ts:1361:      const { imageUrl, caption } = req.body || {};
+src/server/app.ts:1363:      if (!imageUrl || typeof imageUrl !== 'string') {
+src/server/app.ts:1372:          imageUrl,
+src/server/app.ts:1463:      error?.message || error
+src/server/app.ts:1536:        error?.message || error
+src/server/app.ts:1583:        error?.message || error
+src/server/app.ts:1679:      message: `لديك حجز جديد من ${result.booking!.customerName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}، المبلغ: ${result.booking!.finalPrice.toLocaleString()} د.ع.`,
+src/server/app.ts:1680:      messageEn: `You have a new booking from ${result.booking!.customerName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}. Amount: ${result.booking!.finalPrice.toLocaleString()} IQD.`,
+src/server/app.ts:1700:      error?.message || error
+src/server/app.ts:1705:    // Return successful booking immediately.
+src/server/app.ts:1745:    console.error('[BOOKING_QR] Failed to complete booking:', error?.message || error);
+src/server/app.ts:1822:   Persistent private messages backed by Neon (messages table).
+src/server/app.ts:1825:let messagesTableReady: Promise<void> | null = null;
+src/server/app.ts:1828:   - Global per-IP limit on how many messages can be sent in a window.
+src/server/app.ts:1830:const messageRateLimiter = rateLimit({
+src/server/app.ts:1832:  max: 60, // up to 60 messages per IP per window
+src/server/app.ts:1835:  message: {
+src/server/app.ts:1841:const messageRecipientCooldown = new Map<string, number>();
+src/server/app.ts:1842:const MESSAGE_RECIPIENT_MIN_INTERVAL_MS = 1500;
+src/server/app.ts:1844:async function ensureMessagesTable(): Promise<void> {
+src/server/app.ts:1845:  if (!messagesTableReady) {
+src/server/app.ts:1846:    messagesTableReady = (async () => {
+src/server/app.ts:1848:        CREATE TABLE IF NOT EXISTS messages (
+src/server/app.ts:1862:          ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'
+src/server/app.ts:1868:      // Discover anonymous chats reuse the messages table but are tagged
+src/server/app.ts:1869:      // with a conversation_id so they never surface in normal Messages.
+src/server/app.ts:1872:          ALTER TABLE messages ADD COLUMN conversation_id TEXT
+src/server/app.ts:1878:      // Media support for direct messages (images + voice). The original
+src/server/app.ts:1883:          ALTER TABLE messages ADD COLUMN type TEXT NOT NULL DEFAULT 'text'
+src/server/app.ts:1890:          ALTER TABLE messages ADD COLUMN media_url TEXT
+src/server/app.ts:1897:          ALTER TABLE messages ADD COLUMN media_thumbnail TEXT
+src/server/app.ts:1904:          ALTER TABLE messages ADD COLUMN media_metadata TEXT
+src/server/app.ts:1910:      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id)`;
+src/server/app.ts:1911:      await followSql`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`;

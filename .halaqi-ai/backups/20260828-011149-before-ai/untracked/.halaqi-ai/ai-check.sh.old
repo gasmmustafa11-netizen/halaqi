@@ -1,0 +1,40 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP=".halaqi-ai/backups/$STAMP-before-ai.patch"
+
+echo "=== Halaqi AI Safe Check ==="
+
+# Save ONLY tracked-file changes before the AI starts.
+git diff --binary > "$BACKUP"
+
+echo "Checkpoint: $BACKUP"
+echo "Running verification..."
+
+if ./.halaqi-ai/verify.sh; then
+  echo
+  echo "ALL CHECKS PASSED."
+  echo "No automatic commit or push."
+  exit 0
+fi
+
+echo
+echo "CHECKS FAILED."
+echo "Restoring the AI changes while preserving the pre-existing work..."
+
+git diff --binary > ".halaqi-ai/logs/$STAMP-failed.patch"
+
+git reset --hard HEAD
+git clean -fd -- . ':!.halaqi-ai'
+
+if [ -s "$BACKUP" ]; then
+  git apply "$BACKUP"
+fi
+
+echo "Pre-existing tracked changes restored."
+echo "No commit or push performed."
+exit 1

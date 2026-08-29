@@ -1,0 +1,9 @@
+{
+  "project": "Halaqi",
+  "autoPush": false,
+  "autoCommit": false,
+  "rollbackOnTestFailure": true,
+  "runTypecheck": true,
+  "runTests": true,
+  "runBuild": true
+}
