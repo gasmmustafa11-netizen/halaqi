@@ -582,6 +582,7 @@ export const api = {
     name: string;
     phone?: string;
     city?: string;
+    bio?: string;
   }): Promise<{
     success: boolean;
     user?: any;

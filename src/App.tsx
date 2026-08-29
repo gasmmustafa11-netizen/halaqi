@@ -62,6 +62,46 @@ function AppContent() {
   // profile back button returns to the real previous screen instead of a
   // hardcoded destination.
   const prevProfileViewRef = useRef<string>('explore');
+  const swipeRootRef = useRef<HTMLDivElement>(null);
+  const swipeStartX = useRef<number | null>(null);
+  const swipeStartY = useRef<number | null>(null);
+
+  // Horizontal swipe navigation between main sections (mobile-friendly)
+  useEffect(() => {
+    const el = swipeRootRef.current;
+    if (!el) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      swipeStartX.current = e.touches[0].clientX;
+      swipeStartY.current = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.changedTouches.length !== 1 || swipeStartX.current === null || swipeStartY.current === null) return;
+      const deltaX = e.changedTouches[0].clientX - swipeStartX.current;
+      const deltaY = e.changedTouches[0].clientY - swipeStartY.current;
+      // Only trigger on clear horizontal swipe with minimal vertical movement
+      if (Math.abs(deltaX) > 70 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        const mainOrder = ['explore', 'posts', 'map', 'discover', 'profile', 'bookings'];
+        const idx = mainOrder.indexOf(currentView);
+        if (deltaX < 0 && idx >= 0 && idx < mainOrder.length - 1) {
+          handleNavigate(mainOrder[idx + 1]);
+        } else if (deltaX > 0 && idx > 0) {
+          handleNavigate(mainOrder[idx - 1]);
+        }
+      }
+      swipeStartX.current = null;
+      swipeStartY.current = null;
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [currentView]);
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -185,7 +225,7 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
+    <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
       {currentView !== 'posts' && (
         <Navbar

@@ -250,9 +250,56 @@ app.get(
   }
 );
 
+app.put('/api/auth/me/avatar', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { imageUrl } = req.body;
+
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'رابط الصورة مطلوب.',
+      });
+    }
+
+    if (imageUrl.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        error: 'رابط الصورة طويل جداً.',
+      });
+    }
+
+    const user = db.getUserById(req.user!.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'المستخدم غير موجود.',
+      });
+    }
+
+    user.avatar = imageUrl;
+
+    await db.persistUserToNeon(user.id);
+
+    const updatedUser =
+      (await db.getUserByIdFromNeon(user.id)) || user;
+
+    return res.json({
+      success: true,
+      user: db.sanitizeUser(updatedUser),
+    });
+  } catch (error) {
+    console.error('[Update Avatar Error]:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر حفظ الصورة الشخصية.',
+    });
+  }
+});
+
 /* =========================================================
    UPDATE CURRENT USER PROFILE
-========================================================= */
+ ========================================================= */
 app.put(
   '/api/auth/me/profile',
   requireAuth,
@@ -271,7 +318,19 @@ app.put(
       });
 
       const userId = req.user!.id;
-      const { name, phone, city, username } = req.body || {};
+      const { name, phone, city, username, bio } = req.body || {};
+
+      let bioUpdate: string | undefined = undefined;
+      if (bio !== undefined && bio !== null) {
+        const trimmedBio = String(bio).trim();
+        if (trimmedBio.length > 40) {
+          return res.status(400).json({
+            success: false,
+            error: 'الوصف الشخصي يجب ألا يتجاوز 40 حرفاً.',
+          });
+        }
+        bioUpdate = trimmedBio || undefined;
+      }
 
       if (!String(name || '').trim()) {
         return res.status(400).json({
@@ -314,6 +373,7 @@ app.put(
         phone: phone ? String(phone).trim() : undefined,
         city: city ? String(city).trim() : undefined,
         username: usernameUpdate,
+        bio: bioUpdate,
       });
 
       if (!result.success || !result.user) {

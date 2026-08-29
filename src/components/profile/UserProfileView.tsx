@@ -338,12 +338,14 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editCity, setEditCity] = useState('');
+  const [editBio, setEditBio] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
   const handleEditProfile = () => {
     setEditName((user as any)?.name || (user as any)?.fullName || '');
     setEditPhone((user as any)?.phone || '');
     setEditCity((user as any)?.city || '');
+    setEditBio((user as any)?.bio || '');
     setShowEditProfile(true);
   };
 
@@ -360,6 +362,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
         name: editName.trim(),
         phone: editPhone.trim() || undefined,
         city: editCity.trim() || undefined,
+        bio: editBio.trim() || undefined,
       });
 
       if (!result.success) {
@@ -430,16 +433,35 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-
     if (!file) return;
 
-    /*
-     * لا نرفع الصورة هنا بشكل وهمي.
-     * نربط هذا لاحقًا مع نظام رفع الصور الموجود بالمشروع.
-     */
-    console.log('Profile image selected:', file.name);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const dataUrl = reader.result as string;
+        const upload = await api.uploadImage(dataUrl);
+        if (!upload.success || !upload.imageUrl) {
+          notify(upload.error || 'تعذر رفع الصورة الشخصية.', 'error');
+          return;
+        }
+        const update = await api.updateMyAvatar(upload.imageUrl);
+        if (update.success) {
+          notify('تم تحديث الصورة الشخصية.', 'success');
+          await refreshUser();
+        } else {
+          notify(update.error || 'تعذر حفظ الصورة الشخصية.', 'error');
+        }
+      };
+      reader.onerror = () => {
+        notify('تعذر قراءة الملف.', 'error');
+      };
+    } catch (err) {
+      console.error('[PROFILE AVATAR UPLOAD]', err);
+      notify('حدث خطأ أثناء رفع الصورة.', 'error');
+    }
   };
 
   const handleShare = async () => {
@@ -603,6 +625,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                             <p className="text-[#9CA3AF] text-sm">
               {roleLabel}
             </p>
+            {(user as any)?.username && (
+              <p className="text-xs text-[#D4AF37]/80 font-medium mt-0.5">@{(user as any).username}</p>
+            )}
           </div>
 
           {/* Actions */}
@@ -672,6 +697,13 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
               </p>
             </button>
           </div>
+
+          {/* Bio / Intro */}
+          {(user as any)?.bio && (
+            <div className="mb-4 px-1">
+              <p className="text-sm text-gray-200 leading-relaxed break-words">{(user as any).bio}</p>
+            </div>
+          )}
 
           {/* About */}
           <div className="mb-6">
@@ -1261,6 +1293,32 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                     className="w-full rounded-xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-medium text-white outline-none transition-all placeholder:text-slate-600 focus:border-[#D4AF37]/50 focus:bg-black/30 focus:ring-2 focus:ring-[#D4AF37]/10 disabled:cursor-not-allowed disabled:opacity-50"
                   />
 
+                </div>
+
+                {/* Bio */}
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition-all focus-within:border-[#D4AF37]/30 focus-within:bg-white/[0.035]">
+                  <label htmlFor="edit-profile-bio" className="block text-sm font-bold text-white mb-2">
+                    {language === 'ar' ? 'الوصف الشخصي' : 'Bio'}
+                  </label>
+                  <textarea
+                    id="edit-profile-bio"
+                    value={editBio}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val.length <= 40) setEditBio(val);
+                    }}
+                    disabled={savingProfile}
+                    maxLength={40}
+                    rows={2}
+                    placeholder={language === 'ar' ? 'أخبرنا عن نفسك (حتى 40 حرف)' : 'Tell us about yourself (up to 40 chars)'}
+                    className="w-full rounded-xl border border-white/[0.08] bg-black/20 px-4 py-3 text-sm font-medium text-white outline-none transition-all placeholder:text-slate-600 focus:border-[#D4AF37]/50 focus:bg-black/30 focus:ring-2 focus:ring-[#D4AF37]/10 resize-none disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-[10px] text-slate-500">{editBio.length}/40</span>
+                    {editBio.trim().length === 40 && (
+                      <span className="text-[10px] text-[#D4AF37] font-semibold">{language === 'ar' ? 'تم الوصول للحد الأقصى' : 'Max reached'}</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Actions */}

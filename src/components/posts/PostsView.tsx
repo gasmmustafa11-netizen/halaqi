@@ -59,8 +59,45 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [directPostLoading, setDirectPostLoading] = useState(false);
 
   // Posts section sub-tabs: image Posts feed vs Reels (video) feed.
-  const [expandedCaptions, setExpandedCaptions] = useState<Record<string, boolean>>({});
+  const swipeRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
   const [subTab, setSubTab] = useState<'posts' | 'reels'>('posts');
+  const [expandedCaptions, setExpandedCaptions] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const el = swipeRef.current;
+    if (!el) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.changedTouches.length !== 1 || touchStartX.current === null || touchStartY.current === null) return;
+      const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      // Only trigger on clear horizontal swipe with minimal vertical movement
+      if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        if (deltaX < 0 && subTab === 'posts') {
+          setSubTab('reels');
+        } else if (deltaX > 0 && subTab === 'reels') {
+          setSubTab('posts');
+        }
+      }
+      touchStartX.current = null;
+      touchStartY.current = null;
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [subTab]);
 
   // Comment edit / delete (owner only) via long-press.
   const [menuComment, setMenuComment] = useState<PostComment | null>(null);
@@ -759,6 +796,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
   return (
     <main
+      ref={swipeRef}
       dir={isRtl ? 'rtl' : 'ltr'}
       className="relative min-h-screen overflow-hidden bg-[#0A0A0A] pb-28 text-white"
     >

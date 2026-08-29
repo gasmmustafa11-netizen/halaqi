@@ -23,6 +23,7 @@ import { notify, confirmDialog } from '../../utils/notifications';
 interface PublicUser {
   id: string;
   name: string;
+  username?: string;
   avatar?: string | null;
   city?: string | null;
   role: UserRole;
@@ -431,6 +432,9 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
               </div>
 
               <p className="text-sm text-gray-400 mt-2">{roleLabel}</p>
+              {user.username && (
+                <p className="text-xs text-[#D4AF37]/80 font-medium mt-0.5">@{user.username}</p>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
@@ -478,6 +482,13 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
               <div className="text-[11px] text-gray-500 mt-1">يتابع</div>
             </div>
           </div>
+
+          {/* Bio / Intro */}
+          {(user as any)?.bio && (
+            <div className="mt-4 px-1">
+              <p className="text-sm text-gray-300 leading-relaxed break-words">{(user as any).bio}</p>
+            </div>
+          )}
         </div>
       </section>
 

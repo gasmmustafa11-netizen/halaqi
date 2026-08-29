@@ -2062,7 +2062,7 @@ class DatabaseStore {
   }
 
   // Admin User Management
-  async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string; username?: string }) {
+  async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string; username?: string; bio?: string }) {
     try {
       console.log('[PROFILE UPDATE DEBUG] userId =', userId);
       console.log('[PROFILE UPDATE DEBUG] newName =', updates.name);
@@ -2081,10 +2081,11 @@ class DatabaseStore {
         SET name = ${updates.name},
             phone = ${updates.phone ?? null},
             city = ${updates.city ?? null},
-            username = ${updates.username ?? null}
+            username = ${updates.username ?? null},
+            bio = ${updates.bio ?? null}
         WHERE id = ${userId}
         RETURNING id, name, email, phone, role, city, salon_id, avatar, username,
-                  password_hash, salt, is_active, is_banned, created_at
+                  password_hash, salt, is_active, is_banned, created_at, bio
       `;
 
       console.log('[PROFILE UPDATE DEBUG] UPDATED =', rows[0] || null);
@@ -2102,6 +2103,7 @@ class DatabaseStore {
         salonId: u.salon_id || undefined,
         avatar: u.avatar || undefined,
         username: u.username || undefined,
+        bio: u.bio || undefined,
         passwordHash: u.password_hash,
         salt: u.salt,
         isActive: u.is_active !== false,
@@ -2117,6 +2119,7 @@ class DatabaseStore {
         stateUser.phone = user.phone;
         stateUser.city = user.city;
         stateUser.username = user.username;
+        stateUser.bio = user.bio;
       }
 
       return { success: true, user };
