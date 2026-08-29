@@ -405,6 +405,24 @@ app.put(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    SALONS
 ========================================================= */
@@ -1030,6 +1048,24 @@ app.get(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    REELS VIDEO STREAMING (range-aware, same-origin proxy)
    The <video> element points here instead of the raw Supabase URL so that:
@@ -1203,6 +1239,24 @@ app.put(
         success: false,
         error: 'تعذر تحديث حالة البريميوم.',
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -1590,6 +1644,24 @@ app.post(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    REELS VIDEO UPLOAD (object storage, NOT the database)
    Accepts a base64 data URL for a short video, validates the MIME type and
@@ -1682,6 +1754,24 @@ app.post(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    MESSAGE MEDIA UPLOAD (object storage, NOT the database)
    Accepts a base64 data URL for an image or voice clip, validates
@@ -1749,6 +1839,24 @@ app.post(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    SECURE MEDIA STREAMING PROXY
    Streams a message's media object from object storage using the
@@ -1809,6 +1917,24 @@ app.get(
     } catch (error) {
       console.error('[MESSAGE MEDIA STREAM ERROR]', error);
       return res.status(500).json({ success: false, error: 'تعذر تحميل الوسائط.' });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -3347,6 +3473,24 @@ app.get(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    SALON POST LIKES
 ========================================================= */
@@ -3409,6 +3553,24 @@ app.get(
         liked: false,
         likeCount: 0,
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -3623,6 +3785,24 @@ app.post(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    COMMENT REACTIONS (Like / Dislike)
 ========================================================= */
@@ -3673,6 +3853,24 @@ app.post(
         success: false,
         error: 'تعذر تسجيل التفاعل.',
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -3761,6 +3959,24 @@ app.delete(
         success: false,
         error: 'تعذر حذف التعليق.',
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -3993,6 +4209,24 @@ app.put(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    ADMIN SANCTION
 ========================================================= */
@@ -4035,6 +4269,24 @@ app.put(
         success: false,
         error: 'تعذر رفع العقوبة.',
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -4259,6 +4511,24 @@ app.put(
         success: false,
         error: 'تعذر تحديث حالة الإشعار.',
       });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
@@ -5076,6 +5346,24 @@ app.post(
   }
 );
 
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
+    }
+  }
+);
+
 /* =========================================================
    ADMIN: BOT SYSTEM CONTROL
    Lists bot stats and allows the admin to START/STOP all bot
@@ -5142,6 +5430,24 @@ app.post(
     } catch (error: any) {
       console.error('[ADMIN BOTS STOP]', error?.message || error);
       return res.status(500).json({ success: false, error: 'تعذر إيقاف البوتات.' });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.deleteUser(req.params.id, req.user!, req.ip || '127.0.0.1');
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN DELETE USER]', error);
+      res.status(500).json({ success: false, error: 'تعذر حذف المستخدم.' });
     }
   }
 );
