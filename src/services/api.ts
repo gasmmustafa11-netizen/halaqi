@@ -22,7 +22,10 @@ import {
   SupportTicket,
   SupportTicketDetail,
   SupportTicketMessage,
-  SupportAttachment
+  SupportAttachment,
+  ModerationContentType,
+  ModerationAction,
+  ModerationFinalDecision
 } from '../types';
 
 const API_BASE =
@@ -2674,6 +2677,86 @@ export const api = {
       return { success: res.ok && data.success, error: data.error };
     } catch (err) {
       console.error('API Error [adminUpdateSupportTicketNote]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  // ============================================================
+  // AI SMART MODERATION — CONTENT REPORTS
+  // ============================================================
+  async createContentReport(payload: {
+    contentType: ModerationContentType;
+    contentId: string;
+    reason: string;
+    details?: string;
+  }): Promise<{ success: boolean; reportId?: string; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/content-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, reportId: data.reportId, error: data.error };
+    } catch (err) {
+      console.error('API Error [createContentReport]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getAdminModerationReports(params: { status?: string; contentType?: string; decision?: string; search?: string; limit?: number; offset?: number } = {}): Promise<{ success: boolean; reports?: any[]; error?: string }> {
+    try {
+      const qs = new URLSearchParams();
+      if (params.status) qs.set('status', params.status);
+      if (params.contentType) qs.set('contentType', params.contentType);
+      if (params.decision) qs.set('decision', params.decision);
+      if (params.search) qs.set('search', params.search);
+      if (params.limit) qs.set('limit', String(params.limit));
+      if (params.offset) qs.set('offset', String(params.offset));
+      const res = await fetchWithAuth(`/api/admin/moderation/reports?${qs.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, reports: data.reports, error: data.error };
+    } catch (err) {
+      console.error('API Error [getAdminModerationReports]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getAdminModerationReportDetail(reportId: string): Promise<{ success: boolean; report?: any; snapshot?: any; logs?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/moderation/reports/${encodeURIComponent(reportId)}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, report: data.report, snapshot: data.snapshot, logs: data.logs, error: data.error };
+    } catch (err) {
+      console.error('API Error [getAdminModerationReportDetail]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminUpdateModerationReport(
+    reportId: string,
+    payload: {
+      status?: 'pending' | 'reviewing' | 'resolved' | 'rejected';
+      adminNote?: string;
+      finalDecision?: ModerationFinalDecision;
+      applyHide?: boolean;
+      applyRestore?: boolean;
+      applyRemove?: boolean;
+      applyWarn?: boolean;
+      applyRestrict?: boolean;
+      action?: ModerationAction;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/moderation/reports/${encodeURIComponent(reportId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminUpdateModerationReport]:', err);
       return { success: false, error: 'تعذر الاتصال بالخادم.' };
     }
   },

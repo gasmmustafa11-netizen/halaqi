@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db.js';
+import { analyzeContent } from './aiModeration';
 import { startAllBots, stopAllBots, initBotEngine, runCronTick } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
 import {
@@ -5417,6 +5418,239 @@ app.get(
     } catch (error) {
       console.error('[ADMIN REPORTS ERROR]', error);
       return res.status(500).json({ success: false, error: 'تعذر جلب البلاغات.' });
+    }
+  }
+);
+
+/* ---------- AI Smart Moderation & Content Reports ---------- */
+
+// Non-blocking AI analysis of a freshly created content report.
+// Runs after the HTTP response so reporting is never delayed by the AI call.
+async function processContentReport(reportId: string): Promise<void> {
+  try {
+    const detail = await db.getAdminModerationReportDetail(reportId);
+    const report = detail.report;
+    if (!report) return;
+
+    const snapshot = await db.getContentSnapshot(report.contentType, report.contentId);
+    const ai = await analyzeContent({
+      text: snapshot?.text || undefined,
+      imageUrl: snapshot?.mediaUrl || undefined,
+      contentType: report.contentType,
+      reportReason: report.reason,
+    });
+
+    await db.recordModerationLog({
+      reportId,
+      contentId: report.contentId,
+      contentType: report.contentType,
+      detectedCategories: ai.detectedCategories,
+      confidenceScores: ai.confidenceScores,
+      severity: ai.severity,
+      confidence: ai.confidence,
+      decision: ai.decision,
+      action: ai.action,
+      reason: ai.reason,
+      model: ai.model,
+    });
+
+    const reporterId = report.reporterId;
+
+    if (ai.decision === 'violation') {
+      // HIGH confidence + HIGH severity → automatic, reversible action.
+      await db.applyModerationHide(report.contentType, report.contentId, 'auto_hidden_by_ai');
+      if (ai.warnUser && report.contentOwnerId) {
+        await db.warnUser(report.contentOwnerId);
+      }
+      await db.updateContentReportStatus(reportId, 'resolved', 'violation');
+
+      db.createNotification({
+        userId: reporterId,
+        title: 'تم اتخاذ إجراء بحق المحتوى المخالف',
+        titleEn: 'Action taken on the reported content',
+        message: 'تمت مراجعة بلاغك واتخاذ إجراء بشأن المحتوى المخالف.',
+        messageEn: 'Your report was reviewed and action was taken on the violating content.',
+        type: 'moderation',
+      }).catch(() => {});
+
+      if (report.contentOwnerId) {
+        db.createNotification({
+          userId: report.contentOwnerId,
+          title: 'تم إخفاء أحد محتوياتك',
+          titleEn: 'One of your posts was hidden',
+          message: 'تم إخفاء المحتوى لمخالفته سياسات حلاقي.',
+          messageEn: 'Your content was hidden for violating Halaqi policies.',
+          type: 'moderation',
+        }).catch(() => {});
+      }
+    } else if (ai.decision === 'clean') {
+      await db.updateContentReportStatus(reportId, 'rejected', 'clean');
+      db.createNotification({
+        userId: reporterId,
+        title: 'لم يتم العثور على مخالفة',
+        titleEn: 'No violation found',
+        message: 'تمت مراجعة بلاغك ولم يتم العثور على مخالفة تستوجب إجراءً.',
+        messageEn: 'Your report was reviewed and no violating content was found.',
+        type: 'moderation',
+      }).catch(() => {});
+    } else {
+      // Uncertain / AI unavailable → escalate to human review.
+      await db.updateContentReportStatus(reportId, 'pending', 'escalate');
+      db.createNotification({
+        userId: reporterId,
+        title: 'بلاغك قيد المراجعة',
+        titleEn: 'Your report is under review',
+        message: 'تم استلام بلاغك وهو قيد المراجعة.',
+        messageEn: 'Your report was received and is under review.',
+        type: 'moderation',
+      }).catch(() => {});
+
+      const admins = db.getAdminUsers();
+      for (const admin of admins) {
+        db.createNotification({
+          userId: admin.id,
+          title: 'بلاغ جديد بانتظار المراجعة (ذكاء اصطناعي)',
+          titleEn: 'New report awaiting review (AI)',
+          message: `بلاغ جديد بانتظار المراجعة: ${report.contentType}`,
+          messageEn: `New report awaiting review: ${report.contentType}`,
+          type: 'moderation',
+        }).catch(() => {});
+      }
+    }
+  } catch (err: any) {
+    console.error('[PROCESS CONTENT REPORT]', err?.message || err);
+    try {
+      await db.updateContentReportStatus(reportId, 'pending', 'escalate');
+    } catch {}
+  }
+}
+
+// Create a content report (post / comment / reel / image). Triggers async AI.
+app.post(
+  '/api/content-reports',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const currentUserId = req.user!.id;
+      const contentType = String(req.body?.contentType || '').trim();
+      const contentId = String(req.body?.contentId || '').trim();
+      const reason = String(req.body?.reason || '').trim();
+      const details = typeof req.body?.details === 'string' ? req.body.details.slice(0, 1000) : null;
+
+      const allowed = ['user_post', 'salon_post', 'comment', 'reel'];
+      if (!allowed.includes(contentType) || !contentId) {
+        return res.status(400).json({ success: false, error: 'نوع المحتوى أو المعرّف غير صالح.' });
+      }
+      if (!reason) {
+        return res.status(400).json({ success: false, error: 'سبب البلاغ مطلوب.' });
+      }
+
+      const report = await db.createContentReport({
+        reporterId: currentUserId,
+        contentType: contentType as any,
+        contentId,
+        reason,
+        details,
+      });
+
+      if (!report) {
+        return res.status(500).json({ success: false, error: 'تعذر إنشاء البلاغ.' });
+      }
+
+      // Non-blocking AI analysis; never delays this response.
+      void processContentReport(report.id).catch(() => {});
+
+      return res.json({ success: true, reportId: report.id });
+    } catch (error) {
+      console.error('[CONTENT REPORT CREATE]', error);
+      return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+    }
+  }
+);
+
+// Admin: list content reports with optional filters.
+app.get(
+  '/api/admin/moderation/reports',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const reports = await db.getAdminModerationReports({
+        status: typeof req.query.status === 'string' ? req.query.status : undefined,
+        contentType: typeof req.query.contentType === 'string' ? req.query.contentType : undefined,
+        decision: typeof req.query.decision === 'string' ? req.query.decision : undefined,
+        search: typeof req.query.search === 'string' ? req.query.search : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : 100,
+        offset: req.query.offset ? Number(req.query.offset) : 0,
+      });
+      return res.json({ success: true, reports });
+    } catch (error) {
+      console.error('[ADMIN MODERATION LIST]', error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب البلاغات.' });
+    }
+  }
+);
+
+// Admin: content report detail (report + snapshot + AI logs).
+app.get(
+  '/api/admin/moderation/reports/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const detail = await db.getAdminModerationReportDetail(req.params.id);
+      if (!detail.report) {
+        return res.status(404).json({ success: false, error: 'البلاغ غير موجود.' });
+      }
+      return res.json({ success: true, ...detail });
+    } catch (error) {
+      console.error('[ADMIN MODERATION DETAIL]', error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب تفاصيل البلاغ.' });
+    }
+  }
+);
+
+// Admin: manual review / override of an AI decision.
+app.put(
+  '/api/admin/moderation/reports/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await db.adminUpdateModerationReport(req.params.id, {
+        status: req.body?.status,
+        adminNote: req.body?.adminNote,
+        finalDecision: req.body?.finalDecision,
+        applyHide: req.body?.applyHide,
+        applyRestore: req.body?.applyRestore,
+        applyRemove: req.body?.applyRemove,
+        applyWarn: req.body?.applyWarn,
+        applyRestrict: req.body?.applyRestrict,
+        action: req.body?.action,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+
+      // Inform the content owner about the manual action.
+      const detail = await db.getAdminModerationReportDetail(req.params.id);
+      const ownerId = detail.report?.contentOwnerId;
+      if (ownerId && (req.body?.applyHide || req.body?.applyRemove || req.body?.applyRestrict || req.body?.applyWarn)) {
+        db.createNotification({
+          userId: ownerId,
+          title: 'إجراء إداري بحق محتواك',
+          titleEn: 'Administrative action on your content',
+          message: 'تم اتخاذ إجراء إداري بحق أحد محتوياتك من قبل فريق حلاقي.',
+          messageEn: 'An administrative action was taken on your content by the Halaqi team.',
+          type: 'moderation',
+        }).catch(() => {});
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[ADMIN MODERATION UPDATE]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تحديث البلاغ.' });
     }
   }
 );

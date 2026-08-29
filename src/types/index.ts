@@ -17,6 +17,8 @@ export interface User {
   isPremium?: boolean; // Premium members get extended Reels duration (120s vs 60s)
   bio?: string;
   username?: string; // Unique, case-insensitive handle displayed as @username
+  isRestricted?: boolean; // AI/Admin moderation: temporarily blocked from posting
+  isWarned?: boolean; // AI/Admin moderation: received a warning
   createdAt: string;
 }
 
@@ -199,7 +201,8 @@ export interface Notification {
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'message' | 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment' | 'follow' | 'review' | 'support_reply';
+  type: 'message' | 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment' | 'follow' | 'review'   | 'support_reply'
+  | 'moderation';
   read: boolean;
   createdAt: string;
   link?: string;
@@ -294,6 +297,9 @@ export interface SalonPost {
   updatedAt?: string;
   likeCount: number;
   commentCount: number;
+  isHidden?: boolean; // AI/Admin moderation: hidden from feeds
+  hiddenReason?: string;
+  moderationStatus?: string; // 'auto_hidden' | 'restored' | null
 }
 
 export interface UserPost {
@@ -310,6 +316,9 @@ export interface UserPost {
   commentCount: number;
   mediaType?: 'image' | 'video'; // Reels are stored as media_type='video'
   duration?: number; // Video duration in seconds (Reels only)
+  isHidden?: boolean; // AI/Admin moderation: hidden from feeds
+  hiddenReason?: string;
+  moderationStatus?: string;
 }
 
 export interface PostComment {
@@ -323,6 +332,8 @@ export interface PostComment {
   likes?: number;
   dislikes?: number;
   myReaction?: 'like' | 'dislike' | null;
+  isHidden?: boolean; // AI/Admin moderation: hidden from view
+  hiddenReason?: string;
 }
 
 export interface PostLike {
@@ -398,4 +409,76 @@ export interface SupportTicket {
 
 export interface SupportTicketDetail extends SupportTicket {
   messages: SupportTicketMessage[];
+}
+
+// ============================================================
+// AI SMART MODERATION & CONTENT REPORTS
+// ============================================================
+
+export type ModerationContentType =
+  | 'user_post'
+  | 'salon_post'
+  | 'comment'
+  | 'reel';
+
+export type ModerationCategory =
+  | 'hate_sectarian'
+  | 'incitement_violence'
+  | 'threat_violence'
+  | 'harassment_bullying'
+  | 'sexual_inappropriate'
+  | 'scam_fraud'
+  | 'spam'
+  | 'impersonation'
+  | 'illegal_dangerous'
+  | 'doxxing'
+  | 'policy_violation'
+  | 'other';
+
+export type ModerationSeverity = 'low' | 'medium' | 'high';
+
+export type ModerationDecision = 'violation' | 'clean' | 'escalate';
+
+export type ModerationAction =
+  | 'keep_content'
+  | 'hide_content'
+  | 'remove_content'
+  | 'warn_user'
+  | 'restrict_user'
+  | 'escalate_to_admin';
+
+export type ModerationFinalDecision = 'upheld' | 'overturned' | 'pending';
+
+export interface ContentReport {
+  id: string;
+  reporterId: string;
+  reporterName?: string;
+  contentType: ModerationContentType;
+  contentId: string;
+  contentOwnerId?: string;
+  contentOwnerName?: string;
+  reason?: string;
+  details?: string;
+  status: 'pending' | 'reviewing' | 'resolved' | 'rejected';
+  aiDecision?: ModerationDecision | null;
+  createdAt: string;
+}
+
+export interface ModerationLog {
+  id: string;
+  reportId?: string;
+  contentId: string;
+  contentType: ModerationContentType;
+  detectedCategories: ModerationCategory[];
+  confidenceScores: Record<string, number>;
+  severity: ModerationSeverity;
+  confidence: number;
+  decision: ModerationDecision;
+  action?: ModerationAction;
+  reason: string;
+  model: string;
+  createdAt: string;
+  reviewedByAdmin?: boolean;
+  finalDecision?: ModerationFinalDecision;
+  adminNote?: string;
 }

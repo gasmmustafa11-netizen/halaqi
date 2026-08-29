@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
+import ReportContentButton from '../common/ReportContentButton';
 
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -1295,6 +1296,12 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       )}
                       <span className="text-[11px] font-bold">{post.commentCount}</span>
                     </button>
+
+                    <ReportContentButton
+                      contentType={post.mediaType === 'video' ? 'reel' : post.postType === 'salon' ? 'salon_post' : 'user_post'}
+                      contentId={post.id}
+                      text={post.caption}
+                    />
                   </div>
                 </article>
               );
@@ -1387,6 +1394,16 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       ? 'حذف'
                       : 'Delete'}
                 </button>
+
+                <div className="my-0.5 h-px bg-white/[0.08]" />
+
+                <ReportContentButton
+                  asMenuItem
+                  onTrigger={closeMenu}
+                  contentType="comment"
+                  contentId={menuComment.id}
+                  text={menuComment.comment}
+                />
               </div>
             );
           })()}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AdminSupportView from './AdminSupportView';
+import AdminModerationView from './AdminModerationView';
 import {
   Salon,
   Booking,
@@ -55,7 +56,7 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
   const { t } = useLanguage();
   const { user, switchRoleDemo } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts' | 'settlements' | 'support'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts' | 'settlements' | 'support' | 'moderation'>('analytics');
   const [salons, setSalons] = useState<Salon[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -934,6 +935,7 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
                     { id: 'posts', label: 'المنشورات والتعليقات', icon: FileText, count: salonPosts.length },
            { id: 'bots', label: 'البوتات', icon: Bot, count: (botStats?.total ?? 0) || undefined },
            { id: 'support', label: 'بريد الدعم', icon: LifeBuoy },
+           { id: 'moderation', label: 'البلاغات الذكية', icon: ShieldAlert },
          ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -2026,6 +2028,10 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
 
         {activeTab === 'support' && (
           <AdminSupportView onNavigate={onNavigate} />
+        )}
+
+        {activeTab === 'moderation' && (
+          <AdminModerationView onNavigate={onNavigate} />
         )}
 
       </div>

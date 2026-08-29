@@ -25,7 +25,15 @@ import {
   SupportAttachment,
   SupportTicket,
   SupportTicketDetail,
-  SupportTicketMessage
+  SupportTicketMessage,
+  ModerationContentType,
+  ModerationCategory,
+  ModerationSeverity,
+  ModerationDecision,
+  ModerationAction,
+  ModerationFinalDecision,
+  ContentReport,
+  ModerationLog
 } from '../types';
 
 async function ensureCommentReactionsTables(): Promise<void> {
@@ -1336,6 +1344,11 @@ class DatabaseStore {
       settings: { ...initialSettings },
       auditLogs: [...initialAuditLogs],
     };
+
+    // Ensure moderation tables/columns exist (additive, safe migration).
+    this.ensureModerationTables().catch((e) =>
+      console.error('[MODERATION INIT]', e)
+    );
   }
 
   // Neon salon operations
@@ -2616,6 +2629,486 @@ class DatabaseStore {
 
   // ---- Push notification delivery hook ----
   // Non-blocking: failures are swallowed so the original action still succeeds.
+  private async ensureModerationTables(): Promise<void> {
+    try {
+      await sql`
+        CREATE TABLE IF NOT EXISTS content_reports (
+          id TEXT PRIMARY KEY,
+          reporter_id TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          content_id TEXT NOT NULL,
+          content_owner_id TEXT,
+          reason TEXT,
+          details TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          ai_decision TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_content_reports_owner ON content_reports(content_owner_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_content_reports_status ON content_reports(status)`;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS moderation_logs (
+          id TEXT PRIMARY KEY,
+          report_id TEXT,
+          content_id TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          detected_categories JSONB,
+          confidence_scores JSONB,
+          severity TEXT,
+          confidence NUMERIC,
+          decision TEXT NOT NULL,
+          action TEXT,
+          reason TEXT,
+          model TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          reviewed_by_admin BOOLEAN DEFAULT false,
+          final_decision TEXT,
+          admin_note TEXT
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_moderation_logs_content ON moderation_logs(content_id)`;
+
+      // Additive, reversible moderation columns (no data loss).
+      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS moderation_status TEXT`;
+      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS moderation_status TEXT`;
+      await sql`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+      await sql`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_restricted BOOLEAN DEFAULT false`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_warned BOOLEAN DEFAULT false`;
+    } catch (err) {
+      console.error('[MODERATION TABLES]', err);
+    }
+  }
+
+  async createContentReport(data: {
+    reporterId: string;
+    contentType: ModerationContentType;
+    contentId: string;
+    reason?: string;
+    details?: string;
+  }): Promise<ContentReport | null> {
+    try {
+      await this.ensureModerationTables();
+
+      // Prevent annoying duplicate reports of the same content by same user.
+      const dup = await sql`
+        SELECT id, status, ai_decision FROM content_reports
+        WHERE reporter_id = ${data.reporterId}
+          AND content_id = ${data.contentId}
+          AND created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      if (dup[0]) {
+        return this.mapContentReport(dup[0]);
+      }
+
+      const owner = await this.getContentSnapshot(data.contentType, data.contentId);
+      const id = 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      await sql`
+        INSERT INTO content_reports
+        (id, reporter_id, content_type, content_id, content_owner_id, reason, details, status)
+        VALUES (${id}, ${data.reporterId}, ${data.contentType}, ${data.contentId},
+                ${owner?.ownerId ?? null}, ${data.reason ?? null}, ${data.details ?? null}, 'pending')
+      `;
+      return {
+        id,
+        reporterId: data.reporterId,
+        contentType: data.contentType,
+        contentId: data.contentId,
+        contentOwnerId: owner?.ownerId ?? undefined,
+        reason: data.reason,
+        details: data.details,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('[CREATE CONTENT REPORT]', err);
+      return null;
+    }
+  }
+
+  async getContentSnapshot(
+    contentType: ModerationContentType,
+    contentId: string
+  ): Promise<{ ownerId?: string; ownerName?: string; text?: string; mediaUrl?: string; isHidden?: boolean } | null> {
+    try {
+      if (contentType === 'comment') {
+        const rows = await sql`
+          SELECT pc.id, pc.user_id, u.name AS owner_name, pc.comment AS text, pc.is_hidden
+          FROM post_comments pc LEFT JOIN users u ON u.id = pc.user_id
+          WHERE pc.id = ${contentId} LIMIT 1
+        `;
+        const r = rows[0];
+        return r
+          ? { ownerId: r.user_id, ownerName: r.owner_name, text: r.text, mediaUrl: undefined, isHidden: r.is_hidden }
+          : null;
+      }
+      if (contentType === 'salon_post') {
+        const rows = await sql`
+          SELECT id, owner_id, caption, image_url, is_hidden FROM salon_posts WHERE id = ${contentId} LIMIT 1
+        `;
+        const r = rows[0];
+        return r
+          ? { ownerId: r.owner_id, text: r.caption, mediaUrl: r.image_url, isHidden: r.is_hidden }
+          : null;
+      }
+      const rows = await sql`
+        SELECT id, user_id, caption, image_url, is_hidden FROM user_posts WHERE id = ${contentId} LIMIT 1
+      `;
+      const r = rows[0];
+      return r
+        ? { ownerId: r.user_id, text: r.caption, mediaUrl: r.image_url, isHidden: r.is_hidden }
+        : null;
+    } catch (err) {
+      console.error('[CONTENT SNAPSHOT]', err);
+      return null;
+    }
+  }
+
+  async recordModerationLog(data: {
+    reportId?: string;
+    contentId: string;
+    contentType: ModerationContentType;
+    detectedCategories: ModerationCategory[];
+    confidenceScores: Record<string, number>;
+    severity: ModerationSeverity;
+    confidence: number;
+    decision: ModerationDecision;
+    action?: ModerationAction;
+    reason: string;
+    model: string;
+  }): Promise<ModerationLog | null> {
+    try {
+      await this.ensureModerationTables();
+      const id = 'ml_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      await sql`
+        INSERT INTO moderation_logs
+        (id, report_id, content_id, content_type, detected_categories, confidence_scores,
+         severity, confidence, decision, action, reason, model)
+        VALUES (${id}, ${data.reportId ?? null}, ${data.contentId}, ${data.contentType},
+                ${JSON.stringify(data.detectedCategories)}::jsonb, ${JSON.stringify(data.confidenceScores)}::jsonb,
+                ${data.severity}, ${data.confidence}, ${data.decision}, ${data.action ?? null},
+                ${data.reason}, ${data.model})
+      `;
+      return {
+        id,
+        reportId: data.reportId,
+        contentId: data.contentId,
+        contentType: data.contentType,
+        detectedCategories: data.detectedCategories,
+        confidenceScores: data.confidenceScores,
+        severity: data.severity,
+        confidence: data.confidence,
+        decision: data.decision,
+        action: data.action,
+        reason: data.reason,
+        model: data.model,
+        createdAt: new Date().toISOString(),
+        reviewedByAdmin: false,
+        finalDecision: 'pending',
+      };
+    } catch (err) {
+      console.error('[RECORD MODERATION LOG]', err);
+      return null;
+    }
+  }
+
+  async applyModerationHide(contentType: ModerationContentType, contentId: string, reason: string): Promise<void> {
+    try {
+      if (contentType === 'salon_post') {
+        await sql`UPDATE salon_posts SET is_hidden = true, hidden_reason = ${reason}, moderation_status = 'auto_hidden' WHERE id = ${contentId}`;
+      } else if (contentType === 'comment') {
+        await sql`UPDATE post_comments SET is_hidden = true, hidden_reason = ${reason}, moderation_status = 'auto_hidden' WHERE id = ${contentId}`;
+      } else {
+        await sql`UPDATE user_posts SET is_hidden = true, hidden_reason = ${reason}, moderation_status = 'auto_hidden' WHERE id = ${contentId}`;
+      }
+    } catch (err) {
+      console.error('[APPLY HIDE]', err);
+    }
+  }
+
+  async restoreContent(contentType: ModerationContentType, contentId: string): Promise<void> {
+    try {
+      if (contentType === 'salon_post') {
+        await sql`UPDATE salon_posts SET is_hidden = false, hidden_reason = NULL, moderation_status = 'restored' WHERE id = ${contentId}`;
+      } else if (contentType === 'comment') {
+        await sql`UPDATE post_comments SET is_hidden = false, hidden_reason = NULL, moderation_status = 'restored' WHERE id = ${contentId}`;
+      } else {
+        await sql`UPDATE user_posts SET is_hidden = false, hidden_reason = NULL, moderation_status = 'restored' WHERE id = ${contentId}`;
+      }
+    } catch (err) {
+      console.error('[RESTORE CONTENT]', err);
+    }
+  }
+
+  async removeContent(contentType: ModerationContentType, contentId: string): Promise<void> {
+    try {
+      if (contentType === 'comment') {
+        await sql`UPDATE post_comments SET is_hidden = true, hidden_reason = 'removed_by_admin', moderation_status = 'removed' WHERE id = ${contentId}`;
+        return;
+      }
+      if (contentType === 'salon_post') {
+        await sql`DELETE FROM salon_posts WHERE id = ${contentId}`;
+      } else {
+        await sql`DELETE FROM user_posts WHERE id = ${contentId}`;
+      }
+    } catch (err) {
+      console.error('[REMOVE CONTENT]', err);
+    }
+  }
+
+  async warnUser(userId: string): Promise<void> {
+    try {
+      await sql`UPDATE users SET is_warned = true WHERE id = ${userId}`;
+    } catch (err) {
+      console.error('[WARN USER]', err);
+    }
+  }
+
+  async restrictUser(userId: string): Promise<void> {
+    try {
+      await sql`UPDATE users SET is_restricted = true WHERE id = ${userId}`;
+    } catch (err) {
+      console.error('[RESTRICT USER]', err);
+    }
+  }
+
+  async updateContentReportStatus(
+    reportId: string,
+    status: 'pending' | 'reviewing' | 'resolved' | 'rejected',
+    aiDecision?: ModerationDecision | null
+  ): Promise<void> {
+    try {
+      await this.ensureModerationTables();
+      if (aiDecision !== undefined) {
+        await sql`UPDATE content_reports SET status = ${status}, ai_decision = ${aiDecision} WHERE id = ${reportId}`;
+      } else {
+        await sql`UPDATE content_reports SET status = ${status} WHERE id = ${reportId}`;
+      }
+    } catch (err) {
+      console.error('[UPDATE REPORT STATUS]', err);
+    }
+  }
+
+  private mapContentReport(r: any): ContentReport {
+    return {
+      id: String(r.id),
+      reporterId: r.reporter_id,
+      reporterName: r.reporter_name ?? undefined,
+      contentType: r.content_type,
+      contentId: r.content_id,
+      contentOwnerId: r.content_owner_id ?? undefined,
+      contentOwnerName: r.content_owner_name ?? undefined,
+      reason: r.reason ?? undefined,
+      details: r.details ?? undefined,
+      status: r.status,
+      aiDecision: r.ai_decision ?? null,
+      createdAt: r.created_at,
+    };
+  }
+
+  async getAdminModerationReports(params: {
+    status?: string;
+    contentType?: string;
+    decision?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ContentReport[]> {
+    try {
+      await this.ensureModerationTables();
+      const rows = await sql`
+        SELECT
+          r.id, r.reporter_id, r.content_type, r.content_id, r.content_owner_id,
+          r.reason, r.details, r.status, r.ai_decision, r.created_at,
+          rep.name AS reporter_name, rep.avatar AS reporter_avatar,
+          own.name AS content_owner_name
+        FROM content_reports r
+        LEFT JOIN users rep ON rep.id = r.reporter_id
+        LEFT JOIN users own ON own.id = r.content_owner_id
+        ORDER BY r.created_at DESC
+        LIMIT 1000
+      `;
+      const reportIds = (rows as any[]).map((r: any) => r.id);
+      let logsByReport: Record<string, any> = {};
+      if (reportIds.length) {
+        const lRows = await sql`
+          SELECT * FROM moderation_logs WHERE report_id = ANY(${reportIds}) ORDER BY created_at ASC
+        `;
+        for (const l of lRows as any[]) {
+          logsByReport[l.report_id] = l; // keep latest (ordered asc)
+        }
+      }
+
+      let result = (rows as any[]).map((r: any) => {
+        const m = logsByReport[r.id];
+        return {
+          id: String(r.id),
+          reporterId: r.reporter_id,
+          reporterName: r.reporter_name ?? undefined,
+          contentType: r.content_type,
+          contentId: r.content_id,
+          contentOwnerId: r.content_owner_id ?? undefined,
+          contentOwnerName: r.content_owner_name ?? undefined,
+          reason: r.reason ?? undefined,
+          details: r.details ?? undefined,
+          status: r.status,
+          aiDecision: r.ai_decision ?? (m ? m.decision : null),
+          createdAt: r.created_at,
+          severity: m ? m.severity : undefined,
+          confidence: m ? Number(m.confidence) : undefined,
+          action: m ? m.action : undefined,
+          detectedCategories: m ? m.detected_categories : undefined,
+          model: m ? m.model : undefined,
+          reviewedByAdmin: m ? m.reviewed_by_admin : undefined,
+          finalDecision: m ? m.final_decision : undefined,
+        };
+      });
+
+      if (params.status) result = result.filter((x: any) => x.status === params.status);
+      if (params.contentType) result = result.filter((x: any) => x.contentType === params.contentType);
+      if (params.decision) result = result.filter((x: any) => (x.aiDecision || '') === params.decision);
+      if (params.search) {
+        const s = params.search.toLowerCase();
+        result = result.filter(
+          (x: any) =>
+            (x.reason || '').toLowerCase().includes(s) ||
+            (x.contentId || '').toLowerCase().includes(s) ||
+            (x.reporterName || '').toLowerCase().includes(s)
+        );
+      }
+      const offset = params.offset ?? 0;
+      const limit = params.limit ?? 100;
+      return result.slice(offset, offset + limit);
+    } catch (err) {
+      console.error('[ADMIN MODERATION LIST]', err);
+      return [];
+    }
+  }
+
+  async getAdminModerationReportDetail(reportId: string): Promise<{
+    report: ContentReport | null;
+    snapshot: any;
+    logs: ModerationLog[];
+  }> {
+    try {
+      await this.ensureModerationTables();
+      const rRows = await sql`
+        SELECT
+          r.id, r.reporter_id, r.content_type, r.content_id, r.content_owner_id,
+          r.reason, r.details, r.status, r.ai_decision, r.created_at,
+          rep.name AS reporter_name, rep.avatar AS reporter_avatar,
+          own.name AS content_owner_name, own.is_restricted AS owner_restricted, own.is_warned AS owner_warned
+        FROM content_reports r
+        LEFT JOIN users rep ON rep.id = r.reporter_id
+        LEFT JOIN users own ON own.id = r.content_owner_id
+        WHERE r.id = ${reportId} LIMIT 1
+      `;
+      const r = rRows[0];
+      if (!r) return { report: null, snapshot: null, logs: [] };
+      const report = this.mapContentReport(r);
+      (report as any).reporterAvatar = r.reporter_avatar;
+      (report as any).contentOwnerName = r.content_owner_name ?? undefined;
+      (report as any).ownerRestricted = r.owner_restricted;
+      (report as any).ownerWarned = r.owner_warned;
+      const snapshot = await this.getContentSnapshot(r.content_type, r.content_id);
+      const lRows = await sql`
+        SELECT * FROM moderation_logs WHERE report_id = ${reportId} ORDER BY created_at ASC
+      `;
+      const logs: ModerationLog[] = (lRows as any[]).map((l: any) => ({
+        id: String(l.id),
+        reportId: l.report_id,
+        contentId: l.content_id,
+        contentType: l.content_type,
+        detectedCategories: l.detected_categories || [],
+        confidenceScores: l.confidence_scores || {},
+        severity: l.severity,
+        confidence: Number(l.confidence) || 0,
+        decision: l.decision,
+        action: l.action,
+        reason: l.reason,
+        model: l.model,
+        createdAt: l.created_at,
+        reviewedByAdmin: l.reviewed_by_admin,
+        finalDecision: l.final_decision,
+        adminNote: l.admin_note,
+      }));
+      return { report, snapshot, logs };
+    } catch (err) {
+      console.error('[ADMIN MODERATION DETAIL]', err);
+      return { report: null, snapshot: null, logs: [] };
+    }
+  }
+
+  async adminUpdateModerationReport(
+    reportId: string,
+    data: {
+      status?: 'pending' | 'reviewing' | 'resolved' | 'rejected';
+      adminNote?: string;
+      finalDecision?: ModerationFinalDecision;
+      applyHide?: boolean;
+      applyRestore?: boolean;
+      applyRemove?: boolean;
+      applyWarn?: boolean;
+      applyRestrict?: boolean;
+      action?: ModerationAction;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      await this.ensureModerationTables();
+      const detail = await this.getAdminModerationReportDetail(reportId);
+      if (!detail.report) return { success: false, error: 'البلاغ غير موجود.' };
+      const { contentType, contentId, contentOwnerId } = detail.report;
+
+      if (data.applyHide) await this.applyModerationHide(contentType, contentId, 'hidden_by_admin');
+      if (data.applyRestore) await this.restoreContent(contentType, contentId);
+      if (data.applyRemove) await this.removeContent(contentType, contentId);
+      if (data.applyWarn && contentOwnerId) await this.warnUser(contentOwnerId);
+      if (data.applyRestrict && contentOwnerId) await this.restrictUser(contentOwnerId);
+
+      if (data.status) {
+        await sql`UPDATE content_reports SET status = ${data.status} WHERE id = ${reportId}`;
+      }
+
+      // Mark the latest AI log as reviewed by admin (or insert one for pure manual actions).
+      const logs = await sql`SELECT id FROM moderation_logs WHERE report_id = ${reportId} ORDER BY created_at DESC LIMIT 1`;
+      if (logs[0]) {
+        await sql`
+          UPDATE moderation_logs
+          SET reviewed_by_admin = true,
+              final_decision = ${data.finalDecision ?? 'upheld'},
+              admin_note = ${data.adminNote ?? null},
+              action = COALESCE(${data.action ?? null}, action)
+          WHERE id = ${logs[0].id}
+        `;
+      } else {
+        await this.recordModerationLog({
+          reportId,
+          contentId,
+          contentType,
+          detectedCategories: [],
+          confidenceScores: {},
+          severity: 'medium',
+          confidence: 1,
+          decision: 'violation',
+          action: data.action ?? 'hide_content',
+          reason: data.adminNote || 'Manual admin action',
+          model: 'admin',
+        });
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('[ADMIN UPDATE MODERATION]', err);
+      return { success: false, error: err?.message || 'تعذر التحديث.' };
+    }
+  }
   async deliverPushForNotification(notification: Notification): Promise<void> {
     try {
       let category = resolvePushCategory(notification.type);
@@ -3905,8 +4398,8 @@ class DatabaseStore {
   async getSalonPosts(salonId?: string): Promise<SalonPost[]> {
     try {
       const rows = salonId
-        ? await sql`SELECT * FROM salon_posts WHERE salon_id = ${salonId} ORDER BY created_at DESC`
-        : await sql`SELECT * FROM salon_posts ORDER BY created_at DESC`;
+        ? await sql`SELECT * FROM salon_posts WHERE salon_id = ${salonId} AND is_hidden IS DISTINCT FROM true ORDER BY created_at DESC`
+        : await sql`SELECT * FROM salon_posts WHERE is_hidden IS DISTINCT FROM true ORDER BY created_at DESC`;
 
       return rows.map((p: any) => ({
         id: p.id,
@@ -4266,6 +4759,7 @@ class DatabaseStore {
           owner.interests AS author_interests
         FROM salon_posts sp
         LEFT JOIN users owner ON owner.id = sp.owner_id
+        WHERE sp.is_hidden IS DISTINCT FROM true
 
         UNION ALL
 
@@ -4297,6 +4791,7 @@ class DatabaseStore {
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.media_type IS DISTINCT FROM 'video'
+          AND up.is_hidden IS DISTINCT FROM true
 
         ORDER BY created_at DESC
         LIMIT ${FEED_LIMIT}
@@ -4503,6 +4998,14 @@ class DatabaseStore {
     requestingUser: User
   ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
     try {
+      // Respect AI/Admin restriction (non-blocking check; safe if column missing).
+      try {
+        const ru = await sql`SELECT COALESCE(is_restricted, false) AS r FROM users WHERE id = ${requestingUser.id} LIMIT 1`;
+        if (ru[0]?.r) {
+          return { success: false, error: 'حسابك مقيد مؤقتًا من النشر.' };
+        }
+      } catch {}
+
       const hasMedia = Boolean(data.imageUrl?.trim());
       const captionText = (data.caption || '').trim();
       const mediaType = data.mediaType === 'video' ? 'video' : 'image';
@@ -5173,6 +5676,7 @@ class DatabaseStore {
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.media_type = 'video'
+          AND up.is_hidden IS DISTINCT FROM true
         ORDER BY up.created_at DESC
       `;
 
@@ -5491,6 +5995,13 @@ class DatabaseStore {
     error?: string;
   }> {
     try {
+      try {
+        const ru = await sql`SELECT COALESCE(is_restricted, false) AS r FROM users WHERE id = ${requestingUser.id} LIMIT 1`;
+        if (ru[0]?.r) {
+          return { success: false, error: 'حسابك مقيد مؤقتًا من النشر.' };
+        }
+      } catch {}
+
       if (!data.comment?.trim()) {
         return {
           success: false,
@@ -5668,6 +6179,7 @@ class DatabaseStore {
         FROM post_comments pc
         LEFT JOIN users u ON u.id = pc.user_id
         WHERE pc.post_id = ${postId}
+          AND pc.is_hidden IS DISTINCT FROM true
         ORDER BY pc.created_at ASC
       `;
 
