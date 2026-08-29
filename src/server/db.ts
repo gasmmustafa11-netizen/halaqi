@@ -1591,7 +1591,7 @@ class DatabaseStore {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
              password_hash, salt, is_active, is_banned, created_at,
-             is_bot, bot_enabled, bio, is_premium
+             is_bot, bot_enabled, bio, is_premium, username
       FROM users
       WHERE id = ${id}
       LIMIT 1
@@ -1618,6 +1618,7 @@ class DatabaseStore {
       botEnabled: u.bot_enabled ?? true,
       isPremium: u.is_premium ?? false,
       bio: u.bio || undefined,
+      username: u.username || undefined,
       createdAt: new Date(u.created_at).toISOString(),
     };
   }
@@ -1723,7 +1724,8 @@ class DatabaseStore {
         created_at,
         is_bot,
         bot_enabled,
-        bio
+        bio,
+        username
       )
       VALUES (
         ${user.id},
@@ -1741,7 +1743,8 @@ class DatabaseStore {
         ${user.createdAt},
         ${user.isBot ?? false},
         ${user.botEnabled ?? true},
-        ${user.bio || null}
+        ${user.bio || null},
+        ${user.username || null}
       )
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
@@ -1757,7 +1760,8 @@ class DatabaseStore {
         is_banned = EXCLUDED.is_banned,
         is_bot = EXCLUDED.is_bot,
         bot_enabled = EXCLUDED.bot_enabled,
-        bio = EXCLUDED.bio
+        bio = EXCLUDED.bio,
+        username = EXCLUDED.username
     `;
 
     return true;
@@ -1781,7 +1785,7 @@ class DatabaseStore {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
              password_hash, salt, is_active, is_banned, created_at,
-             is_bot, bot_enabled, bio
+             is_bot, bot_enabled, bio, username
       FROM users
       WHERE LOWER(email) = ${normalized}
          OR phone = ${phone}
@@ -1808,6 +1812,7 @@ class DatabaseStore {
       isBot: u.is_bot ?? false,
       botEnabled: u.bot_enabled ?? true,
       bio: u.bio || undefined,
+      username: u.username || undefined,
       createdAt: new Date(u.created_at).toISOString(),
     };
   }
@@ -1899,6 +1904,7 @@ class DatabaseStore {
       role?: UserRole;
       city?: string;
       salonId?: string;
+      username?: string;
     },
     password?: string,
     ip?: string
@@ -1906,6 +1912,17 @@ class DatabaseStore {
     const existing = this.findUserByEmailOrPhone(userData.email || userData.phone);
     if (existing) {
       return { success: false, error: 'يوجد حساب مسجل بالفعل بهذا البريد أو رقم الهاتف.' };
+    }
+    
+    if (userData.username) {
+        const trimmedUsername = userData.username.trim();
+        if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+            return { success: false, error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).' };
+        }
+        const usernameExists = this.state.users.some(u => u.username?.toLowerCase() === trimmedUsername.toLowerCase());
+        if (usernameExists) {
+            return { success: false, error: 'اسم المستخدم مأخوذ بالفعل.' };
+        }
     }
 
     // STRICT SECURITY: Public registration CANNOT grant admin role
@@ -1922,6 +1939,7 @@ class DatabaseStore {
       role: assignedRole,
       city: userData.city || 'baghdad',
       salonId: assignedRole === 'salon_owner' ? userData.salonId : undefined,
+      username: userData.username?.trim() || undefined,
       isActive: true,
       isBanned: false,
       salt,
@@ -2044,7 +2062,7 @@ class DatabaseStore {
   }
 
   // Admin User Management
-  async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string }) {
+  async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string; username?: string }) {
     try {
       console.log('[PROFILE UPDATE DEBUG] userId =', userId);
       console.log('[PROFILE UPDATE DEBUG] newName =', updates.name);
@@ -2062,9 +2080,10 @@ class DatabaseStore {
         UPDATE users
         SET name = ${updates.name},
             phone = ${updates.phone ?? null},
-            city = ${updates.city ?? null}
+            city = ${updates.city ?? null},
+            username = ${updates.username ?? null}
         WHERE id = ${userId}
-        RETURNING id, name, email, phone, role, city, salon_id, avatar,
+        RETURNING id, name, email, phone, role, city, salon_id, avatar, username,
                   password_hash, salt, is_active, is_banned, created_at
       `;
 
@@ -2082,6 +2101,7 @@ class DatabaseStore {
         city: u.city || 'baghdad',
         salonId: u.salon_id || undefined,
         avatar: u.avatar || undefined,
+        username: u.username || undefined,
         passwordHash: u.password_hash,
         salt: u.salt,
         isActive: u.is_active !== false,
@@ -2096,6 +2116,7 @@ class DatabaseStore {
         stateUser.name = user.name;
         stateUser.phone = user.phone;
         stateUser.city = user.city;
+        stateUser.username = user.username;
       }
 
       return { success: true, user };
@@ -3174,24 +3195,27 @@ class DatabaseStore {
     try {
       const rows = await sql`
         SELECT
-          id,
-          user_id,
-          image_url,
-          caption,
-          media_type,
-          duration,
-          created_at,
-          updated_at,
-          like_count,
-          comment_count
-        FROM user_posts
-        WHERE user_id = ${userId}
-        ORDER BY created_at DESC
+          up.id,
+          up.user_id,
+          up.image_url,
+          up.caption,
+          up.media_type,
+          up.duration,
+          up.created_at,
+          up.updated_at,
+          up.like_count,
+          up.comment_count,
+          u.username AS user_username
+        FROM user_posts up
+        LEFT JOIN users u ON u.id = up.user_id
+        WHERE up.user_id = ${userId}
+        ORDER BY up.created_at DESC
       `;
 
       return rows.map((p: any) => ({
         id: p.id,
         userId: p.user_id,
+        username: p.user_username || undefined,
         imageUrl: p.image_url,
         caption: p.caption || '',
         mediaType: (p.media_type === 'video' ? 'video' : 'image') as
@@ -3233,6 +3257,7 @@ class DatabaseStore {
           up.like_count,
           up.comment_count,
           u.name AS user_name,
+          u.username AS user_username,
           u.avatar AS user_avatar
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
@@ -3250,6 +3275,7 @@ class DatabaseStore {
         id: String(row.id),
         userId: String(row.user_id),
         userName: row.user_name || 'مستخدم',
+        username: row.user_username || undefined,
         userAvatar: row.user_avatar || undefined,
         imageUrl: row.image_url,
         caption: row.caption || '',
@@ -3350,6 +3376,7 @@ class DatabaseStore {
           up.like_count,
           up.comment_count,
           u.name AS user_name,
+          u.username AS user_username,
           u.avatar AS user_avatar
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
@@ -3360,6 +3387,7 @@ class DatabaseStore {
         id: p.id,
         userId: p.user_id,
         userName: p.user_name || 'مستخدم',
+        username: p.user_username || undefined,
         userAvatar: p.user_avatar || undefined,
         imageUrl: p.image_url,
         caption: p.caption || '',
@@ -3479,6 +3507,7 @@ class DatabaseStore {
           NULL::text AS salon_name,
           up.user_id,
           u.name AS user_name,
+          u.username AS user_username,
           u.avatar AS user_avatar,
           up.image_url,
           up.caption,
@@ -3512,6 +3541,7 @@ class DatabaseStore {
 
         userId: p.user_id ? String(p.user_id) : undefined,
         userName: p.user_name || undefined,
+        username: p.user_username || undefined,
         userAvatar: p.user_avatar || undefined,
 
         imageUrl: p.image_url,
@@ -4316,6 +4346,32 @@ class DatabaseStore {
   }
 
   /**
+   * USERNAME SYSTEM
+   *
+   * Adds the `username` column to the users table plus a case-insensitive
+   * unique index (LOWER(username)). NULL usernames (legacy accounts, bots,
+   * reserved-but-unclaimed handles) are allowed to coexist, so the unique
+   * index is created with a partial WHERE clause.
+   *
+   * Runs idempotently at server start.
+   */
+  async ensureUsernameTables(): Promise<void> {
+    try {
+      await sql`
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS username TEXT
+      `;
+      await sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower
+          ON users (LOWER(username))
+          WHERE username IS NOT NULL
+      `;
+    } catch (e: any) {
+      console.error('[USERNAME] ensure schema:', e?.message || e);
+    }
+  }
+
+  /**
    * Returns Reels (video posts) ordered newest-first. Like state is computed
    * for the requesting viewer so the client can render the correct heart.
    */
@@ -4335,6 +4391,7 @@ class DatabaseStore {
           up.like_count,
           up.comment_count,
           u.name AS user_name,
+          u.username AS user_username,
           u.avatar AS user_avatar,
           EXISTS(
             SELECT 1 FROM post_likes pl
@@ -4352,6 +4409,7 @@ class DatabaseStore {
         id: String(p.id),
         userId: String(p.user_id),
         userName: p.user_name || 'مستخدم',
+        username: p.user_username || undefined,
         userAvatar: p.user_avatar || undefined,
         imageUrl: p.image_url,
         caption: p.caption || '',
@@ -5853,7 +5911,7 @@ export async function loadUsersFromNeon(): Promise<void> {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
              password_hash, salt, is_active, is_banned, created_at,
-             is_bot, bot_enabled, bio
+             is_bot, bot_enabled, bio, username
       FROM users
     `;
 
@@ -5874,6 +5932,7 @@ export async function loadUsersFromNeon(): Promise<void> {
         isBot: u.is_bot ?? false,
         botEnabled: u.bot_enabled ?? true,
         bio: u.bio || undefined,
+        username: u.username || undefined,
         createdAt: new Date(u.created_at).toISOString(),
       }));
 

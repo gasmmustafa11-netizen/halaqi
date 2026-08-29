@@ -16,6 +16,7 @@ export interface User {
   botEnabled?: boolean; // Whether automated activity is allowed for this bot
   isPremium?: boolean; // Premium members get extended Reels duration (120s vs 60s)
   bio?: string;
+  username?: string; // Unique, case-insensitive handle displayed as @username
   createdAt: string;
 }
 
@@ -299,6 +300,7 @@ export interface UserPost {
   id: string;
   userId: string;
   userName?: string;
+  username?: string;
   userAvatar?: string;
   imageUrl?: string; // Optional: text-only posts have no image
   caption: string;

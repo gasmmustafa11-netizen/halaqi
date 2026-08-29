@@ -130,9 +130,54 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/auth/check-username', async (req: Request, res: Response) => {
+  try {
+    const { username } = req.body || {};
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ success: false, error: 'اسم المستخدم مطلوب' });
+    }
+
+    const trimmed = username.trim();
+    // Format validation: alphanumeric + underscore, 3-30 chars
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmed)) {
+      return res.status(400).json({
+        success: false,
+        error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
+      });
+    }
+
+    // Check memory
+    const memoryExists = db.getState().users.some(
+      (u) => u.username?.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (memoryExists) {
+      return res.json({ success: true, available: false });
+    }
+
+    // Check Neon DB (authoritative source) for uniqueness
+    let dbExists = false;
+    try {
+      const dbRows = await followSql`
+        SELECT id FROM users WHERE LOWER(username) = ${trimmed.toLowerCase()} LIMIT 1
+      `;
+      dbExists = (dbRows as any[]).length > 0;
+    } catch {
+      // If DB check fails, rely on memory + DB constraint during creation
+    }
+
+    if (dbExists || memoryExists) {
+      return res.json({ success: true, available: false });
+    }
+
+    return res.json({ success: true, available: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'تعذر التحقق من اسم المستخدم' });
+  }
+});
+
 app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, phone, password, role, city } = req.body || {};
+    const { name, email, phone, password, role, city, username } = req.body || {};
 
     if (!name || !phone) {
       return res.status(400).json({
@@ -148,6 +193,16 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       });
     }
 
+    if (username) {
+      const trimmedUsername = String(username).trim();
+      if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+        return res.status(400).json({
+          success: false,
+          error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
+        });
+      }
+    }
+
     const result = db.createUser(
       {
         name,
@@ -155,6 +210,7 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
         phone,
         role: role === 'salon_owner' ? 'salon_owner' : 'customer',
         city,
+        username: username ? String(username).trim() || undefined : undefined,
       },
       password
     );
@@ -215,7 +271,7 @@ app.put(
       });
 
       const userId = req.user!.id;
-      const { name, phone, city } = req.body || {};
+      const { name, phone, city, username } = req.body || {};
 
       if (!String(name || '').trim()) {
         return res.status(400).json({
@@ -224,10 +280,40 @@ app.put(
         });
       }
 
+      let usernameUpdate: string | undefined = undefined;
+      if (username !== undefined && username !== null) {
+        const trimmedUsername = String(username).trim();
+        if (trimmedUsername && !/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+          return res.status(400).json({
+            success: false,
+            error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
+          });
+        }
+        usernameUpdate = trimmedUsername || undefined;
+      }
+
+      // Check uniqueness against DB if username is being updated
+      if (usernameUpdate) {
+        try {
+          const dupRows = await followSql`
+            SELECT id FROM users WHERE LOWER(username) = ${usernameUpdate.toLowerCase()} AND id <> ${userId} LIMIT 1
+          `;
+          if ((dupRows as any[]).length > 0) {
+            return res.status(400).json({
+              success: false,
+              error: 'اسم المستخدم مأخوذ بالفعل.',
+            });
+          }
+        } catch {
+          // ignore DB uniqueness check errors
+        }
+      }
+
       const result = await db.updateUserProfile(userId, {
         name: String(name).trim(),
         phone: phone ? String(phone).trim() : undefined,
         city: city ? String(city).trim() : undefined,
+        username: usernameUpdate,
       });
 
       if (!result.success || !result.user) {
@@ -1031,6 +1117,11 @@ function getSupabaseStorageClient() {
 // Ensure Reels schema extensions (media_type / duration / is_premium) exist.
 db.ensureReelsTables().catch((e: any) =>
   console.error('[REELS MIGRATION]', e?.message || e)
+);
+
+// Ensure Username System schema (username column + case-insensitive unique index)
+db.ensureUsernameTables().catch((e: any) =>
+  console.error('[USERNAME MIGRATION]', e?.message || e)
 );
 
 /* Removes the blob behind a Supabase Storage public URL. Returns ok:false when
@@ -2725,6 +2816,7 @@ app.get('/api/users/:id/public', async (req: Request, res: Response) => {
       role: user.role,
       city: user.city,
       bio: user.bio,
+      username: user.username,
       salonId: user.salonId,
       createdAt: user.createdAt,
     };
@@ -3877,6 +3969,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
         role,
         city,
         avatar,
+        username,
         is_active,
         is_banned
       FROM users
@@ -3887,6 +3980,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
           name ILIKE ${search}
           OR email ILIKE ${search}
           OR phone ILIKE ${search}
+          OR username ILIKE ${search}
         )
       ORDER BY name ASC
       LIMIT 50
@@ -3895,6 +3989,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
     const users = userRows.map((u: any) => ({
       id: u.id,
       name: u.name,
+      username: u.username,
       email: u.email,
       phone: u.phone,
       role: u.role,
