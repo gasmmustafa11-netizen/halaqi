@@ -67,8 +67,8 @@ function AppContent() {
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
 
-  // Strict swipe order: HOME → POSTS → REELS
-  const swipeSections = ['explore', 'posts', 'reels'];
+  // Strict swipe order: HOME → POSTS → PHOTOS → REELS → MY BOOKINGS → JOIN AS A SALON → PROFILE
+  const swipeSections = ['explore', 'posts', 'photos', 'reels', 'bookings', 'register_salon', 'profile'];
 
   // Helper to detect interactive elements
   const isInteractiveTarget = (target: HTMLElement | null): boolean => {
@@ -106,9 +106,9 @@ function AppContent() {
       if (Math.abs(deltaX) > 70 && Math.abs(deltaX) > Math.abs(deltaY)) {
         const idx = swipeSections.indexOf(currentView);
         if (idx >= 0) {
-          if (deltaX < 0 && idx < swipeSections.length - 1) {
+          if (deltaX > 0 && idx < swipeSections.length - 1) {
             handleNavigate(swipeSections[idx + 1]);
-          } else if (deltaX > 0 && idx > 0) {
+          } else if (deltaX < 0 && idx > 0) {
             handleNavigate(swipeSections[idx - 1]);
           }
         }
@@ -249,7 +249,7 @@ function AppContent() {
   return (
     <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
-      {currentView !== 'posts' && currentView !== 'reels' && (
+      {currentView !== 'posts' && currentView !== 'reels' && currentView !== 'photos' && (
         <Navbar
           currentView={currentView}
           onNavigate={handleNavigate}
@@ -277,6 +277,16 @@ function AppContent() {
         {currentView === 'posts' && (
         <PostsView
           key={`posts-${refreshTick.posts ?? 0}`}
+          salons={allSalons}
+          selectedPostId={selectedPostId}
+          onSelectSalon={handleSelectSalon}
+          onNavigate={handleNavigate}
+        />
+      )}
+
+        {currentView === 'photos' && (
+        <PostsView
+          key={`photos-${refreshTick.posts ?? 0}`}
           salons={allSalons}
           selectedPostId={selectedPostId}
           onSelectSalon={handleSelectSalon}
