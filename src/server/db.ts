@@ -2184,7 +2184,7 @@ class DatabaseStore {
     return { success: true, isBanned: user.isBanned };
   }
 
-  deleteUser(userId: string, adminUser: User, ip?: string): { success: boolean; error?: string } {
+  async deleteUser(userId: string, adminUser: User, ip?: string): Promise<{ success: boolean; error?: string } > {
     if (adminUser.role !== 'admin') {
       return { success: false, error: 'غير مصرح لك بحذف المستخدمين.' };
     }
@@ -2197,6 +2197,21 @@ class DatabaseStore {
       return { success: false, error: 'لا يمكن حذف حساب مدير المنصة.' };
     }
 
+    // Set is_active = false in Neon to permanently deactivate the account.
+    // This prevents login, removes user from search results, and makes
+    // /api/auth/me return inactive accounts as non-active.
+    try {
+      await sql`
+        UPDATE users
+        SET is_active = false
+        WHERE id = ${userId}
+      `;
+    } catch (error: any) {
+      console.error('[DELETE_USER_NEON_ERROR]', error);
+      return { success: false, error: 'فشل تعطيل الحساب في قاعدة البيانات.' };
+    }
+
+    // Also remove from this serverless instance's in-memory state
     this.state.users.splice(index, 1);
 
     this.addAuditLog({
@@ -2206,7 +2221,7 @@ class DatabaseStore {
       action: 'USER_DELETE',
       targetType: 'user',
       targetId: targetUser.id,
-      details: `حذف حساب المستخدم ${targetUser.name} (${targetUser.email}) نهائياً`,
+      details: `تعطيل حساب المستخدم ${targetUser.name} (${targetUser.email}) نهائياً`,
       ip: ip || '127.0.0.1',
       status: 'warning',
     });

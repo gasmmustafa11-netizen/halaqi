@@ -100,6 +100,9 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
   const [userSearchTimer, setUserSearchTimer] = useState<number | null>(null);
   const [selectedSearchUser, setSelectedSearchUser] = useState<User | null>(null);
 
+  // Deletion tracking
+  const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
+
   // Coupon Creation Form State
   const [newCouponCode, setNewCouponCode] = useState<string>('');
   const [newCouponDiscount, setNewCouponDiscount] = useState<number>(15);
@@ -572,9 +575,17 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
   };
 
   const handleDeleteUser = async (userId: string) => {
+    if (isDeletingUser) return;
     if (await confirmDialog({ message: 'هل أنت متأكد من حذف هذا الحساب نهائياً؟', danger: true })) {
-      await api.deleteUser(userId);
-      await loadAdminData();
+      setIsDeletingUser(userId);
+      try {
+        await api.deleteUser(userId);
+        await loadAdminData();
+      } catch (error) {
+        console.error('Delete user error:', error);
+      } finally {
+        setIsDeletingUser(null);
+      }
     }
   };
 
@@ -1595,7 +1606,7 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
                           <button
                             onClick={() => handleDeleteUser(u.id)}
                             title="حذف نهائي"
-                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900"
+                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900 per-50 cursor-not-allowed"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1697,9 +1708,14 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
                           <button
                             onClick={() => handleDeleteUser(u.id)}
                             title="حذف نهائي"
-                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900"
+                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900 opacity-50 cursor-not-allowed"
+                            disabled={isDeletingUser === u.id}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            {isDeletingUser === u.id ? (
+                              <Loader2 className="w-3.5 h-3.5" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
                           </button>
                         </div>
                       </td>
