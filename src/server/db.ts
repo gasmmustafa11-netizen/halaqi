@@ -59,16 +59,31 @@ const LEARN_MIN_DELETE = 0.05;
 const MANUAL_INTEREST_WEIGHT = 1.0;
 const COMBINED_MATCH_THRESHOLD = 0.3; // learned weight >= this counts as a match
 
+// Cap the unified feed so it can never scan/return an unbounded number of
+// posts (which previously let a large table stall the request indefinitely).
+const FEED_LIMIT = 100;
+
+let learnedInterestsTableReady: Promise<void> | null = null;
+
 async function ensureLearnedInterestsTable(): Promise<void> {
-  await sql`
-    CREATE TABLE IF NOT EXISTS learned_interests (
-      user_id TEXT NOT NULL,
-      interest TEXT NOT NULL,
-      weight NUMERIC NOT NULL DEFAULT 0,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (user_id, interest)
-    )
-  `;
+  if (!learnedInterestsTableReady) {
+    learnedInterestsTableReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS learned_interests (
+          user_id TEXT NOT NULL,
+          interest TEXT NOT NULL,
+          weight NUMERIC NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, interest)
+        )
+      `;
+    })().catch((err: unknown) => {
+      learnedInterestsTableReady = null;
+      throw err;
+    });
+  }
+
+  await learnedInterestsTableReady;
 }
 
 export async function recordInterestLearning(
@@ -3548,6 +3563,7 @@ class DatabaseStore {
         WHERE up.media_type IS DISTINCT FROM 'video'
 
         ORDER BY created_at DESC
+        LIMIT ${FEED_LIMIT}
       `;
 
       const posts: any[] = (rows as any[]).map((p: any) => ({

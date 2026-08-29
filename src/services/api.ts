@@ -46,9 +46,17 @@ export function getAuthToken(): string | null {
 }
 
 // Internal authenticated fetch wrapper
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(options.headers || {});
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+// Global safety net: no API call may hang the UI forever. A stalled request
+// is aborted after this timeout and surfaces as a normal error to the caller.
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+
+async function fetchWithAuth(
+  url: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<Response> {
+  const { timeout, ...restOptions } = options;
+  const headers = new Headers(restOptions.headers || {});
+  if (!headers.has('Content-Type') && !(restOptions.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -65,7 +73,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 
   console.log('[AUTH REQUEST DEBUG]', {
     url,
-    method: options.method || 'GET',
+    method: restOptions.method || 'GET',
     hasToken: !!token,
     tokenLength: token?.length || 0,
     authorizationHeader: headers.get('Authorization') ? 'PRESENT' : 'MISSING',
@@ -78,13 +86,36 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 
   console.log('[API REQUEST]', {
     url: fullUrl,
-    method: options.method || 'GET',
+    method: restOptions.method || 'GET',
   });
 
-  const response = await fetch(fullUrl, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  // A caller may opt out of the global timeout with `timeout: 0` (e.g. large
+  // media uploads); any positive value overrides the default.
+  const timeoutMs =
+    typeof timeout === 'number' && timeout > 0
+      ? timeout
+      : DEFAULT_REQUEST_TIMEOUT_MS;
+  const timer =
+    typeof timeout === 'number' && timeout > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : undefined;
+
+  let response: Response;
+  try {
+    response = await fetch(fullUrl, {
+      ...restOptions,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    // Surface as a normal error so callers (e.g. getUnifiedPostsFeed) can
+    // resolve to { success: false } instead of leaving the UI in a permanent
+    // loading state.
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   if (response.status === 401) {
     console.error('[AUTH 401]', {
@@ -897,6 +928,7 @@ export const api = {
       const res = await fetchWithAuth('/api/uploads/image', {
         method: 'POST',
         body: JSON.stringify({ dataUrl }),
+        timeout: 0,
       });
 
       const data = await res.json();
@@ -920,6 +952,7 @@ export const api = {
       const res = await fetchWithAuth('/api/uploads/video', {
         method: 'POST',
         body: JSON.stringify({ dataUrl }),
+        timeout: 0,
       });
 
       const data = await res.json();

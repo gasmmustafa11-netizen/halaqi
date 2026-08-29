@@ -211,6 +211,13 @@ export const PostsView: React.FC<PostsViewProps> = ({
             feedResult.error
           );
 
+          notify(
+            isRtl
+              ? 'تعذر تحميل المنشورات. حاول مرة أخرى.'
+              : 'Could not load posts. Please try again.',
+            'error'
+          );
+
           setPosts([]);
           setUserPosts([]);
           return;
@@ -265,6 +272,12 @@ export const PostsView: React.FC<PostsViewProps> = ({
         console.error('Load posts error:', error);
 
         if (!cancelled) {
+          notify(
+            isRtl
+              ? 'انتهت مهلة الاتصال بالخادم. حاول مرة أخرى.'
+              : 'The server took too long to respond. Please try again.',
+            'error'
+          );
           setPosts([]);
         }
       } finally {
