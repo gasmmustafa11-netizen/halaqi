@@ -48,7 +48,7 @@ import {
   Crown
 } from 'lucide-react';
 
-export const AdminPanelView: React.FC = () => {
+export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const { t } = useLanguage();
   const { user, switchRoleDemo } = useAuth();
 
@@ -879,6 +879,7 @@ export const AdminPanelView: React.FC = () => {
           { id: 'audit', label: 'سجلات المراقبة والأمان', icon: FileText, count: auditLogs.length },
           { id: 'coupons', label: 'كوبونات الخصم', icon: Tag, count: coupons.length },
           { id: 'security_tests', label: 'مصفوفة فحص الأمان (10 Tests)', icon: ShieldCheck },
+          { id: 'system', label: 'النظام', icon: ShieldCheck },
                     { id: 'posts', label: 'المنشورات والتعليقات', icon: FileText, count: salonPosts.length },
           { id: 'bots', label: 'البوتات', icon: Bot, count: (botStats?.total ?? 0) || undefined },
         ].map((tab) => {
@@ -887,7 +888,13 @@ export const AdminPanelView: React.FC = () => {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                if (tab.id === 'system') {
+                  onNavigate?.('admin_system');
+                  return;
+                }
+                setActiveTab(tab.id as any);
+              }}
               className={`flex-shrink-0 snap-start flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-[11px] sm:text-sm font-bold whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-[#D4AF37] text-black shadow-md shadow-[#D4AF37]/20'

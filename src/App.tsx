@@ -14,6 +14,9 @@ import { SalonDetailView } from './components/salons/SalonDetailView';
 import { MyBookingsView } from './components/bookings/MyBookingsView';
 import { SalonDashboardView } from './components/salon-dashboard/SalonDashboardView';
 import { AdminPanelView } from './components/admin/AdminPanelView';
+import { AdminSystemView } from './components/admin/AdminSystemView';
+import { VerificationRequestsView } from './components/admin/VerificationRequestsView';
+import { ReportsPageView } from './components/admin/ReportsPageView';
 import { SalonRegistrationView } from './components/salons/SalonRegistrationView';
 import { UserProfileView } from './components/profile/UserProfileView';
 import { PublicUserProfileView } from './components/profile/PublicUserProfileView';
@@ -343,7 +346,19 @@ function AppContent() {
           <SalonDashboardView key={`salon_dashboard-${refreshTick.salon_dashboard ?? 0}`} />
         )}
 
-        {currentView === 'admin' && role === 'admin' && <AdminPanelView />}
+        {currentView === 'admin' && role === 'admin' && <AdminPanelView onNavigate={handleNavigate} />}
+
+        {currentView === 'admin_system' && role === 'admin' && (
+          <AdminSystemView onNavigate={handleNavigate} />
+        )}
+
+        {currentView === 'admin_verification' && role === 'admin' && (
+          <VerificationRequestsView onBack={() => handleNavigate('admin_system')} />
+        )}
+
+        {currentView === 'admin_reports' && role === 'admin' && (
+          <ReportsPageView onBack={() => handleNavigate('admin_system')} />
+        )}
 
         {currentView === 'register_salon' && (
           <SalonRegistrationView
