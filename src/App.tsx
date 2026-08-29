@@ -22,6 +22,7 @@ import { BookingWizardModal } from './components/booking/BookingWizardModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { SearchView } from './components/search/SearchView';
 import { PostsView } from './components/posts/PostsView';
+import { ReelsView } from './components/posts/ReelsView';
 import { PostDetailView } from './components/posts/PostDetailView';
 import { MessagesView } from './components/messaging/MessagesView';
 import { DiscoverView } from './components/discover/DiscoverView';
@@ -66,6 +67,20 @@ function AppContent() {
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
 
+  // Strict swipe order: HOME → POSTS → REELS
+  const swipeSections = ['explore', 'posts', 'reels'];
+
+  // Helper to detect interactive elements
+  const isInteractiveTarget = (target: HTMLElement | null): boolean => {
+    if (!target) return false;
+    const tag = target.tagName.toLowerCase();
+    if (['button', 'a', 'input', 'textarea', 'select'].includes(tag)) return true;
+    if (target.closest('button, a, input, textarea, select, [role="button"], [role="link"], [contenteditable="true"]')) {
+      return true;
+    }
+    return false;
+  };
+
   // Horizontal swipe navigation between main sections (mobile-friendly)
   useEffect(() => {
     const el = swipeRootRef.current;
@@ -73,6 +88,12 @@ function AppContent() {
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+      const target = e.target as HTMLElement | null;
+      if (isInteractiveTarget(target)) {
+        swipeStartX.current = null;
+        swipeStartY.current = null;
+        return;
+      }
       swipeStartX.current = e.touches[0].clientX;
       swipeStartY.current = e.touches[0].clientY;
     };
@@ -83,12 +104,13 @@ function AppContent() {
       const deltaY = e.changedTouches[0].clientY - swipeStartY.current;
       // Only trigger on clear horizontal swipe with minimal vertical movement
       if (Math.abs(deltaX) > 70 && Math.abs(deltaX) > Math.abs(deltaY)) {
-        const mainOrder = ['explore', 'posts', 'map', 'discover', 'profile', 'bookings'];
-        const idx = mainOrder.indexOf(currentView);
-        if (deltaX < 0 && idx >= 0 && idx < mainOrder.length - 1) {
-          handleNavigate(mainOrder[idx + 1]);
-        } else if (deltaX > 0 && idx > 0) {
-          handleNavigate(mainOrder[idx - 1]);
+        const idx = swipeSections.indexOf(currentView);
+        if (idx >= 0) {
+          if (deltaX < 0 && idx < swipeSections.length - 1) {
+            handleNavigate(swipeSections[idx + 1]);
+          } else if (deltaX > 0 && idx > 0) {
+            handleNavigate(swipeSections[idx - 1]);
+          }
         }
       }
       swipeStartX.current = null;
@@ -227,7 +249,7 @@ function AppContent() {
   return (
     <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
-      {currentView !== 'posts' && (
+      {currentView !== 'posts' && currentView !== 'reels' && (
         <Navbar
           currentView={currentView}
           onNavigate={handleNavigate}
@@ -261,6 +283,13 @@ function AppContent() {
           onNavigate={handleNavigate}
         />
       )}
+
+        {currentView === 'reels' && (
+          <ReelsView
+            onBack={() => handleNavigate('posts')}
+            onNavigate={handleNavigate}
+          />
+        )}
 
       {currentView === 'map' && (
           <div className="space-y-4">

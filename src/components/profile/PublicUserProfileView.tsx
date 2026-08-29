@@ -431,7 +431,6 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
                 )}
               </div>
 
-              <p className="text-sm text-gray-400 mt-2">{roleLabel}</p>
               {user.username && (
                 <p className="text-xs text-[#D4AF37]/80 font-medium mt-0.5">@{user.username}</p>
               )}

@@ -622,9 +622,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                 </div>
               )}
             </div>
-                            <p className="text-[#9CA3AF] text-sm">
-              {roleLabel}
-            </p>
             {(user as any)?.username && (
               <p className="text-xs text-[#D4AF37]/80 font-medium mt-0.5">@{(user as any).username}</p>
             )}
