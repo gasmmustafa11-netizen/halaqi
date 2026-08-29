@@ -1692,6 +1692,36 @@ export const api = {
     }
   },
 
+  async getAdminReports(): Promise<{ success: boolean; reports?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/admin/reports');
+      const data = await res.json();
+      return {
+        success: res.ok && data.success,
+        reports: data.reports || [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getAdminReports]:', err);
+      return { success: false, reports: [], error: 'تعذر جلب البلاغات.' };
+    }
+  },
+
+  async getAdminUsersSearch(query: string): Promise<{ success: boolean; users?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/users/search?q=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      return {
+        success: res.ok && data.success,
+        users: data.users || [],
+        error: data.error,
+      };
+    } catch (err) {
+      console.error('API Error [getAdminUsersSearch]:', err);
+      return { success: false, users: [], error: 'تعذر البحث عن المستخدمين.' };
+    }
+  },
+
   async getAdminSettlements(params?: {
     year?: number;
     month?: number;

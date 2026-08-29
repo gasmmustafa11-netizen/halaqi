@@ -29,6 +29,7 @@ import {
   Trash2,
   Percent,
   Search,
+  Loader2,
   Users,
   Lock,
   Activity,
@@ -92,6 +93,12 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
   const [isLoadingBots, setIsLoadingBots] = useState<boolean>(false);
   const [botBusy, setBotBusy] = useState<boolean>(false);
 
+  // Admin User Search State
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<User[]>([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [userSearchTimer, setUserSearchTimer] = useState<number | null>(null);
+  const [selectedSearchUser, setSelectedSearchUser] = useState<User | null>(null);
 
   // Coupon Creation Form State
   const [newCouponCode, setNewCouponCode] = useState<string>('');
@@ -327,6 +334,37 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
     } finally {
       setBotBusy(false);
     }
+  };
+
+  const handleSearchUsers = async () => {
+    const q = userSearchQuery.trim();
+    if (!q || !isUserAdmin) {
+      setUserSearchResults([]);
+      setSelectedSearchUser(null);
+      return;
+    }
+    setIsSearchingUsers(true);
+    try {
+      const result = await api.getAdminUsersSearch(q);
+      setUserSearchResults(result.success ? result.users || [] : []);
+      setSelectedSearchUser(null);
+    } catch (error) {
+      console.error('Admin user search error:', error);
+      setUserSearchResults([]);
+      setSelectedSearchUser(null);
+    } finally {
+      setIsSearchingUsers(false);
+    }
+  };
+
+  const handleUserSearchInput = (value: string) => {
+    setUserSearchQuery(value);
+    setSelectedSearchUser(null);
+    if (userSearchTimer) window.clearTimeout(userSearchTimer);
+    const timer = window.setTimeout(() => {
+      handleSearchUsers();
+    }, 350);
+    setUserSearchTimer(Number(timer) as any);
   };
 
   const loadSalonPosts = async () => {
@@ -1440,100 +1478,237 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
       {/* TAB 3: User Management & RBAC */}
       {activeTab === 'users' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-white text-base">إدارة المستخدمين والصلاحيات (Role-Based Access Control)</h3>
-            <span className="text-xs text-gray-400">التحكم المباشر في رتب المستخدمين وإيقاف الحسابات</span>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-white text-base">إدارة المستخدمين والصلاحيات (Role-Based Access Control)</h3>
+              <span className="text-xs text-gray-400">التحكم المباشر في رتب المستخدمين وإيقاف الحسابات</span>
+            </div>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-[#262626] bg-[#141414]">
-            <table className="w-full text-xs text-start text-gray-300">
-              <thead className="bg-[#1A1A1A] text-gray-400 border-b border-[#262626]">
-                <tr>
-                  <th className="p-3.5 text-start">المستخدم</th>
-                  <th className="p-3.5 text-start">البريد الإلكتروني</th>
-                  <th className="p-3.5 text-start">الهاتف</th>
-                  <th className="p-3.5 text-start">الدور والصلاحية</th>
-                  <th className="p-3.5 text-start">حالة الحساب</th>
-                  <th className="p-3.5 text-start">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#262626]">
-                {usersList.map((u) => (
-                  <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-3.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] font-bold">
-                          {u.name.charAt(0)}
-                        </div>
-                        <div>
-                          <span className="font-bold text-white block">{u.name}</span>
-                          <span className="text-[10px] text-gray-500 font-mono">{u.id}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-3.5 font-mono">{u.email || '-'}</td>
-                    <td className="p-3.5 font-mono">{u.phone}</td>
-                    <td className="p-3.5">
-                      <select
-                        value={u.role}
-                        onChange={(e) => handleChangeUserRole(u.id, e.target.value as UserRole)}
-                        className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1 text-xs text-white font-bold outline-none cursor-pointer"
-                      >
-                        <option value="customer">زبون (Customer)</option>
-                        <option value="salon_owner">صاحب صالون (Salon Owner)</option>
-                        <option value="staff">حلاق / كادر (Staff)</option>
-                        <option value="admin">مدير نظام (Admin)</option>
-                      </select>
-                    </td>
-                    <td className="p-3.5">
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          u.isBanned
-                            ? 'bg-red-950 text-red-300 border border-red-500/40'
-                            : 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+          {/* Professional User Search */}
+          <div className="rounded-2xl bg-[#141414] border border-[#262626] p-4 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+                <input
+                  autoFocus
+                  type="search"
+                  value={userSearchQuery}
+                  onChange={(e) => handleUserSearchInput(e.target.value)}
+                  placeholder="ابحث باسم المستخدم أو @username أو معرف الحساب..."
+                  className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-[#D4AF37]/50 transition-all"
+                />
+                {userSearchQuery.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => { setUserSearchQuery(''); setUserSearchResults([]); setSelectedSearchUser(null); if (userSearchTimer) window.clearTimeout(userSearchTimer); setUserSearchTimer(null); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#262626] hover:bg-[#333] text-gray-400 flex items-center justify-center transition-all"
+                    aria-label="Clear"
+                  >
+                    <span className="text-xs font-black">×</span>
+                  </button>
+                )}
+                {isSearchingUsers && (
+                  <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37] animate-spin" />
+                )}
+              </div>
+            </div>
+
+            {/* Search Results */}
+            {userSearchQuery.trim() && (
+              <div className="space-y-3">
+                {isSearchingUsers ? (
+                  <div className="p-8 text-center text-gray-400 rounded-xl bg-[#1A1A1A] border border-[#262626]">
+                    جاري البحث...
+                  </div>
+                ) : userSearchResults.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 rounded-xl bg-[#1A1A1A] border border-[#262626]">
+                    <Search className="w-6 h-6 text-[#D4AF37]/60 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-white">لا توجد نتائج</p>
+                    <p className="text-xs text-gray-500 mt-1">جرب كتابة اسم مختلف أو اسم المستخدم أو معرف الحساب</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {userSearchResults.map((u) => (
+                      <div
+                        key={u.id}
+                        className={`rounded-2xl border transition-all p-4 ${
+                          selectedSearchUser?.id === u.id ? 'bg-[#D4AF37]/10 border-[#D4AF37]/40' : 'bg-[#1A1A1A] border-[#262626] hover:bg-[#181818] hover:border-[#D4AF37]/20'
                         }`}
                       >
-                        {u.isBanned ? 'محظور (Banned)' : 'نشط (Active)'}
-                      </span>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleToggleBanUser(u.id)}
-                          title={u.isBanned ? 'إلغاء الحظر' : 'حظر الحساب'}
-                          className={`p-1.5 rounded-lg border transition-all ${
-                            u.isBanned
-                              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                              : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
-                          }`}
-                        >
-                          {u.isBanned ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
-                        </button>
-                        <button
-                          onClick={() => handleTogglePremiumUser(u.id)}
-                          title={u.isPremium ? 'إلغاء البريميوم' : 'منح البريميوم'}
-                          className={`p-1.5 rounded-lg border transition-all ${
-                            u.isPremium
-                              ? 'bg-[#D4AF37]/70 border-[#D4AF37] text-black'
-                              : 'bg-[#D4AF37]/10 border-[#D4AF37]/40 text-[#D4AF37]'
-                          }`}
-                        >
-                          <Crown className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(u.id)}
-                          title="حذف نهائي"
-                          className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] font-bold shrink-0 shadow-md">
+                            {u.name.charAt(0)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white truncate">{u.name}</span>
+                              {u.username && (
+                                <span className="text-[10px] text-[#D4AF37]/80 font-medium truncate">@{u.username}</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-gray-500 font-mono truncate mt-0.5">{u.id}</div>
+                            <div className="text-[11px] text-gray-400 truncate">{u.email || '-'} · {u.phone || '-'}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/5">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              u.isBanned ? 'bg-red-950 text-red-300 border border-red-500/40' : 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                            }`}
+                          >
+                            {u.isBanned ? 'محظور' : 'نشط'}
+                          </span>
+
+                          <select
+                            value={u.role}
+                            onChange={(e) => handleChangeUserRole(u.id, e.target.value as UserRole)}
+                            className="bg-[#0A0A0A] border border-[#333] rounded-lg px-2 py-1 text-[11px] text-white font-bold outline-none cursor-pointer"
+                          >
+                            <option value="customer">زبون</option>
+                            <option value="salon_owner">صاحب صالون</option>
+                            <option value="staff">كادر</option>
+                            <option value="admin">مدير</option>
+                          </select>
+
+                          <button
+                            onClick={() => handleTogglePremiumUser(u.id)}
+                            title={u.isPremium ? 'إلغاء البريميوم' : 'منح البريميوم'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              u.isPremium ? 'bg-[#D4AF37]/70 border-[#D4AF37] text-black' : 'bg-[#D4AF37]/10 border-[#D4AF37]/40 text-[#D4AF37]'
+                            }`}
+                          >
+                            <Crown className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleBanUser(u.id)}
+                            title={u.isBanned ? 'إلغاء الحظر' : 'حظر الحساب'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              u.isBanned ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
+                            }`}
+                          >
+                            {u.isBanned ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteUser(u.id)}
+                            title="حذف نهائي"
+                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => onNavigate?.(`user:${u.id}`)}
+                            title="عرض الملف الشخصي"
+                            className="p-1.5 rounded-lg bg-[#0A0A0A] border border-[#333] text-gray-300 hover:text-white hover:border-[#D4AF37]/40 transition-all"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
+
+          {/* Full Table - shown when no active search */}
+          {!userSearchQuery.trim() && (
+            <div className="overflow-x-auto rounded-2xl border border-[#262626] bg-[#141414]">
+              <table className="w-full text-xs text-start text-gray-300">
+                <thead className="bg-[#1A1A1A] text-gray-400 border-b border-[#262626]">
+                  <tr>
+                    <th className="p-3.5 text-start">المستخدم</th>
+                    <th className="p-3.5 text-start">البريد الإلكتروني</th>
+                    <th className="p-3.5 text-start">الهاتف</th>
+                    <th className="p-3.5 text-start">الدور والصلاحية</th>
+                    <th className="p-3.5 text-start">حالة الحساب</th>
+                    <th className="p-3.5 text-start">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#262626]">
+                  {usersList.map((u) => (
+                    <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] font-bold">
+                            {u.name.charAt(0)}
+                          </div>
+                          <div>
+                            <span className="font-bold text-white block">{u.name}</span>
+                            <span className="text-[10px] text-gray-500 font-mono">{u.id}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3.5 font-mono">{u.email || '-'}</td>
+                      <td className="p-3.5 font-mono">{u.phone}</td>
+                      <td className="p-3.5">
+                        <select
+                          value={u.role}
+                          onChange={(e) => handleChangeUserRole(u.id, e.target.value as UserRole)}
+                          className="bg-[#1A1A1A] border border-[#333] rounded-lg px-2 py-1 text-xs text-white font-bold outline-none cursor-pointer"
+                        >
+                          <option value="customer">زبون (Customer)</option>
+                          <option value="salon_owner">صاحب صالون (Salon Owner)</option>
+                          <option value="staff">حلاق / كادر (Staff)</option>
+                          <option value="admin">مدير نظام (Admin)</option>
+                        </select>
+                      </td>
+                      <td className="p-3.5">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            u.isBanned
+                              ? 'bg-red-950 text-red-300 border border-red-500/40'
+                              : 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                          }`}
+                        >
+                          {u.isBanned ? 'محظور (Banned)' : 'نشط (Active)'}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleBanUser(u.id)}
+                            title={u.isBanned ? 'إلغاء الحظر' : 'حظر الحساب'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              u.isBanned
+                                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                                : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
+                            }`}
+                          >
+                            {u.isBanned ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            onClick={() => handleTogglePremiumUser(u.id)}
+                            title={u.isPremium ? 'إلغاء البريميوم' : 'منح البريميوم'}
+                            className={`p-1.5 rounded-lg border transition-all ${
+                              u.isPremium
+                                ? 'bg-[#D4AF37]/70 border-[#D4AF37] text-black'
+                                : 'bg-[#D4AF37]/10 border-[#D4AF37]/40 text-[#D4AF37]'
+                            }`}
+                          >
+                            <Crown className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.id)}
+                            title="حذف نهائي"
+                            className="p-1.5 rounded-lg bg-red-950/60 border border-red-500/40 text-red-300 hover:bg-red-900"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

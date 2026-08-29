@@ -1127,6 +1127,64 @@ app.get(
   }
 );
 
+app.get(
+  '/api/admin/users/search',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      if (!q) {
+        return res.json({ success: true, users: [] });
+      }
+      const search = `%${q}%`;
+      const rows = await followSql`
+        SELECT
+          id,
+          name,
+          email,
+          phone,
+          role,
+          city,
+          avatar,
+          username,
+          is_active,
+          is_banned,
+          is_premium,
+          created_at
+        FROM users
+        WHERE COALESCE(is_active, true) = true
+          AND COALESCE(is_banned, false) = false
+          AND (
+            name ILIKE ${search}
+            OR username ILIKE ${search}
+            OR id ILIKE ${search}
+          )
+        ORDER BY created_at DESC
+        LIMIT 50
+      `;
+      const users = (rows || []).map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        city: u.city || 'baghdad',
+        avatar: u.avatar || undefined,
+        username: u.username || undefined,
+        isActive: u.is_active ?? true,
+        isBanned: u.is_banned ?? false,
+        isPremium: u.is_premium ?? false,
+        createdAt: new Date(u.created_at).toISOString(),
+      }));
+      return res.json({ success: true, users });
+    } catch (error) {
+      console.error('[ADMIN USERS SEARCH]', error);
+      return res.status(500).json({ success: false, users: [], error: 'تعذر البحث عن المستخدمين.' });
+    }
+  }
+);
+
 app.put(
   '/api/admin/users/:id/premium',
   requireAuth,
