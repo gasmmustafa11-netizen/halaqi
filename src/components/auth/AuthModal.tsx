@@ -38,7 +38,7 @@ export const AuthModal: React.FC = () => {
         setLocalError('يرجى ملء جميع الحقول المطلوبة');
         return;
       }
-      if (username.trim() && !/^[a-zA-Z0-9_]{3,30}$/.test(username.trim())) {
+      if (username.trim() && !/^[a-zA-Z0-9_.]{3,30}$/.test(username.trim())) {
         setLocalError('اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط)');
         return;
       }

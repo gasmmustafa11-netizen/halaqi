@@ -139,7 +139,7 @@ app.post('/api/auth/check-username', async (req: Request, res: Response) => {
 
     const trimmed = username.trim();
     // Format validation: alphanumeric + underscore, 3-30 chars
-    if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmed)) {
+    if (!/^[a-zA-Z0-9_.]{3,30}$/.test(trimmed)) {
       return res.status(400).json({
         success: false,
         error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
@@ -195,7 +195,7 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
 
     if (username) {
       const trimmedUsername = String(username).trim();
-      if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+      if (!/^[a-zA-Z0-9_.]{3,30}$/.test(trimmedUsername)) {
         return res.status(400).json({
           success: false,
           error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
@@ -283,7 +283,7 @@ app.put(
       let usernameUpdate: string | undefined = undefined;
       if (username !== undefined && username !== null) {
         const trimmedUsername = String(username).trim();
-        if (trimmedUsername && !/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+        if (trimmedUsername && !/^[a-zA-Z0-9_.]{3,30}$/.test(trimmedUsername)) {
           return res.status(400).json({
             success: false,
             error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).',
@@ -3003,7 +3003,7 @@ app.post(
       /* Single CTE: validate target, toggle follow, compute counts. */
       const toggleRows = await followSql`
         WITH target_check AS (
-          SELECT id, name, is_active, is_banned
+          SELECT id, name, is_active, is_banned, interests
           FROM users
           WHERE id = ${targetUserId}
           LIMIT 1

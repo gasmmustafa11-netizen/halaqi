@@ -186,13 +186,15 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
-      {/* Top Bento Navigation Header */}
-      <Navbar
-        currentView={currentView}
-        onNavigate={handleNavigate}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
+      {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
+      {currentView !== 'posts' && (
+        <Navbar
+          currentView={currentView}
+          onNavigate={handleNavigate}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+      )}
 
       {/* Main Body Content with Bento Spacing */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-20">

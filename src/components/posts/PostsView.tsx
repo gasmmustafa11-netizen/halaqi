@@ -59,6 +59,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [directPostLoading, setDirectPostLoading] = useState(false);
 
   // Posts section sub-tabs: image Posts feed vs Reels (video) feed.
+  const [expandedCaptions, setExpandedCaptions] = useState<Record<string, boolean>>({});
   const [subTab, setSubTab] = useState<'posts' | 'reels'>('posts');
 
   // Comment edit / delete (owner only) via long-press.
@@ -1004,11 +1005,32 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       </div>
                   </div>
 
-                  <div className="absolute inset-x-0 bottom-0 z-20 flex items-end bg-gradient-to-t from-black/60 via-black/5 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                  <div className="absolute inset-x-0 bottom-[4.5rem] z-20 flex items-end bg-gradient-to-t from-black/60 via-black/5 to-transparent px-4 pb-4 pt-12">
                     {post.caption && (
-                      <p className="mb-3 max-h-28 max-w-[80%] overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]" dir="auto">
-                        <CaptionText text={post.caption} />
-                      </p>
+                      <div className="max-w-[85%]">
+                        <p
+                          className={`overflow-hidden whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)] transition-all duration-300 ${
+                            expandedCaptions[post.id] ? '' : 'line-clamp-4'
+                          }`}
+                          dir="auto"
+                        >
+                          <CaptionText text={post.caption} />
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedCaptions((prev) => ({
+                              ...prev,
+                              [post.id]: !prev[post.id],
+                            }))
+                          }
+                          className="mt-1 text-[11px] font-bold text-[#D4AF37] hover:underline transition-colors"
+                        >
+                          {expandedCaptions[post.id]
+                            ? (isRtl ? 'عرض أقل' : 'Show less')
+                            : (isRtl ? 'قراءة المزيد' : 'Read more')}
+                        </button>
+                      </div>
                     )}
 
                     {isCommentsOpen && (

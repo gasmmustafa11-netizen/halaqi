@@ -1916,7 +1916,7 @@ class DatabaseStore {
     
     if (userData.username) {
         const trimmedUsername = userData.username.trim();
-        if (!/^[a-zA-Z0-9_]{3,30}$/.test(trimmedUsername)) {
+        if (!/^[a-zA-Z0-9_.]{3,30}$/.test(trimmedUsername)) {
             return { success: false, error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).' };
         }
         const usernameExists = this.state.users.some(u => u.username?.toLowerCase() === trimmedUsername.toLowerCase());
