@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   FileText,
   Inbox,
+  ShieldAlert,
 } from 'lucide-react';
 
 const STATUS_LABELS: Record<SupportTicketStatus, { ar: string; en: string; cls: string }> = {
@@ -36,6 +37,26 @@ const TYPE_LABELS: Record<SupportTicketType, { ar: string; en: string }> = {
   suggestion: { ar: 'اقتراح', en: 'Suggestion' },
   complaint: { ar: 'شكوى', en: 'Complaint' },
   other: { ar: 'أخرى', en: 'Other' },
+};
+
+const REPORT_STATUS: Record<string, { ar: string; en: string; cls: string }> = {
+  pending: { ar: 'بانتظار المراجعة', en: 'Pending', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+  reviewing: { ar: 'قيد المراجعة', en: 'Reviewing', cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30' },
+  resolved: { ar: 'تم الحل', en: 'Resolved', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  rejected: { ar: 'مرفوض', en: 'Rejected', cls: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
+};
+
+const REPORT_DECISION: Record<string, { ar: string; en: string; cls: string }> = {
+  violation: { ar: 'مخالفة', en: 'Violation', cls: 'bg-red-500/15 text-red-300 border-red-500/30' },
+  clean: { ar: 'سليم', en: 'Clean', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  escalate: { ar: 'يحتاج مراجعة', en: 'Needs review', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+};
+
+const REPORT_CT: Record<string, { ar: string; en: string }> = {
+  user_post: { ar: 'منشور مستخدم', en: 'User post' },
+  salon_post: { ar: 'منشور صالون', en: 'Salon post' },
+  comment: { ar: 'تعليق', en: 'Comment' },
+  reel: { ar: 'ريلز', en: 'Reel' },
 };
 
 function formatDateTime(iso: string, isRtl: boolean): string {
@@ -82,16 +103,20 @@ async function uploadAttachment(file: File): Promise<SupportAttachment | null> {
 
 const SupportCenterView: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const { language, isRtl } = useLanguage();
-  const [mode, setMode] = useState<'list' | 'detail' | 'create'>('list');
+  const [mode, setMode] = useState<'list' | 'detail' | 'create' | 'report'>('list');
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [reportDetail, setReportDetail] = useState<any>(null);
 
   const loadTickets = async () => {
     setLoading(true);
-    const res = await api.getMySupportTickets();
-    if (res.success) setTickets(res.tickets || []);
+    const [tRes, rRes] = await Promise.all([api.getMySupportTickets(), api.getMyContentReports()]);
+    if (tRes.success) setTickets(tRes.tickets || []);
+    if (rRes.success) setReports(rRes.reports || []);
     setLoading(false);
   };
 
@@ -109,6 +134,16 @@ const SupportCenterView: React.FC<{ onNavigate?: (view: string) => void }> = ({ 
     setLoading(false);
   };
 
+  const openReport = async (id: string) => {
+    setSelectedReportId(id);
+    setReportDetail(null);
+    setMode('report');
+    setLoading(true);
+    const res = await api.getContentReport(id);
+    if (res.success) setReportDetail(res);
+    setLoading(false);
+  };
+
   return (
     <div dir={isRtl ? 'rtl' : 'ltr'} className="min-h-screen bg-[#07090D] text-white">
       <div className="mx-auto max-w-2xl px-4 py-6">
@@ -117,8 +152,10 @@ const SupportCenterView: React.FC<{ onNavigate?: (view: string) => void }> = ({ 
             language={language}
             isRtl={isRtl}
             tickets={tickets}
+            reports={reports}
             loading={loading}
             onOpen={openTicket}
+            onOpenReport={openReport}
             onCreate={() => setMode('create')}
             onBack={() => onNavigate?.('profile')}
           />
@@ -143,6 +180,16 @@ const SupportCenterView: React.FC<{ onNavigate?: (view: string) => void }> = ({ 
             onChanged={() => openTicket(selectedId!)}
           />
         )}
+
+        {mode === 'report' && (
+          <ReportDetailView
+            language={language}
+            isRtl={isRtl}
+            data={reportDetail}
+            loading={loading}
+            onBack={() => setMode('list')}
+          />
+        )}
       </div>
     </div>
   );
@@ -152,11 +199,13 @@ const ListView: React.FC<{
   language: string;
   isRtl: boolean;
   tickets: SupportTicket[];
+  reports: any[];
   loading: boolean;
   onOpen: (id: string) => void;
+  onOpenReport: (id: string) => void;
   onCreate: () => void;
   onBack: () => void;
-}> = ({ language, isRtl, tickets, loading, onOpen, onCreate, onBack }) => {
+}> = ({ language, isRtl, tickets, reports, loading, onOpen, onOpenReport, onCreate, onBack }) => {
   const ar = language === 'ar';
   return (
     <>
@@ -192,10 +241,10 @@ const ListView: React.FC<{
         <div className="flex justify-center py-16 text-slate-500">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
-      ) : tickets.length === 0 ? (
+      ) : tickets.length === 0 && reports.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-white/[0.07] bg-white/[0.025] py-16 text-center">
           <Inbox className="h-10 w-10 text-slate-600" />
-          <p className="text-sm text-slate-400">{ar ? 'لا توجد طلبات دعم بعد' : 'No support tickets yet'}</p>
+          <p className="text-sm text-slate-400">{ar ? 'لا توجد طلبات دعم أو بلاغات بعد' : 'No support tickets or reports yet'}</p>
           <button
             onClick={onCreate}
             className="mt-2 rounded-xl bg-[#D4AF37] px-4 py-2 text-sm font-bold text-black"
@@ -234,6 +283,45 @@ const ListView: React.FC<{
               </button>
             );
           })}
+
+          {reports.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[11px] font-bold text-slate-500">{ar ? 'بلاغاتي' : 'My reports'}</p>
+              {reports.map((r) => {
+                const st = REPORT_STATUS[r.status];
+                const dec = REPORT_DECISION[r.aiDecision];
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => onOpenReport(r.id)}
+                    className="group flex w-full items-start gap-3 rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.04] p-3 text-right transition hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/[0.08]"
+                  >
+                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-[#D4AF37]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${st?.cls || ''}`}>
+                          {st ? (ar ? st.ar : st.en) : r.status}
+                        </span>
+                        <span className="rounded-md border border-white/10 px-1.5 py-0.5 text-[9px] font-bold text-slate-300">
+                          {REPORT_CT[r.contentType]?.[ar ? 'ar' : 'en'] || r.contentType}
+                        </span>
+                        {dec && (
+                          <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${dec.cls}`}>
+                            {ar ? dec.ar : dec.en}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 truncate text-sm font-bold text-white">{r.reason || '—'}</p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">#{r.id.slice(-6)}</p>
+                    </div>
+                    <span className="mt-1 text-slate-600 transition group-hover:text-[#D4AF37]">
+                      {isRtl ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </>
@@ -571,6 +659,93 @@ const DetailView: React.FC<{
             )}
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => onPickFiles(e.target.files)} />
           </div>
+        )}
+      </div>
+    </>
+  );
+};
+
+const ReportDetailView: React.FC<{
+  language: string;
+  isRtl: boolean;
+  data: any;
+  loading: boolean;
+  onBack: () => void;
+}> = ({ language, isRtl, data, loading, onBack }) => {
+  const ar = language === 'ar';
+  if (loading && !data) {
+    return (
+      <div className="flex justify-center py-16 text-slate-500">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+  if (!data || !data.report) {
+    return (
+      <div className="py-16 text-center text-slate-400">
+        <p className="mb-3 text-sm">{ar ? 'تعذر تحميل البلاغ.' : 'Could not load the report.'}</p>
+        <button onClick={onBack} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white">
+          {ar ? 'رجوع' : 'Back'}
+        </button>
+      </div>
+    );
+  }
+
+  const report = data.report;
+  const snapshot = data.snapshot || {};
+  const st = REPORT_STATUS[report.status];
+  const dec = report.aiDecision ? REPORT_DECISION[report.aiDecision] : null;
+
+  return (
+    <>
+      <div className="mb-4 flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:text-white"
+          aria-label={ar ? 'رجوع' : 'Back'}
+        >
+          {isRtl ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-lg font-black text-white">{ar ? 'تفاصيل البلاغ' : 'Report details'}</h1>
+          <p className="text-[11px] text-slate-500">
+            #{report.id.slice(-6)} · {REPORT_CT[report.contentType]?.[ar ? 'ar' : 'en'] || report.contentType}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {st && <span className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold ${st.cls}`}>{ar ? st.ar : st.en}</span>}
+          {dec && <span className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold ${dec.cls}`}>{ar ? dec.ar : dec.en}</span>}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-white/[0.07] bg-black/20 p-3 text-xs text-slate-300">
+          <p><span className="text-slate-500">{ar ? 'سبب البلاغ: ' : 'Report reason: '}</span> {report.reason || '—'}</p>
+          {report.contentOwnerName && (
+            <p><span className="text-slate-500">{ar ? 'صاحب المحتوى: ' : 'Content owner: '}</span> {report.contentOwnerName}</p>
+          )}
+          {report.details && (
+            <p className="mt-1 whitespace-pre-wrap text-slate-200"><span className="text-slate-500">{ar ? 'تفاصيل: ' : 'Details: '}</span>{report.details}</p>
+          )}
+          {snapshot?.text && (
+            <p className="mt-2 whitespace-pre-wrap text-slate-200"><span className="text-slate-500">{ar ? 'نص المحتوى المبلّغ عنه: ' : 'Reported content: '}</span>{snapshot.text}</p>
+          )}
+          {snapshot?.mediaUrl && (
+            <img src={snapshot.mediaUrl} alt="" className="mt-2 max-h-48 rounded-lg border border-white/10" />
+          )}
+        </div>
+
+        {report.adminNote && (
+          <div className="rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] p-4">
+            <p className="mb-1 text-[11px] font-bold text-[#D4AF37]">{ar ? 'ملاحظة فريق الدعم' : 'Support team note'}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-200">{report.adminNote}</p>
+          </div>
+        )}
+
+        {(!report.aiDecision) && (
+          <p className="text-center text-[11px] text-slate-500">
+            {ar ? 'البلاغ قيد المعالجة الآلية والمراجعة.' : 'The report is being processed automatically and reviewed.'}
+          </p>
         )}
       </div>
     </>

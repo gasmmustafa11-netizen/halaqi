@@ -2992,6 +2992,72 @@ class DatabaseStore {
     }
   }
 
+  async getMyContentReports(
+    userId: string,
+    params: { status?: string; contentType?: string; decision?: string; search?: string; limit?: number; offset?: number } = {}
+  ): Promise<ContentReport[]> {
+    try {
+      await this.ensureModerationTables();
+      const rows = await sql`
+        SELECT
+          r.id, r.reporter_id, r.content_type, r.content_id, r.content_owner_id,
+          r.reason, r.details, r.status, r.ai_decision, r.created_at,
+          own.name AS content_owner_name
+        FROM content_reports r
+        LEFT JOIN users own ON own.id = r.content_owner_id
+        WHERE r.reporter_id = ${userId}
+        ORDER BY r.created_at DESC
+        LIMIT 1000
+      `;
+      const reportIds = (rows as any[]).map((r: any) => r.id);
+      let logsByReport: Record<string, any> = {};
+      if (reportIds.length) {
+        const lRows = await sql`SELECT * FROM moderation_logs WHERE report_id = ANY(${reportIds}) ORDER BY created_at ASC`;
+        for (const l of lRows as any[]) {
+          logsByReport[l.report_id] = l; // keep latest (ordered asc)
+        }
+      }
+
+      let result = (rows as any[]).map((r: any) => {
+        const m = logsByReport[r.id];
+        return {
+          id: String(r.id),
+          reporterId: r.reporter_id,
+          contentType: r.content_type,
+          contentId: r.content_id,
+          contentOwnerId: r.content_owner_id ?? undefined,
+          contentOwnerName: r.content_owner_name ?? undefined,
+          reason: r.reason ?? undefined,
+          details: r.details ?? undefined,
+          status: r.status,
+          aiDecision: r.ai_decision ?? (m ? m.decision : null),
+          createdAt: r.created_at,
+          severity: m ? m.severity : undefined,
+          confidence: m ? Number(m.confidence) : undefined,
+          action: m ? m.action : undefined,
+          detectedCategories: m ? m.detected_categories : undefined,
+          model: m ? m.model : undefined,
+          reviewedByAdmin: m ? m.reviewed_by_admin : undefined,
+          finalDecision: m ? m.final_decision : undefined,
+        };
+      });
+
+      if (params.status) result = result.filter((x: any) => x.status === params.status);
+      if (params.contentType) result = result.filter((x: any) => x.contentType === params.contentType);
+      if (params.decision) result = result.filter((x: any) => (x.aiDecision || '') === params.decision);
+      if (params.search) {
+        const s = params.search.toLowerCase();
+        result = result.filter((x: any) => (x.reason || '').toLowerCase().includes(s) || (x.contentId || '').toLowerCase().includes(s));
+      }
+      const offset = params.offset ?? 0;
+      const limit = params.limit ?? 100;
+      return result.slice(offset, offset + limit);
+    } catch (err) {
+      console.error('[MY CONTENT REPORTS]', err);
+      return [];
+    }
+  }
+
   async getAdminModerationReportDetail(reportId: string): Promise<{
     report: ContentReport | null;
     snapshot: any;
@@ -3039,6 +3105,7 @@ class DatabaseStore {
         finalDecision: l.final_decision,
         adminNote: l.admin_note,
       }));
+      (report as any).adminNote = (logs as any[]).length ? (logs as any[])[(logs as any[]).length - 1].adminNote : undefined;
       return { report, snapshot, logs };
     } catch (err) {
       console.error('[ADMIN MODERATION DETAIL]', err);

@@ -2733,6 +2733,35 @@ export const api = {
     }
   },
 
+  async getMyContentReports(params: { status?: string; contentType?: string; decision?: string; search?: string; limit?: number; offset?: number } = {}): Promise<{ success: boolean; reports?: any[]; error?: string }> {
+    try {
+      const qs = new URLSearchParams();
+      if (params.status) qs.set('status', params.status);
+      if (params.contentType) qs.set('contentType', params.contentType);
+      if (params.decision) qs.set('decision', params.decision);
+      if (params.search) qs.set('search', params.search);
+      if (params.limit) qs.set('limit', String(params.limit));
+      if (params.offset) qs.set('offset', String(params.offset));
+      const res = await fetchWithAuth(`/api/content-reports/mine?${qs.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, reports: data.reports, error: data.error };
+    } catch (err) {
+      console.error('API Error [getMyContentReports]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getContentReport(reportId: string): Promise<{ success: boolean; report?: any; snapshot?: any; logs?: any[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/content-reports/${encodeURIComponent(reportId)}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, report: data.report, snapshot: data.snapshot, logs: data.logs, error: data.error };
+    } catch (err) {
+      console.error('API Error [getContentReport]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
   async adminUpdateModerationReport(
     reportId: string,
     payload: {

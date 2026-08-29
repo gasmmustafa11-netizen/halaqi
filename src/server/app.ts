@@ -5504,18 +5504,6 @@ async function processContentReport(reportId: string): Promise<void> {
         messageEn: 'Your report was received and is under review.',
         type: 'moderation',
       }).catch(() => {});
-
-      const admins = db.getAdminUsers();
-      for (const admin of admins) {
-        db.createNotification({
-          userId: admin.id,
-          title: 'بلاغ جديد بانتظار المراجعة (ذكاء اصطناعي)',
-          titleEn: 'New report awaiting review (AI)',
-          message: `بلاغ جديد بانتظار المراجعة: ${report.contentType}`,
-          messageEn: `New report awaiting review: ${report.contentType}`,
-          type: 'moderation',
-        }).catch(() => {});
-      }
     }
   } catch (err: any) {
     console.error('[PROCESS CONTENT REPORT]', err?.message || err);
@@ -5557,6 +5545,21 @@ app.post(
         return res.status(500).json({ success: false, error: 'تعذر إنشاء البلاغ.' });
       }
 
+      // Notify admins that a new report arrived (single source of truth: content_reports).
+      try {
+        const admins = db.getAdminUsers();
+        for (const admin of admins) {
+          db.createNotification({
+            userId: admin.id,
+            title: 'بلاغ جديد وصل',
+            titleEn: 'New report received',
+            message: `وصل بلاغ جديد بخصوص ${report.contentType}.`,
+            messageEn: `A new report arrived about ${report.contentType}.`,
+            type: 'moderation',
+          }).catch(() => {});
+        }
+      } catch {}
+
       // Non-blocking AI analysis; never delays this response.
       void processContentReport(report.id).catch(() => {});
 
@@ -5564,6 +5567,42 @@ app.post(
     } catch (error) {
       console.error('[CONTENT REPORT CREATE]', error);
       return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+    }
+  }
+);
+
+// User: list their own content reports (single source of truth = content_reports).
+app.get(
+  '/api/content-reports/mine',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const reports = await db.getMyContentReports(req.user!.id);
+      return res.json({ success: true, reports });
+    } catch (error) {
+      console.error('[MY CONTENT REPORTS]', error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب البلاغات.' });
+    }
+  }
+);
+
+// User: view a single content report they own (ownership enforced).
+app.get(
+  '/api/content-reports/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const detail = await db.getAdminModerationReportDetail(req.params.id);
+      if (!detail.report) {
+        return res.status(404).json({ success: false, error: 'البلاغ غير موجود.' });
+      }
+      if (detail.report.reporterId !== req.user!.id) {
+        return res.status(403).json({ success: false, error: 'غير مسموح.' });
+      }
+      return res.json({ success: true, ...detail });
+    } catch (error) {
+      console.error('[CONTENT REPORT DETAIL]', error);
+      return res.status(500).json({ success: false, error: 'تعذر جلب تفاصيل البلاغ.' });
     }
   }
 );
