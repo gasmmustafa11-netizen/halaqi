@@ -25,6 +25,7 @@ export const AuthModal: React.FC = () => {
   const [password, setPassword] = useState<string>('');
   const [role, setRole] = useState<UserRole>('customer');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [username, setUsername] = useState<string>('');
 
   if (!isAuthModalOpen) return null;
 
@@ -37,12 +38,17 @@ export const AuthModal: React.FC = () => {
         setLocalError('يرجى ملء جميع الحقول المطلوبة');
         return;
       }
+      if (username.trim() && !/^[a-zA-Z0-9_]{3,30}$/.test(username.trim())) {
+        setLocalError('اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط)');
+        return;
+      }
       const res = await register({
         name,
         email: email.trim() || undefined,
         phone,
         password: password || undefined,
         role: role === 'salon_owner' ? 'salon_owner' : 'customer',
+        username: username.trim() || undefined,
       });
       if (!res.success) {
         setLocalError(res.error || 'فشل في إنشاء الحساب');
@@ -137,6 +143,20 @@ export const AuthModal: React.FC = () => {
                   >
                     صاحب صالون
                   </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-300 mb-1">اسم المستخدم (اختياري)</label>
+                <div className="flex items-center bg-[#1A1A1A] border border-[#333] rounded-xl px-3 py-2.5">
+                  <UserCheck className="w-4 h-4 text-gray-400 me-2 shrink-0" />
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="مثال: ahmed_2026"
+                    className="w-full bg-transparent text-xs text-white outline-none"
+                  />
                 </div>
               </div>
             </>

@@ -1876,7 +1876,7 @@ export const api = {
     }
   },
 
-  async register(userData: { name: string; email?: string; phone: string; password?: string; role?: string; city?: string }): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
+  async register(userData: { name: string; email?: string; phone: string; password?: string; role?: string; city?: string; username?: string }): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
     try {
       const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',

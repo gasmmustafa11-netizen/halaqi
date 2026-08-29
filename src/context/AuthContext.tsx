@@ -11,7 +11,7 @@ interface AuthContextType {
   authError: string | null;
   mySalon: Salon | null;
   login: (emailOrPhone: string, role?: UserRole, password?: string) => Promise<{ success: boolean; error?: string }>;
-  register: (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string }) => Promise<{ success: boolean; error?: string }>;
+  register: (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string; username?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   switchRoleDemo: (role: UserRole) => Promise<void>;
   openAuthModal: () => void;
@@ -242,7 +242,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string }): Promise<{ success: boolean; error?: string }> => {
+  const register = async (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string; username?: string }): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     setAuthError(null);
     try {

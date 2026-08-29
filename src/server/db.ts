@@ -3478,6 +3478,7 @@ class DatabaseStore {
           sp.salon_name AS salon_name,
           NULL::text AS user_id,
           NULL::text AS user_name,
+          NULL::text AS user_username,
           NULL::text AS user_avatar,
           sp.image_url,
           sp.caption,
