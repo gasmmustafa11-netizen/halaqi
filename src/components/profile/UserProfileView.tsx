@@ -705,8 +705,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
           {/* About */}
           <div className="mb-6">
             <p className="text-sm leading-relaxed text-[#E5E7EB]">
-              {roleLabel}
-              <br />
               {profileCity && (
                 <>
                   <span className="inline-flex items-center gap-1.5">
