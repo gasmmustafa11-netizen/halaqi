@@ -18,8 +18,6 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { notify, confirmDialog } from '../../utils/notifications';
 import { PostComment } from '../../types';
-import { usePullToRefresh } from '../../hooks/usePullToRefresh';
-import { PullToRefreshIndicator } from '../../components/common/PullToRefreshIndicator';
 
 interface Reel {
   id: string;
@@ -272,7 +270,6 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const [createDuration, setCreateDuration] = useState(0);
   const [createUploading, setCreateUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-const reelsScrollRef = useRef<HTMLDivElement>(null);
 
   const loadReels = useCallback(async () => {
     setLoading(true);
@@ -289,31 +286,6 @@ const reelsScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     loadReels();
   }, [loadReels]);
-
-  const {
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
-    isRefreshing: reelsIsRefreshing,
-    pullDistance: reelsPullDistance,
-    isAtThreshold: reelsIsAtThreshold,
-  } = usePullToRefresh({
-    onRefresh: async () => {
-      setLoading(true);
-      try {
-        const res = await api.getReelsFeed();
-        if (res.success) {
-          setReels(Array.isArray(res.posts) ? (res.posts as Reel[]) : []);
-        }
-      } catch (error) {
-        console.error('Pull-to-refresh reload error:', error);
-      } finally {
-        setLoading(false);
-      }
-    },
-    threshold: 80,
-    scrollRef: reelsScrollRef,
-  });
 
   const openComments = async (reel: Reel) => {
     setCommentsReel(reel);
@@ -559,20 +531,7 @@ const reelsScrollRef = useRef<HTMLDivElement>(null);
           </button>
         </div>
       ) : (
-        <div className="absolute inset-0 h-[100dvh] overflow-y-auto snap-y snap-mandatory"
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}>
-          {reels.length > 0 && (
-            <PullToRefreshIndicator
-              pullDistance={reelsPullDistance}
-              isRefreshing={reelsIsRefreshing}
-              isAtThreshold={reelsIsAtThreshold}
-              onHide={() => {}}
-              size={56}
-              color="#D4AF37"
-            />
-          )}
+        <div className="absolute inset-0 h-[100dvh] overflow-y-auto snap-y snap-mandatory">
           {reels.map((reel) => (
             <ReelItem
               key={reel.id}

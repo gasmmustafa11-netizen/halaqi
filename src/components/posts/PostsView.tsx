@@ -3,7 +3,6 @@ import React, {
   useMemo,
   useState,
   useRef,
-  useCallback,
 } from 'react';
 import { notify } from '../../utils/notifications';
 import {
@@ -24,8 +23,6 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { saveImage } from '../../utils/saveImage';
 import { Salon, SalonPost, PostComment, UserPost } from '../../types';
-import { usePullToRefresh } from '../../hooks/usePullToRefresh';
-import { PullToRefreshIndicator } from '../../components/common/PullToRefreshIndicator';
 
 interface PostsViewProps {
   salons: Salon[];
@@ -92,7 +89,6 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [imageMenuPost, setImageMenuPost] = useState<any | null>(null);
   const [undoKey, setUndoKey] = useState<string | null>(null);
   const undoTimer = useRef<number | null>(null);
-const postsScrollRef = useRef<HTMLDivElement>({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 } as HTMLDivElement);
 
   const postKey = (post: any): string =>
     `${getPostType(post)}:${post?.id || ''}`;
@@ -679,43 +675,6 @@ const postsScrollRef = useRef<HTMLDivElement>({ scrollTop: 0, scrollHeight: 0, c
     }
   };
 
-  const { handleTouchStart, handleTouchMove, handleTouchEnd, isRefreshing, pullDistance, isAtThreshold, reset } =
-    usePullToRefresh({
-      onRefresh: async () => {
-        setLoading(true);
-        try {
-          const feedResult = await api.getUnifiedPostsFeed();
-          if (feedResult.success) {
-            const merged = Array.isArray(feedResult.posts)
-              ? feedResult.posts.map((post: any) => ({
-                  ...post,
-                  likeCount: Number(post.likeCount || 0),
-                  commentCount: Number(post.commentCount || 0),
-                }))
-              : [];
-
-            merged.sort(
-              (a: any, b: any) =>
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-
-            setPosts(merged as SalonPost[]);
-            setUserPosts(
-              merged.filter(
-                (post: any) => post.postType === 'user'
-              ) as UserPost[]
-            );
-          }
-        } catch (error) {
-          console.error('Pull-to-refresh reload error:', error);
-        } finally {
-          setLoading(false);
-        }
-      },
-      threshold: 80,
-      scrollRef: postsScrollRef,
-    });
-
   const handleEditComment = async () => {
     if (!editingComment) return;
     const text = editingComment.text.trim();
@@ -894,19 +853,7 @@ const postsScrollRef = useRef<HTMLDivElement>({ scrollTop: 0, scrollHeight: 0, c
             </p>
           </div>
         ) : (
-          <div className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black"
-              ref={postsScrollRef}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}>
-            <PullToRefreshIndicator
-              pullDistance={pullDistance}
-              isRefreshing={isRefreshing}
-              isAtThreshold={isAtThreshold}
-              onHide={reset}
-              size={56}
-              color="#D4AF37"
-            />
+          <div className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black">
             {visiblePosts.map((post, postIndex) => {
               const salon = getSalon(post);
 
