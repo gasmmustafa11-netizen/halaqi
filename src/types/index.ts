@@ -199,7 +199,7 @@ export interface Notification {
   titleEn: string;
   message: string;
   messageEn: string;
-  type: 'message' | 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment';
+  type: 'message' | 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment' | 'follow' | 'review' | 'support_reply';
   read: boolean;
   createdAt: string;
   link?: string;
@@ -330,4 +330,72 @@ export interface PostLike {
   postId: string;
   userId: string;
   createdAt: string;
+}
+
+export interface NotificationPreferences {
+  likes: boolean;
+  comments: boolean;
+  followers: boolean;
+  messages: boolean;
+  bookings: boolean;
+  reviews: boolean;
+  reels: boolean;
+  admin: boolean;
+}
+
+export type PushCategory = keyof NotificationPreferences;
+
+// ============================================================
+// SUPPORT MAIL SYSTEM
+// ============================================================
+
+export type SupportTicketStatus =
+  | 'new'
+  | 'reviewing'
+  | 'processing'
+  | 'resolved'
+  | 'closed';
+
+export type SupportTicketType =
+  | 'bug'
+  | 'suggestion'
+  | 'complaint'
+  | 'other';
+
+export interface SupportAttachment {
+  url: string;
+  type?: string;
+  name?: string;
+}
+
+export interface SupportTicketMessage {
+  id: string;
+  ticketId: string;
+  senderId: string;
+  senderRole: 'user' | 'admin' | 'support';
+  message: string;
+  attachments: SupportAttachment[];
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  subject: string;
+  type: SupportTicketType;
+  message: string;
+  status: SupportTicketStatus;
+  attachments: SupportAttachment[];
+  adminNote?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastReplyAt?: string;
+  lastReplyPreview?: string;
+  replyCount?: number;
+}
+
+export interface SupportTicketDetail extends SupportTicket {
+  messages: SupportTicketMessage[];
 }

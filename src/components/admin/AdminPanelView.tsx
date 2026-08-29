@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AdminSupportView from './AdminSupportView';
 import {
   Salon,
   Booking,
@@ -46,14 +47,15 @@ import {
   Play,
   Bot,
   Square,
-  Crown
+  Crown,
+  LifeBuoy
 } from 'lucide-react';
 
 export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const { t } = useLanguage();
   const { user, switchRoleDemo } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts' | 'settlements'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'salons' | 'users' | 'audit' | 'coupons' | 'security_tests' | 'posts' | 'settlements' | 'support'>('analytics');
   const [salons, setSalons] = useState<Salon[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -930,8 +932,9 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
           { id: 'security_tests', label: 'مصفوفة فحص الأمان (10 Tests)', icon: ShieldCheck },
           { id: 'system', label: 'النظام', icon: ShieldCheck },
                     { id: 'posts', label: 'المنشورات والتعليقات', icon: FileText, count: salonPosts.length },
-          { id: 'bots', label: 'البوتات', icon: Bot, count: (botStats?.total ?? 0) || undefined },
-        ].map((tab) => {
+           { id: 'bots', label: 'البوتات', icon: Bot, count: (botStats?.total ?? 0) || undefined },
+           { id: 'support', label: 'بريد الدعم', icon: LifeBuoy },
+         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -2019,6 +2022,10 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
               </>
             )}
           </div>
+        )}
+
+        {activeTab === 'support' && (
+          <AdminSupportView onNavigate={onNavigate} />
         )}
 
       </div>

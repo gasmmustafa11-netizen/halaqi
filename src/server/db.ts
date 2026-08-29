@@ -21,7 +21,11 @@ import {
   SalonPost,
   PostComment,
   PostLike,
-  UserPost
+  UserPost,
+  SupportAttachment,
+  SupportTicket,
+  SupportTicketDetail,
+  SupportTicketMessage
 } from '../types';
 
 async function ensureCommentReactionsTables(): Promise<void> {
@@ -84,6 +88,316 @@ async function ensureLearnedInterestsTable(): Promise<void> {
   }
 
   await learnedInterestsTableReady;
+}
+
+// ============================================================
+// PUSH NOTIFICATIONS (mobile) — infrastructure
+// ============================================================
+//
+// Push delivery is intentionally decoupled from the core business actions:
+// every sender below is error-safe and NEVER throws to its caller, so a
+// failure (or missing configuration) can never break likes/comments/bookings.
+
+export type PushCategory =
+  | 'likes'
+  | 'comments'
+  | 'followers'
+  | 'messages'
+  | 'bookings'
+  | 'reviews'
+  | 'reels'
+  | 'admin';
+
+export interface NotificationPreferences {
+  likes: boolean;
+  comments: boolean;
+  followers: boolean;
+  messages: boolean;
+  bookings: boolean;
+  reviews: boolean;
+  reels: boolean;
+  admin: boolean;
+}
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  likes: true,
+  comments: true,
+  followers: true,
+  messages: true,
+  bookings: true,
+  reviews: true,
+  reels: true,
+  admin: true,
+};
+
+const PUSH_PREFS_COLUMNS: (keyof NotificationPreferences)[] = [
+  'likes',
+  'comments',
+  'followers',
+  'messages',
+  'bookings',
+  'reviews',
+  'reels',
+  'admin',
+];
+
+let pushTablesReady: Promise<void> | null = null;
+
+async function ensurePushTables(): Promise<void> {
+  if (!pushTablesReady) {
+    pushTablesReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS device_push_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          token TEXT NOT NULL,
+          platform TEXT NOT NULL DEFAULT 'android',
+          device_id TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+      `;
+      await sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_device_push_token_unique
+          ON device_push_tokens (token)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_device_push_user
+          ON device_push_tokens (user_id)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+          user_id TEXT PRIMARY KEY,
+          likes BOOLEAN NOT NULL DEFAULT TRUE,
+          comments BOOLEAN NOT NULL DEFAULT TRUE,
+          followers BOOLEAN NOT NULL DEFAULT TRUE,
+          messages BOOLEAN NOT NULL DEFAULT TRUE,
+          bookings BOOLEAN NOT NULL DEFAULT TRUE,
+          reviews BOOLEAN NOT NULL DEFAULT TRUE,
+          reels BOOLEAN NOT NULL DEFAULT TRUE,
+          admin BOOLEAN NOT NULL DEFAULT TRUE
+        )
+      `;
+    })().catch((err: unknown) => {
+      pushTablesReady = null;
+      throw err;
+    });
+  }
+
+  await pushTablesReady;
+}
+
+// Map an existing Halaqi notification type to a user preference category.
+function resolvePushCategory(type: string): PushCategory {
+  switch (type) {
+    case 'post_like':
+      return 'likes';
+    case 'post_comment':
+      return 'comments';
+    case 'follow':
+      return 'followers';
+    case 'message':
+      return 'messages';
+    case 'booking_created':
+    case 'booking_confirmed':
+    case 'booking_reminder':
+    case 'booking_cancelled':
+    case 'booking_completed':
+      return 'bookings';
+    case 'review':
+      return 'reviews';
+    case 'system':
+    case 'new_user':
+    case 'new_salon':
+    case 'salon_approved':
+    case 'salon_rejected':
+    case 'salon_suspended':
+    case 'offer':
+      return 'admin';
+    default:
+      return 'admin';
+  }
+}
+
+// Build the deep-link payload used by the mobile app to navigate on tap.
+function buildPushData(notification: {
+  id: string;
+  type: string;
+  link?: string;
+  actorUserId?: string;
+  title: string;
+  titleEn: string;
+  message: string;
+  messageEn: string;
+}): Record<string, string> {
+  let screen = 'home';
+  let id = '';
+
+  const link = notification.link || '';
+  if (notification.type === 'post_like' || notification.type === 'post_comment') {
+    screen = 'post';
+    const params = new URLSearchParams(link.split('?')[1] || '');
+    id = params.get('postId') || '';
+  } else if (notification.type.startsWith('booking')) {
+    screen = 'booking';
+  } else if (notification.type === 'message') {
+    screen = 'message';
+  } else if (notification.type === 'follow') {
+    screen = 'profile';
+    id = notification.actorUserId || '';
+  } else if (notification.type === 'review') {
+    screen = 'salon';
+  }
+
+  return {
+    notificationId: notification.id,
+    type: notification.type,
+    screen,
+    id,
+    actorUserId: notification.actorUserId || '',
+    link,
+    titleAr: notification.title,
+    titleEn: notification.titleEn,
+    bodyAr: notification.message,
+    bodyEn: notification.messageEn,
+  };
+}
+
+// Send to FCM. Supports both:
+//  - Legacy server key (HALAQI_FCM_SERVER_KEY) — simple, being deprecated by Google.
+//  - FCM v1 (HALAQI_FCM_SERVICE_ACCOUNT, a service-account JSON) — current standard.
+// All secrets are read ONLY from the environment and never returned to the client.
+// Falls back to a silent no-op when neither is configured (push stays optional).
+
+// Obtain an OAuth2 access token from a Firebase service account (RS256 JWT).
+async function getFcmAccessToken(serviceAccount: {
+  client_email: string;
+  private_key: string;
+}): Promise<string> {
+  const iat = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claims = {
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat,
+    exp: iat + 3600,
+  };
+  const b64 = (obj: unknown) =>
+    Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const assertion = `${b64(header)}.${b64(claims)}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(assertion);
+  signer.end();
+  const signature = signer.sign(serviceAccount.private_key, 'base64url');
+  const jwt = `${assertion}.${signature}`;
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }).toString(),
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!json.access_token) {
+    throw new Error(json.error_description || 'FCM OAuth token request failed');
+  }
+  return json.access_token;
+}
+
+async function sendToFcm(
+  registrationIds: string[],
+  title: string,
+  body: string,
+  data: Record<string, string>
+): Promise<void> {
+  const saJson = process.env.HALAQI_FCM_SERVICE_ACCOUNT;
+  const legacyKey = process.env.HALAQI_FCM_SERVER_KEY;
+  if (!saJson && !legacyKey) {
+    return; // Push optional until configured.
+  }
+
+  const stale: string[] = [];
+
+  if (saJson) {
+    // ---- FCM v1 (current) ----
+    let sa: any;
+    try {
+      sa = JSON.parse(saJson);
+    } catch {
+      console.error('[PUSH] HALAQI_FCM_SERVICE_ACCOUNT is not valid JSON');
+      return;
+    }
+    const accessToken = await getFcmAccessToken(sa);
+    for (const reg of registrationIds) {
+      const res = await fetch(
+        `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            message: {
+              token: reg,
+              notification: { title, body },
+              data,
+              android: { priority: 'high' },
+            },
+          }),
+        }
+      );
+      const json: any = await res.json().catch(() => ({}));
+      const err = json?.error?.details?.[0]?.errorCode || json?.error?.status;
+      if (err === 'UNREGISTERED' || res.status === 404) {
+        stale.push(reg);
+      }
+    }
+  } else {
+    // ---- Legacy server key ----
+    const res = await fetch('https://fcm.googleapis.com/fcm/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `key=${legacyKey}`,
+      },
+      body: JSON.stringify({
+        registration_ids: registrationIds,
+        notification: { title, body },
+        data,
+        priority: 'high',
+      }),
+    });
+
+    const json: any = await res.json().catch(() => ({}));
+    if (Array.isArray(json.results) && registrationIds.length === json.results.length) {
+      json.results.forEach((r: any, i: number) => {
+        if (
+          r.error === 'NotRegistered' ||
+          r.error === 'InvalidRegistration' ||
+          r.error === 'MismatchSenderId'
+        ) {
+          stale.push(registrationIds[i]);
+        }
+      });
+    }
+  }
+
+  // Prune tokens the device has uninstalled / that are no longer valid.
+  for (const token of stale) {
+    try {
+      await sql`
+        DELETE FROM device_push_tokens WHERE token = ${token}
+      `;
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export async function recordInterestLearning(
@@ -2073,7 +2387,429 @@ class DatabaseStore {
       this.state.notifications.pop();
     }
 
+    // Fire mobile push delivery without blocking the original action.
+    void this.deliverPushForNotification(notification).catch(() => {});
+
     return notification;
+  }
+
+  // =========================================================
+  // SUPPORT MAIL SYSTEM
+  // =========================================================
+  private async ensureSupportTables(): Promise<void> {
+    await sql`
+      CREATE TABLE IF NOT EXISTS support_tickets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'other',
+        message TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','reviewing','processing','resolved','closed')),
+        attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+        admin_note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS support_ticket_messages (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+        sender_id TEXT NOT NULL,
+        sender_role TEXT NOT NULL CHECK (sender_role IN ('user','admin','support')),
+        message TEXT,
+        attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_ticket_messages(ticket_id)`;
+  }
+
+  private parseJsonField(value: any): any {
+    if (value === null || value === undefined) return [];
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [];
+      }
+    }
+    return value;
+  }
+
+  async createSupportTicket(data: {
+    userId: string;
+    subject: string;
+    type: string;
+    message: string;
+    attachments?: SupportAttachment[];
+  }): Promise<SupportTicket> {
+    await this.ensureSupportTables();
+    const id = `support_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const attachments = data.attachments && data.attachments.length ? data.attachments : [];
+    await sql`
+      INSERT INTO support_tickets (id, user_id, subject, type, message, attachments, status)
+      VALUES (${id}, ${data.userId}, ${data.subject}, ${data.type}, ${data.message}, ${JSON.stringify(attachments)}::jsonb, 'new')
+    `;
+    const msgId = `supmsg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    await sql`
+      INSERT INTO support_ticket_messages (id, ticket_id, sender_id, sender_role, message, attachments)
+      VALUES (${msgId}, ${id}, ${data.userId}, 'user', ${data.message}, ${JSON.stringify(attachments)}::jsonb)
+    `;
+    return (await this.getSupportTicketForUser(id, data.userId))!;
+  }
+
+  async getMySupportTickets(userId: string): Promise<SupportTicket[]> {
+    await this.ensureSupportTables();
+    const rows = await sql`
+      SELECT
+        t.id, t.user_id, t.subject, t.type, t.message, t.status,
+        t.attachments, t.admin_note, t.created_at, t.updated_at,
+        (SELECT COUNT(*) FROM support_ticket_messages m WHERE m.ticket_id = t.id)::int AS reply_count,
+        (SELECT MAX(m.created_at) FROM support_ticket_messages m WHERE m.ticket_id = t.id AND m.sender_role != 'user') AS last_reply_at,
+        (SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id = t.id AND m.sender_role != 'user' ORDER BY m.created_at DESC LIMIT 1) AS last_reply_preview
+      FROM support_tickets t
+      WHERE t.user_id = ${userId}
+      ORDER BY t.updated_at DESC
+    `;
+    return rows.map((t: any) => this.mapSupportTicket(t));
+  }
+
+  async getSupportTicketForUser(ticketId: string, userId: string): Promise<SupportTicketDetail | null> {
+    await this.ensureSupportTables();
+    const tRows = await sql`SELECT * FROM support_tickets WHERE id = ${ticketId} AND user_id = ${userId} LIMIT 1`;
+    if (!tRows.length) return null;
+    return await this.attachTicketMessages(tRows[0]);
+  }
+
+  async replyToSupportTicketAsUser(ticketId: string, userId: string, message: string, attachments?: SupportAttachment[]): Promise<SupportTicketMessage | null> {
+    await this.ensureSupportTables();
+    const tRows = await sql`SELECT id, user_id, status FROM support_tickets WHERE id = ${ticketId} AND user_id = ${userId} LIMIT 1`;
+    if (!tRows.length) return null;
+    return this.insertTicketMessage(ticketId, userId, 'user', message, attachments);
+  }
+
+  async listAllSupportTickets(opts: { status?: string; search?: string; limit?: number; offset?: number } = {}): Promise<SupportTicket[]> {
+    await this.ensureSupportTables();
+    const status = opts.status && opts.status !== 'all' ? opts.status : null;
+    const search = opts.search ? `%${opts.search}%` : null;
+    const rows = await sql`
+      SELECT
+        t.id, t.user_id, t.subject, t.type, t.message, t.status,
+        t.attachments, t.admin_note, t.created_at, t.updated_at,
+        u.name AS user_name, u.email AS user_email,
+        (SELECT COUNT(*) FROM support_ticket_messages m WHERE m.ticket_id = t.id)::int AS reply_count,
+        (SELECT MAX(m.created_at) FROM support_ticket_messages m WHERE m.ticket_id = t.id AND m.sender_role != 'user') AS last_reply_at,
+        (SELECT m.message FROM support_ticket_messages m WHERE m.ticket_id = t.id AND m.sender_role != 'user' ORDER BY m.created_at DESC LIMIT 1) AS last_reply_preview
+      FROM support_tickets t
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE
+        (${status}::text IS NULL OR t.status = ${status}::text)
+        AND (
+          ${search}::text IS NULL
+          OR t.subject ILIKE ${search}
+          OR t.message ILIKE ${search}
+          OR u.name ILIKE ${search}
+          OR u.email ILIKE ${search}
+        )
+      ORDER BY t.updated_at DESC
+      LIMIT ${opts.limit ?? 50} OFFSET ${opts.offset ?? 0}
+    `;
+    return rows.map((t: any) => this.mapSupportTicket(t));
+  }
+
+  async getSupportTicketAdmin(ticketId: string): Promise<SupportTicketDetail | null> {
+    await this.ensureSupportTables();
+    const tRows = await sql`
+      SELECT t.*, u.name AS user_name, u.email AS user_email
+      FROM support_tickets t
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE t.id = ${ticketId} LIMIT 1
+    `;
+    if (!tRows.length) return null;
+    return await this.attachTicketMessages(tRows[0]);
+  }
+
+  async adminReplyToTicket(ticketId: string, adminId: string, message: string, attachments?: SupportAttachment[]): Promise<SupportTicketMessage | null> {
+    await this.ensureSupportTables();
+    const tRows = await sql`SELECT id, status FROM support_tickets WHERE id = ${ticketId} LIMIT 1`;
+    if (!tRows.length) return null;
+    const msg = await this.insertTicketMessage(ticketId, adminId, 'admin', message, attachments);
+    if (tRows[0].status === 'new') {
+      await this.updateSupportTicketStatus(ticketId, 'reviewing');
+    }
+    return msg;
+  }
+
+  async updateSupportTicketStatus(ticketId: string, status: string): Promise<void> {
+    await this.ensureSupportTables();
+    await sql`UPDATE support_tickets SET status = ${status}, updated_at = NOW() WHERE id = ${ticketId}`;
+  }
+
+  async updateSupportTicketNote(ticketId: string, note: string): Promise<void> {
+    await this.ensureSupportTables();
+    await sql`UPDATE support_tickets SET admin_note = ${note}, updated_at = NOW() WHERE id = ${ticketId}`;
+  }
+
+  private async insertTicketMessage(
+    ticketId: string,
+    senderId: string,
+    senderRole: 'user' | 'admin' | 'support',
+    message: string,
+    attachments?: SupportAttachment[]
+  ): Promise<SupportTicketMessage> {
+    const id = `supmsg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const atts = attachments && attachments.length ? attachments : [];
+    await sql`
+      INSERT INTO support_ticket_messages (id, ticket_id, sender_id, sender_role, message, attachments)
+      VALUES (${id}, ${ticketId}, ${senderId}, ${senderRole}, ${message ?? ''}, ${JSON.stringify(atts)}::jsonb)
+    `;
+    await sql`UPDATE support_tickets SET updated_at = NOW() WHERE id = ${ticketId}`;
+    const rows = await sql`SELECT * FROM support_ticket_messages WHERE id = ${id} LIMIT 1`;
+    const m = rows[0];
+    return {
+      id: m.id,
+      ticketId: m.ticket_id,
+      senderId: m.sender_id,
+      senderRole: m.sender_role,
+      message: m.message,
+      attachments: this.parseJsonField(m.attachments),
+      createdAt: new Date(m.created_at).toISOString(),
+    };
+  }
+
+  private async attachTicketMessages(t: any): Promise<SupportTicketDetail> {
+    const base = this.mapSupportTicket(t);
+    const msgRows = await sql`SELECT * FROM support_ticket_messages WHERE ticket_id = ${t.id} ORDER BY created_at ASC`;
+    const messages = msgRows.map((m: any) => ({
+      id: m.id,
+      ticketId: m.ticket_id,
+      senderId: m.sender_id,
+      senderRole: m.sender_role,
+      message: m.message,
+      attachments: this.parseJsonField(m.attachments),
+      createdAt: new Date(m.created_at).toISOString(),
+    }));
+    return { ...base, messages };
+  }
+
+  private mapSupportTicket(t: any): SupportTicket {
+    return {
+      id: t.id,
+      userId: t.user_id,
+      userName: t.user_name,
+      userEmail: t.user_email,
+      subject: t.subject,
+      type: t.type,
+      message: t.message,
+      status: t.status,
+      attachments: this.parseJsonField(t.attachments),
+      adminNote: t.admin_note ?? undefined,
+      createdAt: new Date(t.created_at).toISOString(),
+      updatedAt: new Date(t.updated_at).toISOString(),
+      lastReplyAt: t.last_reply_at ? new Date(t.last_reply_at).toISOString() : undefined,
+      lastReplyPreview: t.last_reply_preview ?? undefined,
+      replyCount: t.reply_count ?? 0,
+    };
+  }
+
+  // ---- Push notification delivery hook ----
+  // Non-blocking: failures are swallowed so the original action still succeeds.
+  async deliverPushForNotification(notification: Notification): Promise<void> {
+    try {
+      let category = resolvePushCategory(notification.type);
+
+      // Reels reuse the unified like/comment notifications; detect a video post
+      // and route it through the separate "reels" preference.
+      if (
+        (notification.type === 'post_like' || notification.type === 'post_comment') &&
+        notification.link
+      ) {
+        const params = new URLSearchParams(
+          (notification.link.split('?')[1]) || ''
+        );
+        const postId = params.get('postId');
+        if (postId) {
+          const rows = await sql`
+            SELECT media_type FROM user_posts WHERE id = ${postId} LIMIT 1
+          `;
+          if (rows[0]?.media_type === 'video') {
+            category = 'reels';
+          }
+        }
+      }
+
+      await this.sendPushToUser(notification.userId, {
+        title: notification.title,
+        body: notification.message,
+        category,
+        data: buildPushData(notification),
+      });
+    } catch {
+      /* never break the originating action */
+    }
+  }
+
+  // ---- Device push token management ----
+
+  async registerDeviceToken(
+    userId: string,
+    token: string,
+    platform: string = 'android',
+    deviceId?: string
+  ): Promise<void> {
+    try {
+      await ensurePushTables();
+      const id = `dpt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await sql`
+        INSERT INTO device_push_tokens
+          (id, user_id, token, platform, device_id, created_at, updated_at, last_seen, active)
+        VALUES
+          (${id}, ${userId}, ${token}, ${platform}, ${deviceId ?? null}, NOW(), NOW(), NOW(), TRUE)
+        ON CONFLICT (token) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          platform = EXCLUDED.platform,
+          device_id = EXCLUDED.device_id,
+          updated_at = NOW(),
+          last_seen = NOW(),
+          active = TRUE
+      `;
+    } catch (error) {
+      console.error('[PUSH] registerDeviceToken failed:', error);
+    }
+  }
+
+  async unregisterDeviceToken(userId: string, token: string): Promise<void> {
+    try {
+      await ensurePushTables();
+      await sql`
+        DELETE FROM device_push_tokens
+        WHERE user_id = ${userId} AND token = ${token}
+      `;
+    } catch (error) {
+      console.error('[PUSH] unregisterDeviceToken failed:', error);
+    }
+  }
+
+  async unregisterAllUserTokens(userId: string): Promise<void> {
+    try {
+      await ensurePushTables();
+      await sql`
+        DELETE FROM device_push_tokens WHERE user_id = ${userId}
+      `;
+    } catch (error) {
+      console.error('[PUSH] unregisterAllUserTokens failed:', error);
+    }
+  }
+
+  async getActiveDeviceTokens(userId: string): Promise<string[]> {
+    try {
+      await ensurePushTables();
+      const rows = await sql`
+        SELECT token FROM device_push_tokens
+        WHERE user_id = ${userId} AND active = TRUE
+      `;
+      return (rows || []).map((r: any) => r.token);
+    } catch (error) {
+      console.error('[PUSH] getActiveDeviceTokens failed:', error);
+      return [];
+    }
+  }
+
+  // ---- Notification preferences ----
+
+  async getNotificationPreferences(
+    userId: string
+  ): Promise<NotificationPreferences> {
+    try {
+      await ensurePushTables();
+      const rows = await sql`
+        SELECT * FROM notification_preferences WHERE user_id = ${userId} LIMIT 1
+      `;
+      if (!rows[0]) {
+        return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+      }
+      const row: any = rows[0];
+      const prefs: NotificationPreferences = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+      for (const col of PUSH_PREFS_COLUMNS) {
+        if (typeof row[col] === 'boolean') {
+          (prefs as any)[col] = row[col];
+        }
+      }
+      return prefs;
+    } catch (error) {
+      console.error('[PUSH] getNotificationPreferences failed:', error);
+      return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+    }
+  }
+
+  async setNotificationPreferences(
+    userId: string,
+    updates: Partial<NotificationPreferences>
+  ): Promise<NotificationPreferences> {
+    try {
+      await ensurePushTables();
+      const current = await this.getNotificationPreferences(userId);
+      const next: NotificationPreferences = { ...current };
+      for (const col of PUSH_PREFS_COLUMNS) {
+        if (typeof updates[col] === 'boolean') {
+          (next as any)[col] = updates[col];
+        }
+      }
+
+      await sql`
+        INSERT INTO notification_preferences
+          (user_id, likes, comments, followers, messages, bookings, reviews, reels, admin)
+        VALUES
+          (${userId}, ${next.likes}, ${next.comments}, ${next.followers}, ${next.messages},
+           ${next.bookings}, ${next.reviews}, ${next.reels}, ${next.admin})
+        ON CONFLICT (user_id) DO UPDATE SET
+          likes = EXCLUDED.likes,
+          comments = EXCLUDED.comments,
+          followers = EXCLUDED.followers,
+          messages = EXCLUDED.messages,
+          bookings = EXCLUDED.bookings,
+          reviews = EXCLUDED.reviews,
+          reels = EXCLUDED.reels,
+          admin = EXCLUDED.admin
+      `;
+      return next;
+    } catch (error) {
+      console.error('[PUSH] setNotificationPreferences failed:', error);
+      return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+    }
+  }
+
+  // ---- Core push sender (error-safe, never throws) ----
+  async sendPushToUser(
+    userId: string,
+    payload: {
+      title: string;
+      body: string;
+      category: PushCategory;
+      data?: Record<string, string>;
+    }
+  ): Promise<void> {
+    try {
+      const prefs = await this.getNotificationPreferences(userId);
+      if (prefs[payload.category] === false) {
+        return; // user disabled this category
+      }
+
+      const tokens = await this.getActiveDeviceTokens(userId);
+      if (tokens.length === 0) return;
+
+      // Strip undefined values (FCM requires string map).
+      const data: Record<string, string> = {};
+      for (const [k, v] of Object.entries(payload.data || {})) {
+        if (v !== undefined && v !== null) data[k] = String(v);
+      }
+
+      await sendToFcm(tokens, payload.title, payload.body, data);
+    } catch (error) {
+      console.error('[PUSH] sendPushToUser failed:', error);
+    }
   }
 
   // Admin User Management

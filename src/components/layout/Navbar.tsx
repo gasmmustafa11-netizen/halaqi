@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { Notification as AppNotification } from '../../types';
+import { Notification as AppNotification, NotificationPreferences } from '../../types';
+import { deactivatePush } from '../../services/push';
 import {
   Scissors,
   MapPin,
@@ -15,7 +16,8 @@ import {
   Search,
   Heart,
   Bell,
-  Compass
+  Compass,
+  Settings
   } from 'lucide-react';
 
 interface NavbarProps {
@@ -40,6 +42,30 @@ export const Navbar: React.FC<NavbarProps> = ({
 
     const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const notificationsRef = useRef<HTMLDivElement>(null);
+    const [showPushPrefs, setShowPushPrefs] = useState<boolean>(false);
+    const [pushPrefs, setPushPrefs] = useState<NotificationPreferences | null>(null);
+    const [pushPrefsSaving, setPushPrefsSaving] = useState<boolean>(false);
+
+    const loadPushPrefs = useCallback(async () => {
+      const prefs = await api.getNotificationPreferences();
+      if (prefs) setPushPrefs(prefs);
+    }, []);
+
+    const togglePushPref = useCallback(
+      async (key: keyof NotificationPreferences) => {
+        if (!pushPrefs || pushPrefsSaving) return;
+        const next = { ...pushPrefs, [key]: !pushPrefs[key] };
+        setPushPrefs(next);
+        setPushPrefsSaving(true);
+        try {
+          const saved = await api.setNotificationPreferences({ [key]: next[key] });
+          if (saved) setPushPrefs(saved);
+        } finally {
+          setPushPrefsSaving(false);
+        }
+      },
+      [pushPrefs, pushPrefsSaving]
+    );
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const loadNotifications = async () => {
     if (!user?.id) {
@@ -379,8 +405,66 @@ export const Navbar: React.FC<NavbarProps> = ({
                             {unreadCount > 99 ? '99+' : unreadCount}
                           </span>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPushPrefs((v) => !v);
+                            if (!showPushPrefs) loadPushPrefs();
+                          }}
+                          title={isRtl ? 'إعدادات الإشعارات' : 'Notification settings'}
+                          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full border border-white/[0.12] bg-white/[0.04] text-slate-300 hover:text-[#D4AF37] hover:bg-white/10 transition-all"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
+
+                    {/* Push notification preferences (toggleable, no design change) */}
+                    {showPushPrefs && (
+                      <div className="border-b border-white/[0.07] bg-white/[0.02] px-4 py-3 max-h-[40vh] overflow-y-auto">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 mb-2.5">
+                          {isRtl ? 'إشعارات التطبيق' : 'Push notifications'}
+                        </p>
+                        <div className="space-y-1.5">
+                          {(
+                            [
+                              { key: 'likes', label: isRtl ? 'الإعجابات' : 'Likes' },
+                              { key: 'comments', label: isRtl ? 'التعليقات والردود' : 'Comments & replies' },
+                              { key: 'followers', label: isRtl ? 'المتابعون' : 'Followers' },
+                              { key: 'messages', label: isRtl ? 'الرسائل' : 'Messages' },
+                              { key: 'bookings', label: isRtl ? 'الحجوزات' : 'Bookings' },
+                              { key: 'reviews', label: isRtl ? 'التقييمات' : 'Reviews' },
+                              { key: 'reels', label: isRtl ? 'ريلز' : 'Reels' },
+                              { key: 'admin', label: isRtl ? 'حلاقي / الإدارة' : 'Halaqi / admin' },
+                            ] as const
+                          ).map((row) => (
+                            <button
+                              key={row.key}
+                              type="button"
+                              disabled={pushPrefsSaving}
+                              onClick={() => togglePushPref(row.key)}
+                              className="group flex w-full items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-start transition-all hover:bg-white/[0.06] disabled:opacity-60"
+                            >
+                              <span className="text-[11px] text-slate-300">{row.label}</span>
+                              <span
+                                className={`relative h-5 w-9 shrink-0 rounded-full transition-all ${
+                                  pushPrefs?.[row.key]
+                                    ? 'bg-[#D4AF37]'
+                                    : 'bg-white/15'
+                                }`}
+                              >
+                                <span
+                                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                                    pushPrefs?.[row.key] ? 'left-[18px]' : 'left-0.5'
+                                  }`}
+                                />
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Notifications list */}
                     <div className="max-h-[65vh] sm:max-h-[430px] overflow-y-auto">
@@ -434,6 +518,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                                     ? `postdetail:${postId}:${commentId || ''}`
                                     : 'posts'
                                 );
+                                return;
+                              }
+
+                              if (notification.link === '/support') {
+                                setIsNotificationsOpen(false);
+                                onNavigate('support');
                                 return;
                               }
 

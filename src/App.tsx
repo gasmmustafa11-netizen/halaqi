@@ -29,6 +29,12 @@ import { ReelsView } from './components/posts/ReelsView';
 import { PostDetailView } from './components/posts/PostDetailView';
 import { MessagesView } from './components/messaging/MessagesView';
 import { DiscoverView } from './components/discover/DiscoverView';
+import SupportCenterView from './components/support/SupportCenterView';
+import {
+  initPushNotifications,
+  setPushNavigator,
+  getActivePushToken,
+} from './services/push';
 
 
 function AppContent() {
@@ -53,6 +59,25 @@ function AppContent() {
       setCurrentView('admin');
     }
   }, [role]);
+
+  // Mobile push: register device listeners once and wire deep-link navigation.
+  useEffect(() => {
+    setPushNavigator(handleNavigate);
+    initPushNotifications();
+    // initPushNotifications is safe on web (no-op) and idempotent enough for mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // (Re)associate the device token with the account once the user is known.
+  useEffect(() => {
+    if (user?.id) {
+      const token = getActivePushToken();
+      if (token) {
+        api.registerPushToken(token, 'android');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
   const [selectedSalon, setSelectedSalon] = useState<Salon | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedMessageUserId, setSelectedMessageUserId] = useState<string | null>(null);
@@ -425,6 +450,10 @@ function AppContent() {
 
         {currentView === 'discover' && (
           <DiscoverView onNavigate={handleNavigate} />
+        )}
+
+        {currentView === 'support' && (
+          <SupportCenterView onNavigate={handleNavigate} />
         )}
       </main>
 

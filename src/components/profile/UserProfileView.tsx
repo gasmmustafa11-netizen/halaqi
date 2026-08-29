@@ -20,11 +20,13 @@ import {
     Phone,
     Save,
     Play,
+    LifeBuoy,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
+import { deactivatePush } from '../../services/push';
 import { compressImageToDataUrl } from '../../utils/compressImage';
 import { CaptionText } from '../posts/CaptionText';
 import { ImageViewer } from '../common/ImageViewer';
@@ -1021,6 +1023,31 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                     </div>
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettings(false);
+                      onNavigate?.('support');
+                    }}
+                    className="group flex w-full items-center gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 text-right transition-all hover:border-[#D4AF37]/25 hover:bg-[#D4AF37]/[0.05]"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#D4AF37]/10">
+                      <LifeBuoy className="h-5 w-5 text-[#D4AF37]" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-white">
+                        {language === 'ar' ? 'بريد الدعم' : 'Support Mail'}
+                      </p>
+
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                        {language === 'ar'
+                          ? 'تواصل مع فريق الدعم وأرسل طلباتك وبلاغاتك'
+                          : 'Contact support and manage your tickets'}
+                      </p>
+                    </div>
+                  </button>
+
                   <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 opacity-70">
                     <div className="flex items-center gap-4">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-400/10">
@@ -1061,6 +1088,9 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                     if (!confirmed) return;
 
                     setShowSettings(false);
+                    // Stop further push notifications to this device before
+                    // clearing the session (non-blocking, safe on web).
+                    await deactivatePush();
                     logout();
                   }}
                   className="group flex w-full items-center gap-4 rounded-2xl border border-red-500/10 bg-red-500/[0.035] p-4 text-right transition-all hover:border-red-500/25 hover:bg-red-500/[0.07]"

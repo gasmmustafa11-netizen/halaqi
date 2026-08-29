@@ -17,7 +17,12 @@ import {
   UserPost,
   Message,
   Conversation,
-  MessageMediaMetadata
+  MessageMediaMetadata,
+  NotificationPreferences,
+  SupportTicket,
+  SupportTicketDetail,
+  SupportTicketMessage,
+  SupportAttachment
 } from '../types';
 
 const API_BASE =
@@ -1565,6 +1570,71 @@ export const api = {
     }
   },
 
+  // ---- Push notification device tokens ----
+  async registerPushToken(token: string, platform = 'android', deviceId?: string): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth('/api/push/register', {
+        method: 'POST',
+        body: JSON.stringify({ token, platform, deviceId }),
+      });
+      return res.ok;
+    } catch (err) {
+      console.error('API Error [registerPushToken]:', err);
+      return false;
+    }
+  },
+
+  async unregisterPushToken(token: string): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth('/api/push/unregister', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      return res.ok;
+    } catch (err) {
+      console.error('API Error [unregisterPushToken]:', err);
+      return false;
+    }
+  },
+
+  async unregisterAllPushTokens(): Promise<boolean> {
+    try {
+      const res = await fetchWithAuth('/api/push/unregister-all', {
+        method: 'POST',
+      });
+      return res.ok;
+    } catch (err) {
+      console.error('API Error [unregisterAllPushTokens]:', err);
+      return false;
+    }
+  },
+
+  // ---- Notification preferences ----
+  async getNotificationPreferences(): Promise<NotificationPreferences | null> {
+    try {
+      const res = await fetchWithAuth('/api/notifications/preferences');
+      const data = await res.json();
+      return data.preferences || null;
+    } catch (err) {
+      console.error('API Error [getNotificationPreferences]:', err);
+      return null;
+    }
+  },
+
+  async setNotificationPreferences(updates: Partial<NotificationPreferences>): Promise<NotificationPreferences | null> {
+    try {
+      const res = await fetchWithAuth('/api/notifications/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({ preferences: updates }),
+      });
+      const data = await res.json();
+      return data.preferences || null;
+    } catch (err) {
+      console.error('API Error [setNotificationPreferences]:', err);
+      return null;
+    }
+  },
+
   // Cities
   async getCities(): Promise<City[]> {
     try {
@@ -2473,6 +2543,138 @@ export const api = {
     } catch (err) {
       console.error('API Error [revealDiscoverIdentity]:', err);
       return { success: false, error: 'تعذر الاتصال بالخادم' };
+    }
+  },
+
+  // ============================================================
+  // SUPPORT MAIL
+  // ============================================================
+  async createSupportTicket(payload: {
+    subject: string;
+    type: string;
+    message: string;
+    attachments?: SupportAttachment[];
+  }): Promise<{ success: boolean; ticket?: SupportTicket; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/support/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, ticket: data.ticket, error: data.error };
+    } catch (err) {
+      console.error('API Error [createSupportTicket]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getMySupportTickets(): Promise<{ success: boolean; tickets?: SupportTicket[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/support/tickets');
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, tickets: data.tickets, error: data.error };
+    } catch (err) {
+      console.error('API Error [getMySupportTickets]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async getSupportTicket(ticketId: string): Promise<{ success: boolean; ticket?: SupportTicketDetail; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/support/tickets/${encodeURIComponent(ticketId)}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, ticket: data.ticket, error: data.error };
+    } catch (err) {
+      console.error('API Error [getSupportTicket]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async replyToSupportTicket(ticketId: string, message: string, attachments?: SupportAttachment[]): Promise<{ success: boolean; message?: SupportTicketMessage; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, attachments }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, message: data.message, error: data.error };
+    } catch (err) {
+      console.error('API Error [replyToSupportTicket]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminListSupportTickets(params: { status?: string; search?: string; limit?: number; offset?: number } = {}): Promise<{ success: boolean; tickets?: SupportTicket[]; error?: string }> {
+    try {
+      const qs = new URLSearchParams();
+      if (params.status) qs.set('status', params.status);
+      if (params.search) qs.set('search', params.search);
+      if (params.limit) qs.set('limit', String(params.limit));
+      if (params.offset) qs.set('offset', String(params.offset));
+      const res = await fetchWithAuth(`/api/admin/support/tickets?${qs.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, tickets: data.tickets, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminListSupportTickets]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminGetSupportTicket(ticketId: string): Promise<{ success: boolean; ticket?: SupportTicketDetail; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/support/tickets/${encodeURIComponent(ticketId)}`);
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, ticket: data.ticket, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminGetSupportTicket]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminReplySupportTicket(ticketId: string, message: string, attachments?: SupportAttachment[]): Promise<{ success: boolean; message?: SupportTicketMessage; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/support/tickets/${encodeURIComponent(ticketId)}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, attachments }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, message: data.message, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminReplySupportTicket]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminUpdateSupportTicketStatus(ticketId: string, status: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/support/tickets/${encodeURIComponent(ticketId)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminUpdateSupportTicketStatus]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
+    }
+  },
+
+  async adminUpdateSupportTicketNote(ticketId: string, note: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/admin/support/tickets/${encodeURIComponent(ticketId)}/note`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && data.success, error: data.error };
+    } catch (err) {
+      console.error('API Error [adminUpdateSupportTicketNote]:', err);
+      return { success: false, error: 'تعذر الاتصال بالخادم.' };
     }
   },
 

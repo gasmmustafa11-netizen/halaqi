@@ -16,6 +16,7 @@ import {
   requireRole,
   requireSalonOwnerOrAdmin,
 } from './authMiddleware.js';
+import type { SupportAttachment } from '../types';
 
 
 /* HALAQI_FOLLOW_SQL_CLIENT */
@@ -115,6 +116,26 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
     const token = generateToken(result.user);
 
+    // Security push: alert the user of a successful login on a new session.
+    // Non-blocking and respects the "Halaqi/admin" preference.
+    void db
+      .sendPushToUser(result.user.id, {
+        title: 'تسجيل دخول جديد',
+        body: 'تم تسجيل الدخول إلى حسابك في حلاقي.',
+        category: 'admin',
+        data: {
+          notificationId: `sec_${Date.now()}`,
+          type: 'system',
+          screen: 'home',
+          id: result.user.id,
+          titleAr: 'تسجيل دخول جديد',
+          titleEn: 'New Login',
+          bodyAr: 'تم تسجيل الدخول إلى حسابك في حلاقي.',
+          bodyEn: 'A new login to your Halaqi account was detected.',
+        },
+      })
+      .catch(() => {});
+
     return res.json({
       success: true,
       user: result.user,
@@ -127,6 +148,247 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       success: false,
       error: 'تعذر تسجيل الدخول.',
     });
+  }
+});
+
+/* =========================================================
+   PUSH NOTIFICATION DEVICE TOKENS
+   ========================================================= */
+app.post('/api/push/register', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { token, platform, deviceId } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'token مطلوب.' });
+    }
+    await db.registerDeviceToken(req.user!.id, token, platform || 'android', deviceId || undefined);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[PUSH REGISTER]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تسجيل الجهاز.' });
+  }
+});
+
+app.post('/api/push/unregister', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'token مطلوب.' });
+    }
+    await db.unregisterDeviceToken(req.user!.id, token);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[PUSH UNREGISTER]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إلغاء تسجيل الجهاز.' });
+  }
+});
+
+// Called on logout to stop further pushes to the user's devices.
+app.post('/api/push/unregister-all', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await db.unregisterAllUserTokens(req.user!.id);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[PUSH UNREGISTER ALL]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إلغاء تسجيل الأجهزة.' });
+  }
+});
+
+/* =========================================================
+   NOTIFICATION PREFERENCES
+   ========================================================= */
+app.get('/api/notifications/preferences', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const prefs = await db.getNotificationPreferences(req.user!.id);
+    return res.json({ success: true, preferences: prefs });
+  } catch (error) {
+    console.error('[NOTIF PREFS GET]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحميل التفضيلات.' });
+  }
+});
+
+app.put('/api/notifications/preferences', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const updates = req.body?.preferences || req.body || {};
+    const prefs = await db.setNotificationPreferences(req.user!.id, updates);
+    return res.json({ success: true, preferences: prefs });
+  } catch (error) {
+    console.error('[NOTIF PREFS PUT]', error);
+    return res.status(500).json({ success: false, error: 'تعذر حفظ التفضيلات.' });
+  }
+});
+
+/* =========================================================
+   SUPPORT MAIL — USER SIDE
+   المستخدم يرى طلباته فقط (الصلاحيات تُفحص في الخادم).
+   ========================================================= */
+function sanitizeSupportAttachments(input: any): SupportAttachment[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((a: any) => a && typeof a.url === 'string')
+    .map((a: any) => ({ url: a.url, type: typeof a.type === 'string' ? a.type : undefined, name: typeof a.name === 'string' ? a.name : undefined }));
+}
+
+app.post('/api/support/tickets', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { subject, type, message, attachments } = req.body || {};
+    if (!subject || typeof subject !== 'string' || !subject.trim()) {
+      return res.status(400).json({ success: false, error: 'عنوان الطلب مطلوب.' });
+    }
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'نص الرسالة مطلوب.' });
+    }
+    const allowedTypes = ['bug', 'suggestion', 'complaint', 'other'];
+    const ticketType = allowedTypes.includes(type) ? type : 'other';
+    const ticket = await db.createSupportTicket({
+      userId: req.user!.id,
+      subject: subject.trim().slice(0, 200),
+      type: ticketType,
+      message: message.trim(),
+      attachments: sanitizeSupportAttachments(attachments),
+    });
+    return res.status(201).json({ success: true, ticket });
+  } catch (error) {
+    console.error('[SUPPORT CREATE]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إنشاء طلب الدعم.' });
+  }
+});
+
+app.get('/api/support/tickets', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const tickets = await db.getMySupportTickets(req.user!.id);
+    return res.json({ success: true, tickets });
+  } catch (error) {
+    console.error('[SUPPORT LIST]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحميل طلبات الدعم.' });
+  }
+});
+
+app.get('/api/support/tickets/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ticket = await db.getSupportTicketForUser(req.params.id, req.user!.id);
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: 'الطلب غير موجود أو غير مصرح لك بالوصول إليه.' });
+    }
+    return res.json({ success: true, ticket });
+  } catch (error) {
+    console.error('[SUPPORT DETAIL]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحميل تفاصيل الطلب.' });
+  }
+});
+
+app.post('/api/support/tickets/:id/messages', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { message, attachments } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'نص الرد مطلوب.' });
+    }
+    const msg = await db.replyToSupportTicketAsUser(
+      req.params.id,
+      req.user!.id,
+      message.trim(),
+      sanitizeSupportAttachments(attachments)
+    );
+    if (!msg) {
+      return res.status(404).json({ success: false, error: 'الطلب غير موجود أو غير مصرح لك بالوصول إليه.' });
+    }
+    return res.status(201).json({ success: true, message: msg });
+  } catch (error) {
+    console.error('[SUPPORT REPLY]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إرسال الرد.' });
+  }
+});
+
+/* =========================================================
+   SUPPORT MAIL — ADMIN SIDE
+   ========================================================= */
+app.get('/api/admin/support/tickets', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const search = typeof req.query.search === 'string' ? req.query.search : '';
+    const limit = Math.min(parseInt((req.query.limit as string) || '50', 10) || 50, 200);
+    const offset = parseInt((req.query.offset as string) || '0', 10) || 0;
+    const tickets = await db.listAllSupportTickets({ status, search, limit, offset });
+    return res.json({ success: true, tickets });
+  } catch (error) {
+    console.error('[ADMIN SUPPORT LIST]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحميل طلبات الدعم.' });
+  }
+});
+
+app.get('/api/admin/support/tickets/:id', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ticket = await db.getSupportTicketAdmin(req.params.id);
+    if (!ticket) return res.status(404).json({ success: false, error: 'الطلب غير موجود.' });
+    return res.json({ success: true, ticket });
+  } catch (error) {
+    console.error('[ADMIN SUPPORT DETAIL]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحميل التفاصيل.' });
+  }
+});
+
+app.post('/api/admin/support/tickets/:id/reply', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { message, attachments } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'نص الرد مطلوب.' });
+    }
+    const msg = await db.adminReplyToTicket(req.params.id, req.user!.id, message.trim(), sanitizeSupportAttachments(attachments));
+    if (!msg) return res.status(404).json({ success: false, error: 'الطلب غير موجود.' });
+    const ticket = await db.getSupportTicketAdmin(req.params.id);
+    if (ticket) {
+      await db.createNotification({
+        userId: ticket.userId,
+        actorUserId: req.user!.id,
+        title: 'رد جديد من دعم حلاقي',
+        titleEn: 'New reply from Halaqi Support',
+        message: `تم الرد على طلب الدعم: ${ticket.subject}`,
+        messageEn: `Reply on your support ticket: ${ticket.subject}`,
+        type: 'support_reply',
+        link: '/support',
+      });
+    }
+    return res.status(201).json({ success: true, message: msg });
+  } catch (error) {
+    console.error('[ADMIN SUPPORT REPLY]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إرسال الرد.' });
+  }
+});
+
+app.put('/api/admin/support/tickets/:id/status', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { status } = req.body || {};
+    const allowed = ['new', 'reviewing', 'processing', 'resolved', 'closed'];
+    if (!allowed.includes(status)) return res.status(400).json({ success: false, error: 'حالة غير صالحة.' });
+    await db.updateSupportTicketStatus(req.params.id, status);
+    const ticket = await db.getSupportTicketAdmin(req.params.id);
+    if (ticket) {
+      await db.createNotification({
+        userId: ticket.userId,
+        actorUserId: req.user!.id,
+        title: 'تحديث حالة طلب الدعم',
+        titleEn: 'Support ticket status updated',
+        message: `تم تحديث حالة طلب الدعم "${ticket.subject}" إلى: ${status}`,
+        messageEn: `Your support ticket "${ticket.subject}" status is now: ${status}`,
+        type: 'support_reply',
+        link: '/support',
+      });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN SUPPORT STATUS]', error);
+    return res.status(500).json({ success: false, error: 'تعذر تحديث الحالة.' });
+  }
+});
+
+app.put('/api/admin/support/tickets/:id/note', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { note } = req.body || {};
+    if (typeof note !== 'string') return res.status(400).json({ success: false, error: 'الملاحظة مطلوبة.' });
+    await db.updateSupportTicketNote(req.params.id, note);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[ADMIN SUPPORT NOTE]', error);
+    return res.status(500).json({ success: false, error: 'تعذر حفظ الملاحظة.' });
   }
 });
 
@@ -2951,6 +3213,27 @@ app.post('/api/messages', requireAuth, messageRateLimiter, async (req: Authentic
     // unread count) only — NOT as duplicate entries in the Notifications
     // section. Intentionally no `type: 'message'` notification is created
     // here (Messenger-style behaviour).
+    //
+    // Mobile push IS sent (non-blocking) so the recipient still gets a real
+    // push notification without duplicating the in-app notification centre.
+    void db
+      .sendPushToUser(recipientId, {
+        title: 'رسالة جديدة',
+        body: `${finalBody || '📷 صورة'}`,
+        category: 'messages',
+        data: {
+          notificationId: id,
+          type: 'message',
+          screen: 'message',
+          id: me,
+          actorUserId: me,
+          titleAr: 'رسالة جديدة',
+          titleEn: 'New Message',
+          bodyAr: finalBody || '📷 صورة',
+          bodyEn: finalBody || '📷 Photo',
+        },
+      })
+      .catch(() => {});
 
     return res.status(201).json({
       success: true,
@@ -3334,7 +3617,7 @@ app.post(
           titleEn: 'New Follower',
           message: `${row.target_name || 'مستخدم'} بدأ بمتابعتك.`,
           messageEn: `${row.target_name || 'A user'} started following you.`,
-          type: 'system',
+          type: 'follow',
           link: `/profile/${currentUserId}`,
         }).catch(() => {});
       }
