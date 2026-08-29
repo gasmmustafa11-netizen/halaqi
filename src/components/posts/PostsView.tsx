@@ -92,7 +92,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [imageMenuPost, setImageMenuPost] = useState<any | null>(null);
   const [undoKey, setUndoKey] = useState<string | null>(null);
   const undoTimer = useRef<number | null>(null);
-const postsScrollRef = useRef<HTMLDivElement>(null);
+const postsScrollRef = useRef<HTMLDivElement>({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 } as HTMLDivElement);
 
   const postKey = (post: any): string =>
     `${getPostType(post)}:${post?.id || ''}`;
@@ -895,6 +895,7 @@ const postsScrollRef = useRef<HTMLDivElement>(null);
           </div>
         ) : (
           <div className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black"
+              ref={postsScrollRef}
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}>

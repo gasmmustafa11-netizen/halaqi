@@ -52,6 +52,8 @@ export function usePullToRefresh({
 
     // Only pull downward from top
     if (deltaY > 0) {
+      e.preventDefault();
+
       // Apply natural resistance: use sqrt-based easing for natural feel
       // resistance factor: closer to finger movement near top, more resistance as pull increases
       const rawDistance = deltaY;
