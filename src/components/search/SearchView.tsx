@@ -18,6 +18,7 @@ interface SearchSalon {
 interface SearchUser {
   id: string;
   name: string;
+  username?: string;
   email?: string;
   phone?: string;
   avatar?: string;
@@ -174,6 +175,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate }) => {
                         <p className="font-bold text-sm text-white truncate">
                           {item.name}
                         </p>
+                        {item.username && (
+                          <p className="text-[10px] text-[#D4AF37]/80 font-medium truncate">@{item.username}</p>
+                        )}
                         {item.email && (
                           <p className="text-[11px] text-gray-500 truncate" dir="ltr">
                             {item.email}
