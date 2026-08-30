@@ -3219,9 +3219,10 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
     const result = rows.map((r: any) => {
       const p = profileMap.get(String(r.other_id)) || {};
       const msg = latestMsgMap.get(String(r.other_id)) || {};
+      const otherIdStr = String(r.other_id);
       return {
         otherUser: {
-          id: String(r.other_id),
+          id: otherIdStr,
           name: p.name || 'مستخدم',
           username: p.username || undefined,
           avatar: p.avatar || undefined,
@@ -3229,7 +3230,7 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
         },
         hidden: true,
         pinned: r.pinned ?? false,
-        unreadCount: unreadMap.get(String(r.other_id)) || 0,
+        unreadCount: unreadMap.get(otherIdStr) || 0,
         lastMessage: msg.body ? {
           body: msg.body,
           createdAt: msg.created_at ? new Date(msg.created_at).toISOString() : new Date().toISOString(),
@@ -3237,10 +3238,11 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
           type: msg.type || 'text',
         } : { body: '', createdAt: new Date().toISOString(), senderId: me, type: 'text' },
       };
-    }).sort((a: any, b: any) => {
+    })
+    .sort((a: any, b: any) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
-      return 0;
+      return new Date(b.lastMessage.createdAt || 0).getTime() - new Date(a.lastMessage.createdAt || 0).getTime();
     });
     return res.json({ success: true, conversations: result });
   } catch (e: any) {

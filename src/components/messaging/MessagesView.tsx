@@ -626,10 +626,10 @@ export const MessagesView: React.FC<{
                   </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
+      <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]" style={{ minHeight: 0 }}>
         {showHidden && (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#262626]">
+          <div className="flex flex-col" style={{ minHeight: 400 }}>
+            <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-3 border-b border-[#262626] bg-[#141414]">
               <button
                 type="button"
                 onClick={() => { setShowHidden(false); setPinInput(''); setHiddenPinError(''); setHiddenUnlocked(false); loadConversations(); }}
