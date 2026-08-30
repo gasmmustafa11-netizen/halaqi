@@ -198,6 +198,7 @@ export interface Notification {
   userId: string;
   actorUserId?: string;
   actorName?: string;
+  actorIsVerified?: boolean;
   title: string;
   titleEn: string;
   message: string;

@@ -4558,7 +4558,10 @@ class DatabaseStore {
           up.updated_at,
           up.like_count,
           up.comment_count,
-          u.username AS user_username
+          u.name AS user_name,
+          u.username AS user_username,
+          u.avatar AS user_avatar,
+          u.is_verified AS user_is_verified
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.user_id = ${userId}
@@ -4569,6 +4572,9 @@ class DatabaseStore {
         id: p.id,
         userId: p.user_id,
         username: p.user_username || undefined,
+        userName: p.user_name || 'مستخدم',
+        userAvatar: p.user_avatar || undefined,
+        isVerified: p.user_is_verified ?? false,
         imageUrl: p.image_url,
         caption: p.caption || '',
         mediaType: (p.media_type === 'video' ? 'video' : 'image') as
@@ -4745,6 +4751,7 @@ class DatabaseStore {
         userName: p.user_name || 'مستخدم',
         username: p.user_username || undefined,
         userAvatar: p.user_avatar || undefined,
+        isVerified: p.user_is_verified ?? false,
         imageUrl: p.image_url,
         caption: p.caption || '',
         createdAt: new Date(p.created_at).toISOString(),
@@ -5761,6 +5768,7 @@ class DatabaseStore {
           u.name AS user_name,
           u.username AS user_username,
           u.avatar AS user_avatar,
+          u.is_verified AS user_is_verified,
           EXISTS(
             SELECT 1 FROM post_likes pl
             WHERE pl.post_type = 'user'
@@ -5780,6 +5788,7 @@ class DatabaseStore {
         userName: p.user_name || 'مستخدم',
         username: p.user_username || undefined,
         userAvatar: p.user_avatar || undefined,
+        isVerified: p.user_is_verified ?? false,
         imageUrl: p.image_url,
         caption: p.caption || '',
         mediaType: 'video' as const,
@@ -7240,6 +7249,7 @@ export async function getNotificationsFromNeon(userId: string): Promise<Notifica
       n.user_id,
       n.actor_user_id,
       u.name AS actor_name,
+      u.is_verified AS actor_is_verified,
       n.title,
       n.title_en,
       n.message,
@@ -7260,6 +7270,7 @@ export async function getNotificationsFromNeon(userId: string): Promise<Notifica
     userId: n.user_id,
     actorUserId: n.actor_user_id || undefined,
     actorName: n.actor_name || undefined,
+    actorIsVerified: n.actor_is_verified ?? false,
     title: n.title,
     titleEn: n.title_en,
     message: n.message,
