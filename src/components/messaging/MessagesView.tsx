@@ -211,6 +211,7 @@ export const MessagesView: React.FC<{
   const [showHidden, setShowHidden] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [hiddenPinError, setHiddenPinError] = useState('');
+  const [hiddenUnlocked, setHiddenUnlocked] = useState(false);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const [longPressConvId, setLongPressConvId] = useState<string | null>(null);
   const justLongPressed = useRef(false);
@@ -613,7 +614,7 @@ export const MessagesView: React.FC<{
         <MessageSquare className="w-5 h-5 text-[#D4AF37]" />
                   <button
                     type="button"
-                    onClick={() => { setShowHidden(!showHidden); setPinInput(''); setHiddenPinError(''); }}
+                    onClick={() => { setShowHidden(!showHidden); setPinInput(''); setHiddenPinError(''); setHiddenUnlocked(false); }}
                     aria-label="⋮"
                     className="w-9 h-9 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center hover:bg-[#202020] text-[#D4AF37] text-lg font-black"
                   >
@@ -626,45 +627,113 @@ export const MessagesView: React.FC<{
 
       <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
         {showHidden && (
-          <div className="px-4 py-4 space-y-3">
-            <div className="flex gap-2">
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={pinInput}
-                onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0,4); setPinInput(v); setHiddenPinError(''); }}
-                placeholder={isRtl ? 'PIN 4 أرقام' : '4-digit PIN'}
-                className="flex-1 rounded-xl bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-[#D4AF37]"
-              />
+          <div className="flex flex-col h-full">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3">
               <button
                 type="button"
-                onClick={async () => {
-                  try {
-                    const res =                 await api.getHiddenConversations(String(pinInput || ''));
-                    if (res.success && Array.isArray(res.conversations)) {
-                      setConversations(res.conversations as any);
-                      setHiddenPinError('');
-                    } else {
-                      setHiddenPinError(isRtl ? 'PIN غير صحيح' : 'Wrong PIN');
-                    }
-                  } catch {
-                    setHiddenPinError(isRtl ? 'فشل التحقق' : 'Verification failed');
-                  }
-                }}
-                className="px-3 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black"
+                onClick={() => { setShowHidden(false); setPinInput(''); setHiddenPinError(''); loadConversations(); }}
+                className="w-9 h-9 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center hover:bg-[#202020] text-[#D4AF37]"
+                title={isRtl ? 'رجوع' : 'Back'}
+                aria-label={isRtl ? 'رجوع' : 'Back'}
               >
-                {isRtl ? 'فتح' : 'Open'}
+                <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
               </button>
+              <h3 className="text-sm font-black text-white flex-1">
+                {isRtl ? 'المحادثات المخفية' : 'Hidden conversations'}
+              </h3>
             </div>
-            {hiddenPinError && <p className="text-xs text-red-400">{hiddenPinError}</p>}
-            <button
-              type="button"
-              onClick={() => { setShowHidden(false); loadConversations(); }}
-              className="text-xs text-[#D4AF37] hover:underline"
-            >
-              {isRtl ? 'العودة للمحادثات الرئيسية' : 'Back to main messages'}
-            </button>
+
+            {(!hiddenUnlocked) && (
+              <div className="px-4 py-4 space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinInput}
+                    onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0,4); setPinInput(v); setHiddenPinError(''); }}
+                    placeholder={isRtl ? 'PIN 4 أرقام' : '4-digit PIN'}
+                    className="flex-1 rounded-xl bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await api.getHiddenConversations(String(pinInput || ''));
+                        if (res.success && Array.isArray(res.conversations)) {
+                          setConversations(res.conversations as any);
+                          setHiddenUnlocked(true);
+                          setHiddenPinError('');
+                        } else {
+                          setHiddenPinError(isRtl ? 'PIN غير صحيح' : 'Wrong PIN');
+                        }
+                      } catch {
+                        setHiddenPinError(isRtl ? 'فشل التحقق' : 'Verification failed');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black"
+                  >
+                    {isRtl ? 'فتح' : 'Open'}
+                  </button>
+                </div>
+                {hiddenPinError && <p className="text-xs text-red-400">{hiddenPinError}</p>}
+                <p className="text-[11px] text-gray-500">
+                  {isRtl ? 'أدخل رمز الـ PIN لفتح المحادثات المخفية.' : 'Enter the PIN to view hidden conversations.'}
+                </p>
+              </div>
+            )}
+
+            {hiddenUnlocked && conversations.length === 0 && (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto w-14 h-14 rounded-2xl bg-white/[0.035] border border-white/[0.06] flex items-center justify-center mb-4">
+                  <MessageSquare className="w-6 h-6 text-gray-500" />
+                </div>
+                <p className="text-sm font-bold text-gray-300">
+                  {isRtl ? 'لا توجد محادثات مخفية' : 'No hidden conversations'}
+                </p>
+              </div>
+            )}
+
+            {hiddenUnlocked && conversations.length > 0 && (
+              <div className="flex-1 overflow-y-auto">
+                {conversations.map((conv) => {
+                  const isActive = conv.otherUser.id === selectedId;
+                  return (
+                    <button
+                      key={conv.otherUser.id}
+                      onClick={() => { setShowHidden(false); setHiddenUnlocked(false); openConversation(conv.otherUser.id); }}
+                      className={`w-full text-start px-4 py-3.5 border-b border-white/[0.05] flex items-center gap-3 transition-all ${
+                        isActive ? 'bg-[#D4AF37]/[0.08]' : 'hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <div className="shrink-0 w-11 h-11 rounded-full bg-gray-800 border border-[#333] flex items-center justify-center overflow-hidden">
+                        {conv.otherUser.avatar ? (
+                          <img src={conv.otherUser.avatar} alt={conv.otherUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-[#D4AF37] font-bold">{conv.otherUser.name.charAt(0)}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-bold text-white truncate">
+                            {conv.otherUser.name}
+                            {conv.otherUser.isVerified && <VerifiedBadge />}
+                          </p>
+                          <span className="text-[10px] text-gray-500 shrink-0">
+                            {formatTime(conv.lastMessage.createdAt, isRtl)}
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-gray-400 truncate">
+                          {conv.lastMessage.type === 'image' ? (isRtl ? '📷 صورة' : '📷 Photo')
+                            : conv.lastMessage.type === 'audio' ? (isRtl ? '🎤 رسالة صوتية' : '🎤 Voice message')
+                            : conv.lastMessage.body}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
         {loadingConv && conversations.length === 0 && !showHidden ? (
