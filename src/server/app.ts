@@ -3198,12 +3198,27 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
     const profiles = otherIds.length ? await followSql`SELECT id, name, username, avatar, is_verified FROM users WHERE id = ANY(${otherIds})` : [];
     const profileMap = new Map();
     for (const p of profiles) profileMap.set(String(p.id), p);
-    const unreadRows = await followSql`SELECT sender_id AS other_id, COUNT(*)::int AS unread_count       FROM messages
-      WHERE recipient_id = ${me} AND read = FALSE GROUP BY sender_id`;
+    const unreadRows = await followSql`SELECT sender_id AS other_id, COUNT(*)::int AS unread_count FROM messages WHERE recipient_id = ${me} AND read = FALSE GROUP BY sender_id`;
     const unreadMap = new Map(unreadRows.map((r: any) => [String(r.other_id), Number(r.unread_count || 0)]));
+
+    // Get latest message per hidden conversation for display
+    const latestMsgRows = otherIds.length ? await followSql`
+      WITH latest AS (
+        SELECT DISTINCT ON (CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END)
+          CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END AS other_id,
+          body, read, created_at, sender_id, type
+        FROM messages
+        WHERE (sender_id = ${me} OR recipient_id = ${me})
+        ORDER BY CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END, created_at DESC
+      )
+      SELECT other_id, body, read, created_at, sender_id, type FROM latest
+    ` : [];
+    const latestMsgMap = new Map();
+    for (const r of latestMsgRows) latestMsgMap.set(String(r.other_id), r);
 
     const result = rows.map((r: any) => {
       const p = profileMap.get(String(r.other_id)) || {};
+      const msg = latestMsgMap.get(String(r.other_id)) || {};
       return {
         otherUser: {
           id: String(r.other_id),
@@ -3215,6 +3230,12 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
         hidden: true,
         pinned: r.pinned ?? false,
         unreadCount: unreadMap.get(String(r.other_id)) || 0,
+        lastMessage: msg.body ? {
+          body: msg.body,
+          createdAt: msg.created_at ? new Date(msg.created_at).toISOString() : new Date().toISOString(),
+          senderId: msg.sender_id,
+          type: msg.type || 'text',
+        } : { body: '', createdAt: new Date().toISOString(), senderId: me, type: 'text' },
       };
     }).sort((a: any, b: any) => {
       if (a.pinned && !b.pinned) return -1;

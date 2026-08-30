@@ -662,7 +662,14 @@ export const MessagesView: React.FC<{
                       try {
                         const res = await api.getHiddenConversations(String(pinInput || ''));
                         if (res.success && Array.isArray(res.conversations)) {
-                          setConversations(res.conversations as any);
+                          // Normalize: ensure every conv has a lastMessage object so the UI never crashes
+                          const safe = res.conversations.map((c: any) => ({
+                            ...c,
+                            lastMessage: c.lastMessage && c.lastMessage.createdAt
+                              ? c.lastMessage
+                              : { body: '', createdAt: new Date().toISOString(), senderId: c.otherUser?.id || '', type: 'text' },
+                          }));
+                          setConversations(safe);
                           setHiddenUnlocked(true);
                           setHiddenPinError('');
                           // Persist PIN for this user if not yet saved
