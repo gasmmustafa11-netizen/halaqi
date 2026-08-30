@@ -852,41 +852,33 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
           >
             <div
               dir={language === 'ar' ? 'rtl' : 'ltr'}
-              className="relative w-full max-w-lg overflow-hidden rounded-[30px] border border-white/10 bg-[#0D0F14] shadow-[0_30px_100px_rgba(0,0,0,0.7)]"
+              className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[30px] border border-white/10 bg-[#0D0F14] shadow-[0_30px_100px_rgba(0,0,0,0.7)]"
             >
               <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-[#D4AF37]/10 blur-3xl pointer-events-none" />
               <div className="absolute -bottom-32 -left-24 h-64 w-64 rounded-full bg-violet-500/[0.06] blur-3xl pointer-events-none" />
 
-              <div className="relative border-b border-white/[0.07] px-6 py-6">
-                <div className="flex items-center justify-between gap-4">
-
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/10">
-                      <Settings className="h-5 w-5 text-[#D4AF37]" />
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-black text-white">
-                        {language === 'ar' ? 'الإعدادات' : 'Settings'}
-                      </h2>
-
-                      <p className="mt-1 text-xs text-slate-500">
-                        {language === 'ar'
-                          ? 'تحكم بتجربة حسابك في حلاقي'
-                          : 'Control your Halaqi account experience'}
-                      </p>
-                    </div>
+              <div className="sticky top-0 z-10 bg-[#0D0F14]/95 backdrop-blur-md border-b border-white/[0.07] px-6 py-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/10">
+                    <Settings className="h-5 w-5 text-[#D4AF37]" />
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSettings(false)}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
-                  >
-                    <X size={18} />
-                  </button>
-
+                  <div>
+                    <h2 className="text-xl font-black text-white">
+                      {language === 'ar' ? 'الإعدادات' : 'Settings'}
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {language === 'ar' ? 'تحكم بتجربة حسابك في حلاقي' : 'Control your Halaqi account experience'}
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(false)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                  aria-label={language === 'ar' ? 'إغلاق' : 'Close'}
+                >
+                  <X size={18} />
+                </button>
               </div>
 
               <div className="relative space-y-3 p-5 sm:p-6">
