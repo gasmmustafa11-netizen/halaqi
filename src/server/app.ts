@@ -1470,6 +1470,7 @@ app.delete(
           username,
           is_active,
           is_banned,
+          is_verified,
           is_premium,
           created_at
         FROM users
@@ -1495,6 +1496,7 @@ app.delete(
         isActive: u.is_active ?? true,
         isBanned: u.is_banned ?? false,
         isPremium: u.is_premium ?? false,
+        isVerified: u.is_verified ?? false,
         createdAt: new Date(u.created_at).toISOString(),
       }));
       return res.json({ success: true, users });

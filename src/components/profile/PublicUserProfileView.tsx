@@ -370,8 +370,6 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
                   </p>
                 )}
 
-                {user.isVerified && <VerifiedBadge />}
-
 {user.role === 'salon_owner' && (
                   <span className="px-2.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-[10px] font-black">
                     موثّق كصاحب صالون
