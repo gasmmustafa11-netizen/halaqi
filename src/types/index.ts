@@ -416,6 +416,7 @@ export interface SupportTicketDetail extends SupportTicket {
 // ============================================================
 
 export type ModerationContentType =
+  | 'user'
   | 'user_post'
   | 'salon_post'
   | 'comment'

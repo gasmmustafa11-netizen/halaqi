@@ -19,6 +19,7 @@ import {
 import { ModerationCategory, ModerationDecision } from '../../types';
 
 const CT_LABELS: Record<string, { ar: string; en: string }> = {
+  user: { ar: 'حساب مستخدم', en: 'User Account' },
   user_post: { ar: 'منشور مستخدم', en: 'User post' },
   salon_post: { ar: 'منشور صالون', en: 'Salon post' },
   comment: { ar: 'تعليق', en: 'Comment' },
@@ -333,33 +334,37 @@ const AdminModerationView: React.FC<{ onNavigate?: (view: string) => void }> = (
                 >
                   <RotateCcw className="h-4 w-4" /> {ar ? 'عكس وإرجاع المحتوى' : 'Reverse & restore'}
                 </button>
-                <button
-                  disabled={busy}
-                  onClick={() => act({ applyHide: true, adminNote })}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
-                >
-                  <EyeOff className="h-4 w-4" /> {ar ? 'إخفاء المحتوى' : 'Hide content'}
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => act({ applyRemove: true, status: 'resolved', adminNote })}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
-                >
-                  <Trash2 className="h-4 w-4" /> {ar ? 'حذف المحتوى' : 'Remove'}
-                </button>
+                {detail.report.contentType !== 'user' && (
+                  <>
+                    <button
+                      disabled={busy}
+                      onClick={() => act({ applyHide: true, adminNote })}
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
+                    >
+                      <EyeOff className="h-4 w-4" /> {ar ? 'إخفاء المحتوى' : 'Hide content'}
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => act({ applyRemove: true, status: 'resolved', adminNote })}
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" /> {ar ? 'حذف المحتوى' : 'Remove'}
+                    </button>
+                  </>
+                )}
                 <button
                   disabled={busy || !detail.report.contentOwnerId}
                   onClick={() => act({ applyWarn: true, adminNote })}
                   className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
                 >
-                  <AlertTriangle className="h-4 w-4" /> {ar ? 'تحذير صاحب المحتوى' : 'Warn owner'}
+                  <AlertTriangle className="h-4 w-4" /> {ar ? 'تحذير الحساب' : 'Warn account'}
                 </button>
                 <button
                   disabled={busy || !detail.report.contentOwnerId}
                   onClick={() => act({ applyRestrict: true, adminNote })}
                   className="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-300 transition hover:text-white disabled:opacity-40"
                 >
-                  <UserX className="h-4 w-4" /> {ar ? 'تقييد صاحب المحتوى' : 'Restrict owner'}
+                  <UserX className="h-4 w-4" /> {ar ? 'تقييد الحساب' : 'Restrict account'}
                 </button>
               </div>
 

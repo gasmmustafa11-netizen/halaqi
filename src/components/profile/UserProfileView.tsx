@@ -21,6 +21,7 @@ import {
     Save,
     Play,
     LifeBuoy,
+    ShieldCheck,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +32,7 @@ import { compressImageToDataUrl } from '../../utils/compressImage';
 import { CaptionText } from '../posts/CaptionText';
 import { ImageViewer } from '../common/ImageViewer';
 import { notify, confirmDialog } from '../../utils/notifications';
+import HalaqiVerifiedSubscription from './HalaqiVerifiedSubscription';
 
 interface UserProfileViewProps {
   onNavigate?: (view: string) => void;
@@ -336,6 +338,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const userId = user?.id;
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showVerifiedSubscription, setShowVerifiedSubscription] = useState(false);
     const [showEditProfile, setShowEditProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
@@ -1048,6 +1051,34 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                     </div>
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowVerifiedSubscription(true);
+                    }}
+                    className="group flex w-full items-center gap-4 rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] p-4 text-right transition-all hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/[0.1]"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#D4AF37]/10">
+                      <ShieldCheck className="h-5 w-5 text-[#D4AF37]" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-white">
+                        {language === 'ar' ? 'اشتراك حلاقي الموثّق' : 'Halaqi Verified Subscription'}
+                      </p>
+
+                      <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                        {language === 'ar'
+                          ? 'قدّم طلب توثيق حسابك — قريباً'
+                          : 'Apply for account verification — coming soon'}
+                      </p>
+                    </div>
+
+                    <span className="shrink-0 rounded-lg border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-2.5 py-1.5 text-[10px] font-bold text-[#D4AF37]">
+                      {language === 'ar' ? 'قريباً' : 'Soon'}
+                    </span>
+                  </button>
+
                   <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 opacity-70">
                     <div className="flex items-center gap-4">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-400/10">
@@ -1124,6 +1155,11 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
             </div>
           </div>
         )}
+
+        <HalaqiVerifiedSubscription
+          open={showVerifiedSubscription}
+          onClose={() => setShowVerifiedSubscription(false)}
+        />
 
         {showEditProfile && (
           <div

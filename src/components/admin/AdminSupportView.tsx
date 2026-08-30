@@ -52,6 +52,7 @@ const REPORT_DECISION: Record<string, { ar: string; en: string; cls: string }> =
 };
 
 const REPORT_CT: Record<string, { ar: string; en: string }> = {
+  user: { ar: 'حساب مستخدم', en: 'User Account' },
   user_post: { ar: 'منشور مستخدم', en: 'User post' },
   salon_post: { ar: 'منشور صالون', en: 'Salon post' },
   comment: { ar: 'تعليق', en: 'Comment' },

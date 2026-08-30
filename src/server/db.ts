@@ -2738,6 +2738,22 @@ class DatabaseStore {
     contentId: string
   ): Promise<{ ownerId?: string; ownerName?: string; text?: string; mediaUrl?: string; isHidden?: boolean } | null> {
     try {
+      if (contentType === 'user') {
+        // A user-account report: contentId is the reported user's id.
+        const rows = await sql`
+          SELECT id, name, username, avatar FROM users WHERE id = ${contentId} LIMIT 1
+        `;
+        const r = rows[0];
+        return r
+          ? {
+              ownerId: r.id,
+              ownerName: r.name,
+              text: r.name || r.username || undefined,
+              mediaUrl: r.avatar || undefined,
+              isHidden: false,
+            }
+          : null;
+      }
       if (contentType === 'comment') {
         const rows = await sql`
           SELECT pc.id, pc.user_id, u.name AS owner_name, pc.comment AS text, pc.is_hidden
@@ -2821,6 +2837,8 @@ class DatabaseStore {
 
   async applyModerationHide(contentType: ModerationContentType, contentId: string, reason: string): Promise<void> {
     try {
+      // User-account reports never hide/delete an account.
+      if (contentType === 'user') return;
       if (contentType === 'salon_post') {
         await sql`UPDATE salon_posts SET is_hidden = true, hidden_reason = ${reason}, moderation_status = 'auto_hidden' WHERE id = ${contentId}`;
       } else if (contentType === 'comment') {
@@ -2835,6 +2853,8 @@ class DatabaseStore {
 
   async restoreContent(contentType: ModerationContentType, contentId: string): Promise<void> {
     try {
+      // User-account reports never hide/delete an account.
+      if (contentType === 'user') return;
       if (contentType === 'salon_post') {
         await sql`UPDATE salon_posts SET is_hidden = false, hidden_reason = NULL, moderation_status = 'restored' WHERE id = ${contentId}`;
       } else if (contentType === 'comment') {
@@ -2849,6 +2869,8 @@ class DatabaseStore {
 
   async removeContent(contentType: ModerationContentType, contentId: string): Promise<void> {
     try {
+      // User-account reports never hide/delete an account.
+      if (contentType === 'user') return;
       if (contentType === 'comment') {
         await sql`UPDATE post_comments SET is_hidden = true, hidden_reason = 'removed_by_admin', moderation_status = 'removed' WHERE id = ${contentId}`;
         return;
@@ -3133,9 +3155,9 @@ class DatabaseStore {
       if (!detail.report) return { success: false, error: 'البلاغ غير موجود.' };
       const { contentType, contentId, contentOwnerId } = detail.report;
 
-      if (data.applyHide) await this.applyModerationHide(contentType, contentId, 'hidden_by_admin');
-      if (data.applyRestore) await this.restoreContent(contentType, contentId);
-      if (data.applyRemove) await this.removeContent(contentType, contentId);
+      if (data.applyHide && contentType !== 'user') await this.applyModerationHide(contentType, contentId, 'hidden_by_admin');
+      if (data.applyRestore && contentType !== 'user') await this.restoreContent(contentType, contentId);
+      if (data.applyRemove && contentType !== 'user') await this.removeContent(contentType, contentId);
       if (data.applyWarn && contentOwnerId) await this.warnUser(contentOwnerId);
       if (data.applyRestrict && contentOwnerId) await this.restrictUser(contentOwnerId);
 

@@ -5270,7 +5270,6 @@ app.post(
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      await ensureDiscoverTables();
       const currentUserId = req.user!.id;
       const targetUserId = String(req.body?.userId || '').trim();
       const reason = String(req.body?.reason || '').trim();
@@ -5290,12 +5289,21 @@ app.post(
         return res.status(404).json({ success: false, error: 'المستخدم غير موجود.' });
       }
 
-      const id = 'rpt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
-      await followSql`
-        INSERT INTO user_reports (id, reporter_id, reported_id, reason, details, status)
-        VALUES (${id}, ${currentUserId}, ${targetUserId}, ${reason}, ${details}, 'pending')
-      `;
-      return res.json({ success: true });
+      // Route user-account reports through the unified content-report system so
+      // they appear alongside posts/comments/reels in the Admin Moderation panel.
+      const report = await db.createContentReport({
+        reporterId: currentUserId,
+        contentType: 'user',
+        contentId: targetUserId,
+        reason,
+        details,
+      });
+
+      if (!report) {
+        return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
+      }
+
+      return res.json({ success: true, reportId: report.id });
     } catch (error) {
       console.error('[DISCOVER REPORT]', error);
       return res.status(500).json({ success: false, error: 'تعذر إرسال البلاغ.' });
@@ -5458,7 +5466,10 @@ async function processContentReport(reportId: string): Promise<void> {
 
     if (ai.decision === 'violation') {
       // HIGH confidence + HIGH severity → automatic, reversible action.
-      await db.applyModerationHide(report.contentType, report.contentId, 'auto_hidden_by_ai');
+      // Never hide/delete a USER ACCOUNT — only content types support that.
+      if (report.contentType !== 'user') {
+        await db.applyModerationHide(report.contentType, report.contentId, 'auto_hidden_by_ai');
+      }
       if (ai.warnUser && report.contentOwnerId) {
         await db.warnUser(report.contentOwnerId);
       }
@@ -5474,12 +5485,15 @@ async function processContentReport(reportId: string): Promise<void> {
       }).catch(() => {});
 
       if (report.contentOwnerId) {
+        const hideMsg = report.contentType === 'user'
+          ? { title: 'تحذير من فريق حلاقي', titleEn: 'Warning from Halaqi team', message: 'تم اتخاذ إجراء بحق حسابك لمخالفته سياسات حلاقي.', messageEn: 'Action was taken on your account for violating Halaqi policies.' }
+          : { title: 'تم إخفاء أحد محتوياتك', titleEn: 'One of your posts was hidden', message: 'تم إخفاء المحتوى لمخالفته سياسات حلاقي.', messageEn: 'Your content was hidden for violating Halaqi policies.' };
         db.createNotification({
           userId: report.contentOwnerId,
-          title: 'تم إخفاء أحد محتوياتك',
-          titleEn: 'One of your posts was hidden',
-          message: 'تم إخفاء المحتوى لمخالفته سياسات حلاقي.',
-          messageEn: 'Your content was hidden for violating Halaqi policies.',
+          title: hideMsg.title,
+          titleEn: hideMsg.titleEn,
+          message: hideMsg.message,
+          messageEn: hideMsg.messageEn,
           type: 'moderation',
         }).catch(() => {});
       }
@@ -5525,7 +5539,7 @@ app.post(
       const reason = String(req.body?.reason || '').trim();
       const details = typeof req.body?.details === 'string' ? req.body.details.slice(0, 1000) : null;
 
-      const allowed = ['user_post', 'salon_post', 'comment', 'reel'];
+      const allowed = ['user', 'user_post', 'salon_post', 'comment', 'reel'];
       if (!allowed.includes(contentType) || !contentId) {
         return res.status(400).json({ success: false, error: 'نوع المحتوى أو المعرّف غير صالح.' });
       }
