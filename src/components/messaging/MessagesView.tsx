@@ -698,10 +698,10 @@ export const MessagesView: React.FC<{
                   }
                   openConversation(conv.otherUser.id);
                 }}
-                onMouseDown={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 3000); }}
+                onMouseDown={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 600); }}
                 onMouseUp={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId && longPressConvId !== conv.otherUser.id) { setLongPressConvId(null); } }}
                 onMouseLeave={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
-                onTouchStart={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 3000); }}
+                onTouchStart={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 600); }}
                 onTouchEnd={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId && longPressConvId !== conv.otherUser.id) { setLongPressConvId(null); } }}
                 onTouchMove={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
                 className={`w-full text-start px-4 py-3.5 border-b border-white/[0.05] flex items-center gap-3 transition-all ${
@@ -724,9 +724,9 @@ export const MessagesView: React.FC<{
 
                 {longPressConvId === conv.otherUser.id && (
                   <div className="absolute z-50 bg-[#181818]/95 border border-[#D4AF37]/30 rounded-xl shadow-2xl p-2 min-w-[160px] text-xs font-bold text-white" style={{ top: 40, left: 10 }}>
-                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'delete' }); await loadConversations(); setLongPressConvId(null); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-red-400">حذف المحادثة</button>
-                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'pin' }); await loadConversations(); setLongPressConvId(null); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-[#D4AF37]">تثبيت</button>
-                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'hide' }); await loadConversations(); setLongPressConvId(null); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-slate-300">إخفاء</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setLongPressConvId(null); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'delete' }); await loadConversations(); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-red-400">حذف المحادثة</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setLongPressConvId(null); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'pin' }); await loadConversations(); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-[#D4AF37]">تثبيت</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setLongPressConvId(null); if(conv.otherUser.id){ (async () => { await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'hide' }); await loadConversations(); })(); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-slate-300">إخفاء</button>
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
