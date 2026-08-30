@@ -2927,7 +2927,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
           created_at,
           type
         FROM messages
-        WHERE (sender_id = ${me} OR recipient_id = ${me}) AND conversation_id IS NULL
+        WHERE (sender_id = ${me} OR recipient_id = ${me})
       )
       SELECT DISTINCT ON (other_id)
         other_id,
@@ -2943,7 +2943,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
     const unreadRows = await followSql`
       SELECT sender_id AS other_id, COUNT(*)::int AS unread_count
       FROM messages
-      WHERE recipient_id = ${me} AND read = FALSE AND conversation_id IS NULL
+      WHERE recipient_id = ${me} AND read = FALSE
       GROUP BY sender_id
     `;
 
@@ -3035,7 +3035,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
       await followSql`
         UPDATE messages
         SET status = 'delivered'
-        WHERE recipient_id = ${me} AND status = 'sent' AND conversation_id IS NULL
+        WHERE recipient_id = ${me} AND status = 'sent'
       `;
     } catch (updErr: any) {
       console.error('[MESSAGES DELIVER]', updErr?.message || updErr);
@@ -3214,7 +3214,6 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
           SELECT * FROM messages
           WHERE ((sender_id = ${me} AND recipient_id = ${other})
               OR (sender_id = ${other} AND recipient_id = ${me}))
-            AND conversation_id IS NULL
             AND created_at < ${before!.toISOString()}
           ORDER BY created_at DESC
           LIMIT 50
@@ -3223,7 +3222,6 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
           SELECT * FROM messages
           WHERE ((sender_id = ${me} AND recipient_id = ${other})
              OR (sender_id = ${other} AND recipient_id = ${me}))
-          AND conversation_id IS NULL
           ORDER BY created_at DESC
           LIMIT 50
         `;
@@ -3263,7 +3261,7 @@ app.get('/api/messages/:userId', requireAuth, async (req: AuthenticatedRequest, 
       await followSql`
         UPDATE messages
         SET status = 'delivered'
-        WHERE recipient_id = ${me} AND sender_id = ${other} AND status = 'sent' AND conversation_id IS NULL
+        WHERE recipient_id = ${me} AND sender_id = ${other} AND status = 'sent'
       `;
     } catch (updErr: any) {
       console.error('[MESSAGES DELIVER THREAD]', updErr?.message || updErr);
