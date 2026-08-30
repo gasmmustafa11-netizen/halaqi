@@ -269,6 +269,7 @@ export const MessagesView: React.FC<{
   }, []);
 
   const loadConversations = useCallback(async () => {
+    justLongPressed.current = false; // reset after any refresh
     try {
       const convs = await api.getConversations();
       // Ensure ordering by latest message time, newest first (Messenger-like)
@@ -696,11 +697,11 @@ export const MessagesView: React.FC<{
                   }
                   openConversation(conv.otherUser.id);
                 }}
-                onMouseDown={() => { longPressTimer.current = setTimeout(() => setLongPressConvId(conv.otherUser.id), 3000); }}
-                onMouseUp={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId === conv.otherUser.id) { justLongPressed.current = true; setTimeout(() => justLongPressed.current = false, 500); setLongPressConvId(null); } }}
+                onMouseDown={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 3000); }}
+                onMouseUp={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId && longPressConvId !== conv.otherUser.id) { setLongPressConvId(null); } }}
                 onMouseLeave={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
-                onTouchStart={() => { longPressTimer.current = setTimeout(() => setLongPressConvId(conv.otherUser.id), 3000); }}
-                onTouchEnd={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId === conv.otherUser.id) { justLongPressed.current = true; setTimeout(() => justLongPressed.current = false, 500); setLongPressConvId(null); } }}
+                onTouchStart={() => { longPressTimer.current = setTimeout(() => { setLongPressConvId(conv.otherUser.id); justLongPressed.current = true; }, 3000); }}
+                onTouchEnd={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId && longPressConvId !== conv.otherUser.id) { setLongPressConvId(null); } }}
                 onTouchMove={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
                 className={`w-full text-start px-4 py-3.5 border-b border-white/[0.05] flex items-center gap-3 transition-all ${
                   isActive ? 'bg-[#D4AF37]/[0.08]' : 'hover:bg-white/[0.04]'

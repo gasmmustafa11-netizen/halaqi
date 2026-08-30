@@ -2894,6 +2894,7 @@ async function ensureConversationStateTable(): Promise<void> {
           other_id TEXT NOT NULL,
           hidden BOOLEAN NOT NULL DEFAULT FALSE,
           pinned BOOLEAN NOT NULL DEFAULT FALSE,
+          deleted BOOLEAN NOT NULL DEFAULT FALSE,
           pin_hash TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           UNIQUE(user_id, other_id)
@@ -2952,23 +2953,42 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
 
     const otherIds: string[] = rows.map((r: any) => String(r.other_id));
     const profileMap = new Map<string, any>();
+    const stateMap = new Map<string, { hidden?: boolean; pinned?: boolean; deleted?: boolean }>();
 
     if (otherIds.length) {
       const profiles = await followSql`
         SELECT id, name, username, avatar, is_verified FROM users WHERE id = ANY(${otherIds})
       `;
 
+      // Load per-user conversation states (hidden / pinned / deleted)
+      const stateRows = await followSql`
+        SELECT user_id, other_id, hidden, pinned, deleted FROM conversation_states WHERE user_id = ${me}
+      `;
+      const stateMapLocal = new Map<string, { hidden?: boolean; pinned?: boolean; deleted?: boolean }>();
+      for (const sr of stateRows) {
+        stateMapLocal.set(String(sr.other_id), { hidden: sr.hidden ?? false, pinned: sr.pinned ?? false, deleted: sr.deleted ?? false });
+      }
+      for (const [k, v] of stateMapLocal.entries()) {
+        stateMap.set(k, v);
+      }
+
       for (const p of profiles) {
         profileMap.set(String(p.id), p);
       }
     }
 
-    const conversations: any[] = rows.map((r: any) => {
-      const profile = profileMap.get(String(r.other_id)) || {};
-
-      return {
+    const conversations: any[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const otherId = String(r.other_id);
+      const state = stateMap.get(otherId) || {};
+      if (state.hidden === true || state.deleted === true) continue;
+      if (seen.has(otherId)) continue;
+      seen.add(otherId);
+      const profile = profileMap.get(otherId) || {};
+      conversations.push({
         otherUser: {
-          id: String(r.other_id),
+          id: otherId,
           name: profile.name || 'مستخدم',
           username: profile.username || undefined,
           avatar: profile.avatar || profile.avatar_url || undefined,
@@ -2976,12 +2996,19 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
         },
         lastMessage: {
           body: r.body,
-          createdAt: new Date(r.created_at).toISOString(),
+          createdAt: new Date(r.createdAt).toISOString(),
           senderId: r.sender_id,
           type: r.type || 'text',
         },
-        unreadCount: unreadMap.get(String(r.other_id)) || 0,
-      };
+        unreadCount: unreadMap.get(otherId) || 0,
+        pinned: state.pinned ?? false,
+        hidden: state.hidden ?? false,
+      });
+    }
+    conversations.sort((a: any, b: any) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
     });
 
     // FEATURE 6: hide conversations with users the viewer has blocked or
@@ -3090,7 +3117,7 @@ app.post('/api/messages/conversation-state', requireAuth, async (req: Authentica
 
     if (action === 'delete') {
       await sql`
-        DELETE FROM conversation_states WHERE user_id = ${me} AND other_id = ${otherId}
+        UPDATE conversation_states SET deleted = TRUE, hidden = FALSE WHERE user_id = ${me} AND other_id = ${otherId}
       `;
       return res.json({ success: true, action: 'delete' });
     }
