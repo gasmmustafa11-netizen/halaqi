@@ -1,8 +1,7 @@
 import "dotenv/config";
-import { neon } from "@neondatabase/serverless";
+import { sql } from "./lib/pg-compliant";
 import { moderateContent } from "./moderation";
 
-const sql = neon(process.env.DATABASE_URL!);
 import crypto from 'crypto';
 import {
   Salon,

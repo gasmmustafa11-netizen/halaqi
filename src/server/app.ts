@@ -1,5 +1,5 @@
-import { neon } from "@neondatabase/serverless";
-const sql = neon(process.env.DATABASE_URL!);
+import { sql as sqlFn } from "./lib/pg-compliant";
+const sql = sqlFn;
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -22,7 +22,7 @@ import type { SupportAttachment } from '../types';
 
 
 /* HALAQI_FOLLOW_SQL_CLIENT */
-const followSql = neon(process.env.DATABASE_URL!);
+const followSql = sql;
 
 const app = express();
 
@@ -50,26 +50,9 @@ app.use(express.json({ limit: '80mb' }));
    instance before serving requests (server.ts does this locally).
    Single-flight guard: concurrent first requests share one load.
 ========================================================= */
-let neonInitPromise: Promise<void> | null = null;
-
-function ensureNeonDataLoaded(): Promise<void> {
-  if (!neonInitPromise) {
-    neonInitPromise = loadAllFromNeon().catch((error: unknown) => {
-      neonInitPromise = null;
-      throw error;
-    });
-  }
-  return neonInitPromise;
-}
-
-app.use(async (req, res, next) => {
-  try {
-    await ensureNeonDataLoaded();
-    next();
-  } catch (error) {
-    console.error('❌ Failed to initialize database from Neon:', error);
-    res.status(500).json({ success: false, error: 'Database initialization failed' });
-  }
+app.use(async (_req, _res, next) => {
+  // pg Pool connects on first query automatically — no pre-loading needed.
+  next();
 });
 
 app.use(optionalAuthMiddleware);
