@@ -3157,7 +3157,8 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
     const profiles = otherIds.length ? await followSql`SELECT id, name, username, avatar, is_verified FROM users WHERE id = ANY(${otherIds})` : [];
     const profileMap = new Map();
     for (const p of profiles) profileMap.set(String(p.id), p);
-    const unreadRows = await followSql`SELECT sender_id AS other_id, COUNT(*)::int AS unread_count FROM messages WHERE recipient_id = ${me} AND read = FALSE AND conversation_id IS NULL GROUP BY sender_id`;
+    const unreadRows = await followSql`SELECT sender_id AS other_id, COUNT(*)::int AS unread_count       FROM messages
+      WHERE recipient_id = ${me} AND read = FALSE GROUP BY sender_id`;
     const unreadMap = new Map(unreadRows.map((r: any) => [String(r.other_id), Number(r.unread_count || 0)]));
 
     const result = rows.map((r: any) => {
@@ -3489,7 +3490,6 @@ app.post('/api/messages/:userId/read', requireAuth, async (req: AuthenticatedReq
       WHERE recipient_id = ${me}
         AND sender_id = ${other}
         AND read = FALSE
-        AND conversation_id IS NULL
     `;
 
     return res.json({ success: true });
