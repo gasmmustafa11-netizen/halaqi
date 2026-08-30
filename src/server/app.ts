@@ -2928,16 +2928,15 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
           type
         FROM messages
         WHERE (sender_id = ${me} OR recipient_id = ${me})
+      ),
+      ranked AS (
+        SELECT*, ROW_NUMBER() OVER (PARTITION BY other_id ORDER BY created_at DESC) AS rn
+        FROM conv
       )
-      SELECT DISTINCT ON (other_id)
-        other_id,
-        body,
-        read,
-        created_at,
-        sender_id,
-        type
-      FROM conv
-      ORDER BY other_id, created_at DESC
+      SELECT other_id, body, read, created_at, sender_id, type
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY created_at DESC
     `;
 
     const unreadRows = await followSql`
