@@ -665,9 +665,23 @@ export const MessagesView: React.FC<{
                           setConversations(res.conversations as any);
                           setHiddenUnlocked(true);
                           setHiddenPinError('');
-                        } else {
-                          setHiddenPinError(isRtl ? 'PIN غير صحيح' : 'Wrong PIN');
+                          // Persist PIN for this user if not yet saved
+                          if (String(pinInput || '').length === 4) {
+                            try { await api.setUserPin(String(pinInput || '')); } catch { /* silent */ }
+                          }
+                          return;
                         }
+                        // Verification failed — maybe first-time; try to set PIN
+                        if (/^\d{4}$/.test(String(pinInput || ''))) {
+                          const setRes = await api.setUserPin(String(pinInput || ''));
+                          if (setRes.success) {
+                            setConversations([]);
+                            setHiddenUnlocked(true);
+                            setHiddenPinError('');
+                            return;
+                          }
+                        }
+                        setHiddenPinError(isRtl ? 'PIN غير صحيح' : 'Wrong PIN');
                       } catch {
                         setHiddenPinError(isRtl ? 'فشل التحقق' : 'Verification failed');
                       }

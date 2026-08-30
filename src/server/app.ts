@@ -2900,10 +2900,43 @@ async function ensureConversationStateTable(): Promise<void> {
           UNIQUE(user_id, other_id)
         )
       `;
+      // Per-user global PIN store (one PIN per user, applies to the
+      // user's own hidden conversations list).
+      await sql`
+        CREATE TABLE IF NOT EXISTS user_message_pins (
+          user_id TEXT PRIMARY KEY,
+          pin_hash TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
     })().catch((e) => { conversationStateReady = null; throw e; });
   }
   await conversationStateReady;
 }
+
+/* POST /api/messages/pin  { pin: '1234' }
+   Sets the current user's own hidden-conversations PIN (4 digits).
+   Persists across sessions. Does not affect messages or other users. */
+app.post('/api/messages/pin', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureConversationStateTable();
+    const me = req.user!.id;
+    const { pin } = req.body || {};
+    if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ success: false, error: 'PIN يجب أن يكون 4 أرقام فقط.' });
+    }
+    const hash = hashPin(pin);
+    await sql`
+      INSERT INTO user_message_pins (user_id, pin_hash)
+      VALUES (${me}, ${hash})
+      ON CONFLICT (user_id) DO UPDATE SET pin_hash = EXCLUDED.pin_hash
+    `;
+    return res.json({ success: true });
+  } catch (e: any) {
+    console.error('[SET USER PIN]', e?.message || e);
+    return res.status(500).json({ success: false, error: 'تعذر حفظ الـ PIN.' });
+  }
+});
 
 /* GET /api/messages/conversations
    Returns the current user's conversations with the latest message
@@ -3142,13 +3175,21 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
       WHERE cs.user_id = ${me} AND cs.hidden = TRUE
     `;
     if (!rows.length) return res.json({ success: true, conversations: [] });
-    // Verify PIN once: check if any stored hash matches
+    // Verify PIN: check user_message_pins first, then per-conversation as fallback
     let pinValid = false;
-    for (const r of rows) {
-      const pinRow = await sql`SELECT pin_hash FROM conversation_states WHERE user_id = ${me} AND other_id = ${String(r.other_id)} LIMIT 1`;
-      if (pinRow[0]?.pin_hash && verifyPin(pin, pinRow[0].pin_hash)) {
+    try {
+      const userPinRow = await sql`SELECT pin_hash FROM user_message_pins WHERE user_id = ${me} LIMIT 1`;
+      if (userPinRow[0]?.pin_hash && verifyPin(pin, userPinRow[0].pin_hash)) {
         pinValid = true;
-        break;
+      }
+    } catch { /* table may not exist yet */ }
+    if (!pinValid) {
+      for (const r of rows) {
+        const pinRow = await sql`SELECT pin_hash FROM conversation_states WHERE user_id = ${me} AND other_id = ${String(r.other_id)} LIMIT 1`;
+        if (pinRow[0]?.pin_hash && verifyPin(pin, pinRow[0].pin_hash)) {
+          pinValid = true;
+          break;
+        }
       }
     }
     if (!pinValid) return res.status(403).json({ success: false, error: 'PIN غير صحيح.' });

@@ -1382,6 +1382,21 @@ export const api = {
     }
   },
 
+  async setUserPin(pin: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchWithAuth('/api/messages/pin', {
+        method: 'POST',
+        body: JSON.stringify({ pin }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data.error || 'فشل حفظ PIN' };
+      return { success: true };
+    } catch (err: any) {
+      console.error('API Error [setUserPin]:', err);
+      return { success: false, error: err.message || 'فشل' };
+    }
+  },
+
   async getMessages(
     userId: string,
     before?: string
