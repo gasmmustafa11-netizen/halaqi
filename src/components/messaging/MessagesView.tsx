@@ -272,7 +272,6 @@ export const MessagesView: React.FC<{
     justLongPressed.current = false; // reset after any refresh
     try {
       const convs = await api.getConversations();
-      // Ensure ordering by latest message time, newest first (Messenger-like)
       const sorted = [...(Array.isArray(convs) ? convs : [])].sort((a: any, b: any) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
