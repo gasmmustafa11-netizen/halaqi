@@ -2995,7 +2995,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
         },
         lastMessage: {
           body: r.body,
-          createdAt: new Date(r.createdAt).toISOString(),
+          createdAt: new Date(r.created_at || r.createdAt).toISOString(),
           senderId: r.sender_id,
           type: r.type || 'text',
         },
