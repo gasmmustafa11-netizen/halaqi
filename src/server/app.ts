@@ -4651,7 +4651,8 @@ app.get('/api/search', async (req: Request, res: Response) => {
         avatar,
         username,
         is_active,
-        is_banned
+        is_banned,
+        is_verified
       FROM users
       WHERE
         COALESCE(is_active, true) = true
@@ -4675,6 +4676,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
       role: u.role,
       city: u.city || 'baghdad',
       avatar: u.avatar || undefined,
+      isVerified: u.is_verified ?? false,
     }));
 
     // FEATURE 6: hide users the viewer has blocked or been blocked by.
