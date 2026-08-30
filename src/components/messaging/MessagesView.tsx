@@ -288,11 +288,12 @@ export const MessagesView: React.FC<{
 
   useEffect(() => {
     if (!user?.id) return;
+    if (showHidden) return; // don't poll main list while viewing hidden list
     setLoadingConv(true);
     loadConversations().finally(() => setLoadingConv(false));
     const timer = setInterval(loadConversations, 12000);
     return () => clearInterval(timer);
-  }, [user?.id, loadConversations]);
+  }, [user?.id, loadConversations, showHidden]);
 
   const loadMessages = useCallback(
     async (otherId: string, before?: string) => {
@@ -628,23 +629,23 @@ export const MessagesView: React.FC<{
       <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
         {showHidden && (
           <div className="flex flex-col h-full">
-            <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#262626]">
               <button
                 type="button"
-                onClick={() => { setShowHidden(false); setPinInput(''); setHiddenPinError(''); loadConversations(); }}
+                onClick={() => { setShowHidden(false); setPinInput(''); setHiddenPinError(''); setHiddenUnlocked(false); loadConversations(); }}
                 className="w-9 h-9 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center hover:bg-[#202020] text-[#D4AF37]"
                 title={isRtl ? 'رجوع' : 'Back'}
                 aria-label={isRtl ? 'رجوع' : 'Back'}
               >
                 <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
               </button>
-              <h3 className="text-sm font-black text-white flex-1">
+              <h3 className="text-sm font-black text-white">
                 {isRtl ? 'المحادثات المخفية' : 'Hidden conversations'}
               </h3>
             </div>
 
             {(!hiddenUnlocked) && (
-              <div className="px-4 py-4 space-y-3">
+              <div className="px-4 py-6 space-y-4">
                 <div className="flex gap-2">
                   <input
                     type="password"
@@ -653,7 +654,7 @@ export const MessagesView: React.FC<{
                     value={pinInput}
                     onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0,4); setPinInput(v); setHiddenPinError(''); }}
                     placeholder={isRtl ? 'PIN 4 أرقام' : '4-digit PIN'}
-                    className="flex-1 rounded-xl bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-[#D4AF37]"
+                    className="flex-1 rounded-xl bg-[#1c1c1c] border border-white/10 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]"
                   />
                   <button
                     type="button"
@@ -671,7 +672,7 @@ export const MessagesView: React.FC<{
                         setHiddenPinError(isRtl ? 'فشل التحقق' : 'Verification failed');
                       }
                     }}
-                    className="px-3 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black"
+                    className="px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#B8962D] text-black text-xs font-black shrink-0"
                   >
                     {isRtl ? 'فتح' : 'Open'}
                   </button>
@@ -684,8 +685,8 @@ export const MessagesView: React.FC<{
             )}
 
             {hiddenUnlocked && conversations.length === 0 && (
-              <div className="px-6 py-16 text-center">
-                <div className="mx-auto w-14 h-14 rounded-2xl bg-white/[0.035] border border-white/[0.06] flex items-center justify-center mb-4">
+              <div className="flex-1 flex flex-col items-center justify-center px-6">
+                <div className="w-14 h-14 rounded-2xl bg-white/[0.035] border border-white/[0.06] flex items-center justify-center mb-4">
                   <MessageSquare className="w-6 h-6 text-gray-500" />
                 </div>
                 <p className="text-sm font-bold text-gray-300">
@@ -701,7 +702,7 @@ export const MessagesView: React.FC<{
                   return (
                     <button
                       key={conv.otherUser.id}
-                      onClick={() => { setShowHidden(false); setHiddenUnlocked(false); openConversation(conv.otherUser.id); }}
+                      onClick={() => { setShowHidden(false); setHiddenUnlocked(false); setPinInput(''); loadConversations(); openConversation(conv.otherUser.id); }}
                       className={`w-full text-start px-4 py-3.5 border-b border-white/[0.05] flex items-center gap-3 transition-all ${
                         isActive ? 'bg-[#D4AF37]/[0.08]' : 'hover:bg-white/[0.04]'
                       }`}
