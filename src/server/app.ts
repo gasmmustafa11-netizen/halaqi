@@ -26,6 +26,18 @@ const followSql = neon(process.env.DATABASE_URL!);
 
 const app = express();
 
+function hashPin(pin: string): string {
+  return crypto.createHmac('sha256', process.env.HALAQI_PIN_SECRET || 'halaqi_pin_salt').update(pin).digest('hex');
+}
+
+function verifyPin(pin: string, hash: string): boolean {
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hashPin(pin)), Buffer.from(hash));
+  } catch {
+    return false;
+  }
+}
+
 // CommonJS/Vercel: __dirname and __filename are provided by Node.js.
 
 // Reels/video uploads arrive as base64 data URLs; a 60MB clip is ~80MB encoded,
@@ -2870,6 +2882,28 @@ async function ensureMessagesTable(): Promise<void> {
   await messagesTableReady;
 }
 
+let conversationStateReady: Promise<void> | null = null;
+
+async function ensureConversationStateTable(): Promise<void> {
+  if (!conversationStateReady) {
+    conversationStateReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS conversation_states (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL,
+          other_id TEXT NOT NULL,
+          hidden BOOLEAN NOT NULL DEFAULT FALSE,
+          pinned BOOLEAN NOT NULL DEFAULT FALSE,
+          pin_hash TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE(user_id, other_id)
+        )
+      `;
+    })().catch((e) => { conversationStateReady = null; throw e; });
+  }
+  await conversationStateReady;
+}
+
 /* GET /api/messages/conversations
    Returns the current user's conversations with the latest message
    and unread count per conversation. RBAC: only conversations where
@@ -2984,13 +3018,145 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
       success: true,
       conversations,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[MESSAGES CONVERSATIONS]', error?.message || error);
 
     return res.status(500).json({
       success: false,
       error: 'تعذر تحميل المحادثات.',
     });
+  }
+});
+
+/* POST /api/messages/conversation-state
+   User-specific conversation management: delete/hide/pin for current user only.
+   PIN stored as HMAC hash (never raw). Hidden list requires PIN verification. */
+app.post('/api/messages/conversation-state', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureConversationStateTable();
+    const me = req.user!.id;
+    const { otherId, action, pin } = req.body || {};
+    if (!otherId || !['hide', 'unhide', 'pin', 'unpin', 'delete', 'set_pin'].includes(action)) {
+      return res.status(400).json({ success: false, error: 'بيانات غير صحيحة.' });
+    }
+
+    if (action === 'set_pin') {
+      if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ success: false, error: 'PIN يجب أن يكون 4 أرقام فقط.' });
+      }
+      const hash = hashPin(pin);
+      await sql`
+        INSERT INTO conversation_states (user_id, other_id, pin_hash)
+        VALUES (${me}, ${otherId}, ${hash})
+        ON CONFLICT (user_id, other_id)
+        DO UPDATE SET pin_hash = EXCLUDED.pin_hash
+      `;
+      return res.json({ success: true, action: 'set_pin' });
+    }
+
+    if (action === 'hide') {
+      await sql`
+        INSERT INTO conversation_states (user_id, other_id, hidden, pinned)
+        VALUES (${me}, ${otherId}, TRUE, FALSE)
+        ON CONFLICT (user_id, other_id)
+        DO UPDATE SET hidden = TRUE, pinned = FALSE
+      `;
+      return res.json({ success: true, action: 'hide' });
+    }
+
+    if (action === 'unhide') {
+      await sql`
+        UPDATE conversation_states SET hidden = FALSE WHERE user_id = ${me} AND other_id = ${otherId}
+      `;
+      return res.json({ success: true, action: 'unhide' });
+    }
+
+    if (action === 'pin') {
+      await sql`
+        INSERT INTO conversation_states (user_id, other_id, pinned, hidden)
+        VALUES (${me}, ${otherId}, TRUE, FALSE)
+        ON CONFLICT (user_id, other_id)
+        DO UPDATE SET pinned = TRUE
+      `;
+      return res.json({ success: true, action: 'pin' });
+    }
+
+    if (action === 'unpin') {
+      await sql`
+        UPDATE conversation_states SET pinned = FALSE WHERE user_id = ${me} AND other_id = ${otherId}
+      `;
+      return res.json({ success: true, action: 'unpin' });
+    }
+
+    if (action === 'delete') {
+      await sql`
+        DELETE FROM conversation_states WHERE user_id = ${me} AND other_id = ${otherId}
+      `;
+      return res.json({ success: true, action: 'delete' });
+    }
+
+    return res.status(400).json({ success: false, error: 'إجراء غير معروف.' });
+  } catch (e: any) {
+    console.error('[CONVERSATION STATE]', e?.message || e);
+    return res.status(500).json({ success: false, error: 'فشل إدارت المحادثة.' });
+  }
+});
+
+app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await ensureConversationStateTable();
+    const me = req.user!.id;
+    const { pin } = req.query || {};
+    if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ success: false, error: 'PIN غير صحيح (4 أرقام).' });
+    }
+    const rows = await sql`
+      SELECT cs.user_id, cs.other_id, cs.pinned, cs.hidden
+      FROM conversation_states cs
+      WHERE cs.user_id = ${me} AND cs.hidden = TRUE
+    `;
+    if (!rows.length) return res.json({ success: true, conversations: [] });
+    // Verify PIN once: check if any stored hash matches
+    let pinValid = false;
+    for (const r of rows) {
+      const pinRow = await sql`SELECT pin_hash FROM conversation_states WHERE user_id = ${me} AND other_id = ${String(r.other_id)} LIMIT 1`;
+      if (pinRow[0]?.pin_hash && verifyPin(pin, pinRow[0].pin_hash)) {
+        pinValid = true;
+        break;
+      }
+    }
+    if (!pinValid) return res.status(403).json({ success: false, error: 'PIN غير صحيح.' });
+
+    const otherIds = rows.map((r: any) => String(r.other_id));
+    const profiles = otherIds.length ? await followSql`SELECT id, name, username, avatar, is_verified FROM users WHERE id = ANY(${otherIds})` : [];
+    const profileMap = new Map();
+    for (const p of profiles) profileMap.set(String(p.id), p);
+    const unreadRows = await followSql`SELECT sender_id AS other_id, COUNT(*)::int AS unread_count FROM messages WHERE recipient_id = ${me} AND read = FALSE AND conversation_id IS NULL GROUP BY sender_id`;
+    const unreadMap = new Map(unreadRows.map((r: any) => [String(r.other_id), Number(r.unread_count || 0)]));
+
+    const result = rows.map((r: any) => {
+      const p = profileMap.get(String(r.other_id)) || {};
+      return {
+        otherUser: {
+          id: String(r.other_id),
+          name: p.name || 'مستخدم',
+          username: p.username || undefined,
+          avatar: p.avatar || undefined,
+          isVerified: p.is_verified ?? false,
+        },
+        hidden: true,
+        pinned: r.pinned ?? false,
+        unreadCount: unreadMap.get(String(r.other_id)) || 0,
+      };
+    }).sort((a: any, b: any) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return 0;
+    });
+    return res.json({ success: true, conversations: result });
+  } catch (e: any) {
+    console.error('[HIDDEN CONVERSATIONS]', e?.message || e);
+    return res.status(500).json({ success: false, error: 'فشل تحميل المحادثات المخفية.' });
   }
 });
 

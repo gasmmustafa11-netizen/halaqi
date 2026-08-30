@@ -1341,6 +1341,20 @@ export const api = {
   },
 
   // Messaging / Direct Chat
+  async post(url: string, data?: any): Promise<any> {
+    try {
+      const res = await fetchWithAuth(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {}),
+      });
+      return await res.json();
+    } catch (err: any) {
+      console.error('[POST]', url, err);
+      return { success: false, error: err.message };
+    }
+  },
+
   async getConversations(): Promise<Conversation[]> {
     try {
       const res = await fetchWithAuth('/api/messages/conversations');
@@ -1353,6 +1367,18 @@ export const api = {
     } catch (err) {
       console.error('API Error [getConversations]:', err);
       return [];
+    }
+  },
+
+  async getHiddenConversations(pin: string): Promise<{ success: boolean; conversations?: Conversation[]; error?: string }> {
+    try {
+      const res = await fetchWithAuth(`/api/messages/hidden?pin=${encodeURIComponent(pin)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data.error || 'PIN غير صحيح' };
+      return { success: true, conversations: Array.isArray(data.conversations) ? data.conversations : [] };
+    } catch (err: any) {
+      console.error('API Error [getHiddenConversations]:', err);
+      return { success: false, error: err.message || 'فشل' };
     }
   },
 

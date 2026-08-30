@@ -18,6 +18,11 @@ import {
   Play,
   Pause,
   Download,
+  MoreVertical,
+  Pin,
+  Trash2,
+  EyeOff,
+  Lock,
 } from 'lucide-react';
 
 const formatTime = (iso: string, isRtl: boolean): string => {
@@ -203,6 +208,12 @@ export const MessagesView: React.FC<{
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [hiddenPinError, setHiddenPinError] = useState('');
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const [longPressConvId, setLongPressConvId] = useState<string | null>(null);
+  const justLongPressed = useRef(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loadingConv, setLoadingConv] = useState(false);
@@ -598,13 +609,63 @@ export const MessagesView: React.FC<{
     <div className="flex flex-col h-full">
       <div className="px-4 py-4 border-b border-[#262626] flex items-center gap-2">
         <MessageSquare className="w-5 h-5 text-[#D4AF37]" />
-        <h2 className="text-lg font-black text-white">
-          {isRtl ? 'الرسائل' : 'Messages'}
-        </h2>
+                  <button
+                    type="button"
+                    onClick={() => { setShowHidden(!showHidden); setPinInput(''); setHiddenPinError(''); }}
+                    aria-label="⋮"
+                    className="w-9 h-9 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center hover:bg-[#202020] text-[#D4AF37] text-lg font-black"
+                  >
+                    ⋮
+                  </button>
+                  <h2 className="text-lg font-black text-white">
+                    {isRtl ? 'الرسائل' : 'Messages'}
+                  </h2>
       </div>
 
       <div className="flex-1 overflow-y-auto max-md:pb-[calc(72px+env(safe-area-inset-bottom))]">
-        {loadingConv && conversations.length === 0 ? (
+        {showHidden && (
+          <div className="px-4 py-4 space-y-3">
+            <div className="flex gap-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pinInput}
+                onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0,4); setPinInput(v); setHiddenPinError(''); }}
+                placeholder={isRtl ? 'PIN 4 أرقام' : '4-digit PIN'}
+                className="flex-1 rounded-xl bg-[#141414] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-[#D4AF37]"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res =                 await api.getHiddenConversations(String(pinInput || ''));
+                    if (res.success && Array.isArray(res.conversations)) {
+                      setConversations(res.conversations as any);
+                      setHiddenPinError('');
+                    } else {
+                      setHiddenPinError(isRtl ? 'PIN غير صحيح' : 'Wrong PIN');
+                    }
+                  } catch {
+                    setHiddenPinError(isRtl ? 'فشل التحقق' : 'Verification failed');
+                  }
+                }}
+                className="px-3 py-2 rounded-xl bg-[#D4AF37] text-black text-xs font-black"
+              >
+                {isRtl ? 'فتح' : 'Open'}
+              </button>
+            </div>
+            {hiddenPinError && <p className="text-xs text-red-400">{hiddenPinError}</p>}
+            <button
+              type="button"
+              onClick={() => { setShowHidden(false); loadConversations(); }}
+              className="text-xs text-[#D4AF37] hover:underline"
+            >
+              {isRtl ? 'العودة للمحادثات الرئيسية' : 'Back to main messages'}
+            </button>
+          </div>
+        )}
+        {loadingConv && conversations.length === 0 && !showHidden ? (
           <div className="flex items-center justify-center py-16 text-gray-500">
             <Loader2 className="w-6 h-6 animate-spin" />
           </div>
@@ -628,7 +689,18 @@ export const MessagesView: React.FC<{
             return (
               <button
                 key={conv.otherUser.id}
-                onClick={() => openConversation(conv.otherUser.id)}
+                onClick={() => {
+                  if (justLongPressed.current) {
+                    justLongPressed.current = false;
+                    return;
+                  }
+                  openConversation(conv.otherUser.id);
+                }}
+                onMouseDown={() => { longPressTimer.current = setTimeout(() => setLongPressConvId(conv.otherUser.id), 3000); }}
+                onMouseUp={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId === conv.otherUser.id) { justLongPressed.current = true; setTimeout(() => justLongPressed.current = false, 500); setLongPressConvId(null); } }}
+                onMouseLeave={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } }}
+                onTouchStart={() => { longPressTimer.current = setTimeout(() => setLongPressConvId(conv.otherUser.id), 3000); }}
+                onTouchEnd={() => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } if (longPressConvId === conv.otherUser.id) { setLongPressConvId(null); } }}
                 className={`w-full text-start px-4 py-3.5 border-b border-white/[0.05] flex items-center gap-3 transition-all ${
                   isActive ? 'bg-[#D4AF37]/[0.08]' : 'hover:bg-white/[0.04]'
                 }`}
@@ -647,6 +719,13 @@ export const MessagesView: React.FC<{
                   )}
                 </div>
 
+                {longPressConvId === conv.otherUser.id && (
+                  <div className="absolute z-50 bg-[#181818]/95 border border-[#D4AF37]/30 rounded-xl shadow-2xl p-2 min-w-[160px] text-xs font-bold text-white" style={{ top: 40, left: 10 }}>
+                    <button onClick={async () => { if(conv.otherUser.id){ await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'delete' }); await loadConversations(); setLongPressConvId(null); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-red-400">حذف المحادثة</button>
+                    <button onClick={async () => { if(conv.otherUser.id){ await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'pin' }); await loadConversations(); setLongPressConvId(null); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-[#D4AF37]">تثبيت</button>
+                    <button onClick={async () => { if(conv.otherUser.id){ await api.post('/api/messages/conversation-state', { otherId: conv.otherUser.id, action: 'hide' }); await loadConversations(); setLongPressConvId(null); } }} className="block w-full text-right px-2 py-1.5 hover:bg-white/10 rounded-lg text-slate-300">إخفاء</button>
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-bold text-white truncate">
