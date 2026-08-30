@@ -12,6 +12,7 @@ import {
   PostComment,
   Notification
 } from '../../types';
+import VerifiedBadge from '../common/VerifiedBadge';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -1559,6 +1560,7 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-white truncate">{u.name}</span>
+                              {u.isVerified && <VerifiedBadge />}
                               {u.username && (
                                 <span className="text-[10px] text-[#D4AF37]/80 font-medium truncate">@{u.username}</span>
                               )}

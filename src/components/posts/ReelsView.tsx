@@ -16,6 +16,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
+import VerifiedBadge from '../common/VerifiedBadge';
 import { notify, confirmDialog } from '../../utils/notifications';
 import { PostComment } from '../../types';
 
@@ -24,6 +25,7 @@ interface Reel {
   userId: string;
   userName?: string;
   userAvatar?: string;
+  isVerified?: boolean;
   imageUrl?: string; // Holds the video URL for Reels
   caption: string;
   mediaType?: 'image' | 'video';
@@ -234,8 +236,9 @@ const ReelItem: React.FC<{
               {(reel.userName || 'U').charAt(0)}
             </div>
           )}
-          <span className="text-sm font-bold text-white drop-shadow">
+          <span className="text-sm font-bold text-white drop-shadow flex items-center gap-1">
             @{reel.userName || 'مستخدم'}
+            {reel.isVerified && <VerifiedBadge />}
           </span>
         </div>
         {reel.caption ? (
@@ -591,7 +594,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
                         {(c.userName || 'U').charAt(0)}
                       </div>
                     )}
-                    <span className="text-sm font-bold text-white">@{c.userName}</span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1">@{c.userName}{c.isVerified && <VerifiedBadge />}</span>
                   </div>
                   <p className="text-sm leading-5 text-slate-200">{c.comment}</p>
                 </div>

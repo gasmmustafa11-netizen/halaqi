@@ -19,6 +19,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
 import ReportContentButton from '../common/ReportContentButton';
+import VerifiedBadge from '../common/VerifiedBadge';
 
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -927,10 +928,11 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-bold text-white">
+                      <div className="truncate text-sm font-bold text-white flex items-center gap-1">
                         {isUserPost
                           ? userPost?.userName || 'مستخدم'
                           : post.salonName}
+                        {isUserPost && userPost?.isVerified && <VerifiedBadge />}
                       </div>
 
                       <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
@@ -1165,6 +1167,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                                     className="text-xs font-bold text-slate-200 transition-colors hover:text-[#D4AF37]"
                                   >
                                     {comment.userName}
+                                    {comment.isVerified && <VerifiedBadge />}
                                   </button>
                                   <div className="mt-1 text-sm leading-5 text-slate-400">
                                     {comment.comment}

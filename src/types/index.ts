@@ -18,8 +18,9 @@ export interface User {
   bio?: string;
   username?: string; // Unique, case-insensitive handle displayed as @username
   isRestricted?: boolean; // AI/Admin moderation: temporarily blocked from posting
-  isWarned?: boolean; // AI/Admin moderation: received a warning
-  createdAt: string;
+isWarned?: boolean; // AI/Admin moderation: received a warning
+   isVerified?: boolean; // Account verification status
+   createdAt: string;
 }
 
 export interface AuditLog {
@@ -239,6 +240,7 @@ export interface Conversation {
     id: string;
     name: string;
     avatar?: string;
+    isVerified?: boolean;
   };
   lastMessage: {
     body: string;
@@ -308,6 +310,7 @@ export interface UserPost {
   userName?: string;
   username?: string;
   userAvatar?: string;
+  isVerified?: boolean;
   imageUrl?: string; // Optional: text-only posts have no image
   caption: string;
   createdAt: string;
@@ -327,6 +330,7 @@ export interface PostComment {
   userId: string;
   userName: string;
   userAvatar?: string;
+  isVerified?: boolean;
   comment: string;
   createdAt: string;
   likes?: number;

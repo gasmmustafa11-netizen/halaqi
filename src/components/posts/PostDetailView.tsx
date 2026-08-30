@@ -5,6 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { notify } from '../../utils/notifications';
 import { UserPost, PostComment } from '../../types';
+import VerifiedBadge from '../common/VerifiedBadge';
 
 interface PostDetailViewProps {
   postId: string;
@@ -162,7 +163,7 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
                 </div>
               )}
               <div className="min-w-0">
-                <p className="truncate font-bold">{post.userName || 'مستخدم'}</p>
+                <p className="truncate font-bold flex items-center gap-1">{post.userName || 'مستخدم'}{post.isVerified && <VerifiedBadge />}</p>
                 <p className="text-xs text-gray-400">
                   {new Date(post.createdAt).toLocaleString(
                     isRtl ? 'ar-IQ' : 'en-US'
@@ -240,7 +241,7 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-bold">{c.userName}</p>
+                          <p className="text-sm font-bold flex items-center gap-1">{c.userName}{c.isVerified && <VerifiedBadge />}</p>
                           <p className="whitespace-pre-wrap break-words text-sm text-gray-200">
                             {c.comment}
                           </p>

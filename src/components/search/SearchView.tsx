@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Search, Scissors, User, MapPin, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
+import VerifiedBadge from '../common/VerifiedBadge';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface SearchViewProps {
@@ -22,6 +23,7 @@ interface SearchUser {
   email?: string;
   phone?: string;
   avatar?: string;
+  isVerified?: boolean;
 }
 
 export const SearchView: React.FC<SearchViewProps> = ({ onNavigate }) => {
@@ -178,6 +180,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate }) => {
                         {item.username && (
                           <p className="text-[10px] text-[#D4AF37]/80 font-medium truncate">@{item.username}</p>
                         )}
+                        {item.isVerified && <span className="inline-flex"><VerifiedBadge /></span>}
                         {item.email && (
                           <p className="text-[11px] text-gray-500 truncate" dir="ltr">
                             {item.email}

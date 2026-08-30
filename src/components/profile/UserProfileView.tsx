@@ -31,6 +31,7 @@ import { deactivatePush } from '../../services/push';
 import { compressImageToDataUrl } from '../../utils/compressImage';
 import { CaptionText } from '../posts/CaptionText';
 import { ImageViewer } from '../common/ImageViewer';
+import VerifiedBadge from '../common/VerifiedBadge';
 import { notify, confirmDialog } from '../../utils/notifications';
 import HalaqiVerifiedSubscription from './HalaqiVerifiedSubscription';
 
@@ -51,65 +52,6 @@ interface UserPost {
   commentCount?: number;
 }
 
-
-const AdminVerifiedBadge = () => {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const handleOutside = (event: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutside);
-    document.addEventListener('touchstart', handleOutside);
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutside);
-      document.removeEventListener('touchstart', handleOutside);
-    };
-  }, []);
-
-  return (
-    <div ref={ref} className="relative inline-flex shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen(prev => !prev)}
-        aria-label="الحساب موثّق"
-        className="inline-flex items-center justify-center cursor-pointer"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          className="h-5 w-5"
-          aria-hidden="true"
-        >
-          <path
-            fill="#1877F2"
-            d="M12 1.2l2.1 1.4 2.5-.2 1.4 2.1 2.3.9-.2 2.5L21.4 12l-1.3 2.1.2 2.5-2.1 1.4-.9 2.3-2.5-.2L12 22.8l-2.1-1.4-2.5.2-1.4-2.1-2.3-.9.2-2.5L2.6 12l1.3-2.1-.2-2.5 2.1-1.4.9-2.3 2.5.2L12 1.2z"
-          />
-          <path
-            d="M7.4 12.2l3 3L16.8 9"
-            fill="none"
-            stroke="#fff"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-
-      {open && (
-        <div
-          className="fixed left-1/2 top-20 z-[9999] w-[calc(100vw-24px)] max-w-[300px] -translate-x-1/2 rounded-xl border border-white/20 bg-white/[0.08] px-3 py-2.5 text-center text-[11px] font-medium leading-5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-2xl"
-        >
-          هذا الحساب موثّق رسميًا من حلاقي ويتمتع بمزايا خاصة.
-        </div>
-      )}
-    </div>
-  );
-};
 
 const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const { user, logout, refreshUser } = useAuth();
@@ -609,11 +551,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
               <h1 className="text-2xl font-bold">
                 {profileName}
               </h1>
+              {(user as any)?.isVerified && <VerifiedBadge />}
 
 
-                            {(user as any)?.role === 'admin' && (
-                              <AdminVerifiedBadge />
-                            )}
+                            {(user as any)?.isVerified && <VerifiedBadge />}
 
                               {(user as any)?.role === 'admin' && (
                                 <p className="text-black text-[11px] font-medium text-center mt-1">

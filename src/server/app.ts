@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+const sql = neon(process.env.DATABASE_URL!);
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -1426,8 +1427,28 @@ app.get(
   }
 );
 
-app.get(
-  '/api/admin/users/search',
+app.put(
+  '/api/admin/users/:id/verified',
+  requireAuth,
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = String(req.params.id || '').trim();
+      const { isVerified } = req.body || {};
+      if (typeof isVerified !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'قيمة isVerified غير صحيحة.' });
+      }
+      await sql`UPDATE users SET is_verified = ${isVerified} WHERE id = ${userId}`;
+      res.json({ success: true, isVerified });
+    } catch (err: any) {
+      console.error('[ADMIN VERIFY USER]', err);
+      res.status(500).json({ success: false, error: err.message || 'فشل التحديث.' });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/users/:id',
   requireAuth,
   requireRole('admin'),
   async (req: AuthenticatedRequest, res: Response) => {
@@ -3346,6 +3367,7 @@ app.get('/api/users/:id/public', async (req: Request, res: Response) => {
       bio: user.bio,
       username: user.username,
       salonId: user.salonId,
+      isVerified: user.isVerified ?? false,
       createdAt: user.createdAt,
     };
 
@@ -3434,6 +3456,7 @@ const toPublicUserSummary = (u: any) => ({
   avatar: u.avatar ?? null,
   city: u.city ?? null,
   role: u.role,
+  isVerified: u.is_verified ?? false,
 });
 
 function requireSelfOrAdmin(req: AuthenticatedRequest, targetUserId: string): boolean {
@@ -3457,7 +3480,7 @@ app.get(
       }
 
       const rows = await followSql`
-        SELECT u.id, u.name, u.avatar, u.city, u.role
+        SELECT u.id, u.name, u.avatar, u.city, u.role, u.is_verified
         FROM user_follows f
         JOIN users u ON u.id = f.follower_id
         WHERE f.following_id = ${targetUserId}
@@ -3489,7 +3512,7 @@ app.get(
       }
 
       const rows = await followSql`
-        SELECT u.id, u.name, u.avatar, u.city, u.role
+        SELECT u.id, u.name, u.avatar, u.city, u.role, u.is_verified
         FROM user_follows f
         JOIN users u ON u.id = f.following_id
         WHERE f.follower_id = ${targetUserId}

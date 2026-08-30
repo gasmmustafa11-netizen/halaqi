@@ -1932,7 +1932,7 @@ class DatabaseStore {
   async getUserByIdFromNeon(id: string): Promise<UserWithAuth | undefined> {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at,
+             password_hash, salt, is_active, is_banned, is_verified, created_at,
              is_bot, bot_enabled, bio, is_premium, username
       FROM users
       WHERE id = ${id}
@@ -1959,6 +1959,7 @@ class DatabaseStore {
       isBot: u.is_bot ?? false,
       botEnabled: u.bot_enabled ?? true,
       isPremium: u.is_premium ?? false,
+      isVerified: u.is_verified ?? false,
       bio: u.bio || undefined,
       username: u.username || undefined,
       createdAt: new Date(u.created_at).toISOString(),
@@ -2126,7 +2127,7 @@ class DatabaseStore {
 
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at,
+             password_hash, salt, is_active, is_banned, is_verified, created_at,
              is_bot, bot_enabled, bio, username
       FROM users
       WHERE LOWER(email) = ${normalized}
@@ -2681,6 +2682,7 @@ class DatabaseStore {
       await sql`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_restricted BOOLEAN DEFAULT false`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_warned BOOLEAN DEFAULT false`;
+       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`;
     } catch (err) {
       console.error('[MODERATION TABLES]', err);
     }
@@ -4609,7 +4611,8 @@ class DatabaseStore {
           up.comment_count,
           u.name AS user_name,
           u.username AS user_username,
-          u.avatar AS user_avatar
+          u.avatar AS user_avatar,
+          u.is_verified AS user_is_verified
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.id = ${postId}
@@ -4628,6 +4631,7 @@ class DatabaseStore {
         userName: row.user_name || 'مستخدم',
         username: row.user_username || undefined,
         userAvatar: row.user_avatar || undefined,
+        isVerified: row.user_is_verified ?? false,
         imageUrl: row.image_url,
         caption: row.caption || '',
         createdAt: row.created_at
@@ -4728,7 +4732,8 @@ class DatabaseStore {
           up.comment_count,
           u.name AS user_name,
           u.username AS user_username,
-          u.avatar AS user_avatar
+          u.avatar AS user_avatar,
+          u.is_verified AS user_is_verified
         FROM user_posts up
         LEFT JOIN users u ON u.id = up.user_id
         ORDER BY up.created_at DESC
@@ -6256,6 +6261,7 @@ class DatabaseStore {
           pc.user_id,
           u.name AS user_name,
           u.avatar AS user_avatar,
+          u.is_verified AS user_is_verified,
           pc.comment,
           pc.created_at,
           COALESCE(pc.likes, 0) AS likes,
@@ -6278,6 +6284,7 @@ class DatabaseStore {
         userId: c.user_id,
         userName: c.user_name || 'مستخدم',
         userAvatar: c.user_avatar || undefined,
+        isVerified: c.user_is_verified ?? false,
         comment: c.comment,
         createdAt: c.created_at
           ? new Date(c.created_at).toISOString()
@@ -7278,11 +7285,19 @@ export async function updateUserSalonOwnerInNeon(
   `;
 }
 
+export async function ensureAdminVerified(): Promise<void> {
+  try {
+    await sql`UPDATE users SET is_verified = TRUE WHERE role = 'admin' AND is_verified IS DISTINCT FROM TRUE`;
+  } catch (e: any) {
+    console.error('[ADMIN VERIFY INIT]', e?.message || e);
+  }
+}
+
 export async function loadUsersFromNeon(): Promise<void> {
   try {
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
-             password_hash, salt, is_active, is_banned, created_at,
+             password_hash, salt, is_active, is_banned, is_verified, created_at,
              is_bot, bot_enabled, bio, username
       FROM users
     `;
@@ -7300,8 +7315,9 @@ export async function loadUsersFromNeon(): Promise<void> {
         passwordHash: u.password_hash || undefined,
         salt: u.salt || undefined,
         isActive: u.is_active ?? true,
-        isBanned: u.is_banned ?? false,
-        isBot: u.is_bot ?? false,
+      isBanned: u.is_banned ?? false,
+      isVerified: u.is_verified ?? false,
+      isBot: u.is_bot ?? false,
         botEnabled: u.bot_enabled ?? true,
         bio: u.bio || undefined,
         username: u.username || undefined,
@@ -7626,6 +7642,7 @@ export async function loadAllFromNeon(): Promise<void> {
     }
 
     // Load users into memory so optionalAuthMiddleware can resolve them.
+    await ensureAdminVerified();
     await loadUsersFromNeon();
 
     console.log(

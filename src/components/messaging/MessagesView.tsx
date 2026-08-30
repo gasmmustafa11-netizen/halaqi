@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { Message, Conversation } from '../../types';
+import VerifiedBadge from '../common/VerifiedBadge';
 import {
   MessageSquare,
   Send,
@@ -642,6 +643,7 @@ export const MessagesView: React.FC<{
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-bold text-white truncate">
                       {conv.otherUser.name}
+                      {conv.otherUser.isVerified && <VerifiedBadge />}
                     </p>
                     <span className="text-[10px] text-gray-500 shrink-0">
                       {formatTime(conv.lastMessage.createdAt, isRtl)}

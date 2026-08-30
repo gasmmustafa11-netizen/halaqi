@@ -18,6 +18,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { ImageViewer } from '../common/ImageViewer';
 import { REPORT_REASONS } from '../../constants/reportReasons';
 import { UserRole } from '../../types';
+import VerifiedBadge from '../common/VerifiedBadge';
 import { notify, confirmDialog } from '../../utils/notifications';
 
 interface PublicUser {
@@ -27,6 +28,7 @@ interface PublicUser {
   avatar?: string | null;
   city?: string | null;
   role: UserRole;
+  isVerified?: boolean;
   createdAt: string;
 }
 
@@ -63,8 +65,7 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [followLoading, setFollowLoading] = useState(false);
-  const [showBadgeTooltip, setShowBadgeTooltip] = useState(false);
-  const badgeRef = useRef<HTMLDivElement>(null);
+  const [listLoading, setListLoading] = useState(false);
 
   // FEATURE 4: posted images grid + lightbox
   const [posts, setPosts] = useState<any[]>([]);
@@ -78,20 +79,6 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-
-  // Click-outside handler to close badge tooltip
-  useEffect(() => {
-    if (!showBadgeTooltip) return;
-
-    function handleClickOutside(e: MouseEvent) {
-      if (badgeRef.current && !badgeRef.current.contains(e.target as Node)) {
-        setShowBadgeTooltip(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showBadgeTooltip]);
 
   useEffect(() => {
     let mounted = true;
@@ -376,53 +363,14 @@ export const PublicUserProfileView: React.FC<PublicUserProfileViewProps> = ({
                 <h1 className="text-2xl sm:text-3xl font-black text-white">
                   {user.name}
                 </h1>
+                {user.isVerified && <VerifiedBadge />}
                 {user.role === 'admin' && (
                   <p className="text-black text-[11px] font-medium text-center mt-1">
                     المؤسس
                   </p>
                 )}
 
-                {user.role === 'admin' && (
-  <div ref={badgeRef} className="relative inline-flex items-center">
-    <button
-      type="button"
-      onClick={() => setShowBadgeTooltip(prev => !prev)}
-      aria-label="الحساب موثق"
-      className="inline-flex items-center justify-center cursor-pointer"
-    >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-        <path
-          fill="#1877F2"
-          d="M12 1.2l2.1 1.4 2.5-.2 1.4 2.1 2.3.9-.2 2.5L21.4 12l-1.3 2.1.2 2.5-2.1 1.4-.9 2.3-2.5-.2L12 22.8l-2.1-1.4-2.5.2-1.4-2.1-2.3-.9.2-2.5L2.6 12l1.3-2.1-.2-2.5 2.1-1.4.9-2.3 2.5.2L12 1.2z"
-        />
-        <path
-          d="M7.4 12.2l3 3L16.8 9"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
-
-    {!showBadgeTooltip && (
-      <div
-        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-white/[0.08] border border-white/20 text-[10px] text-white/70 whitespace-nowrap backdrop-blur-2xl pointer-events-none"
-      >
-        ✓ موثق رسمياً
-      </div>
-    )}
-
-    {showBadgeTooltip && (
-      <div
-        className="fixed left-1/2 top-20 z-[9999] w-[calc(100vw-32px)] max-w-[300px] -translate-x-1/2 rounded-xl border border-white/20 bg-white/[0.08] px-3 py-2.5 text-center text-[11px] font-medium leading-5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-2xl"
-      >
-        هذا الحساب موثّق رسميًا من حلاقي ويتمتع بمزايا خاصة.
-      </div>
-    )}
-  </div>
-)}
+                {user.isVerified && <VerifiedBadge />}
 
 {user.role === 'salon_owner' && (
                   <span className="px-2.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-[10px] font-black">
