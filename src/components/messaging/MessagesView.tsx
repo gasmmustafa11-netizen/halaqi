@@ -274,6 +274,8 @@ export const MessagesView: React.FC<{
       const convs = await api.getConversations();
       // Ensure ordering by latest message time, newest first (Messenger-like)
       const sorted = [...(Array.isArray(convs) ? convs : [])].sort((a: any, b: any) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
         const ta = new Date(a?.lastMessage?.createdAt || 0).getTime();
         const tb = new Date(b?.lastMessage?.createdAt || 0).getTime();
         return tb - ta; // descending
