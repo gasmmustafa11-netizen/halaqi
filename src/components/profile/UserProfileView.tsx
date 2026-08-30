@@ -553,9 +553,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
               </h1>
               {(user as any)?.isVerified && <VerifiedBadge />}
 
-
-                            {(user as any)?.isVerified && <VerifiedBadge />}
-
                               {(user as any)?.role === 'admin' && (
                                 <p className="text-black text-[11px] font-medium text-center mt-1">
                                   المؤسس
