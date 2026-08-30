@@ -717,7 +717,7 @@ export const MessagesView: React.FC<{
             )}
 
             {hiddenUnlocked && conversations.length > 0 && (
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto min-h-[200px]">
                 {conversations.map((conv) => {
                   const isActive = conv.otherUser.id === selectedId;
                   return (
