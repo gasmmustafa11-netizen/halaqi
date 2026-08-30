@@ -2921,7 +2921,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
 
     if (otherIds.length) {
       const profiles = await followSql`
-        SELECT id, name, avatar, is_verified FROM users WHERE id = ANY(${otherIds})
+        SELECT id, name, username, avatar, is_verified FROM users WHERE id = ANY(${otherIds})
       `;
 
       for (const p of profiles) {
@@ -2936,6 +2936,7 @@ app.get('/api/messages/conversations', requireAuth, async (req: AuthenticatedReq
         otherUser: {
           id: String(r.other_id),
           name: profile.name || 'مستخدم',
+          username: profile.username || undefined,
           avatar: profile.avatar || profile.avatar_url || undefined,
           isVerified: profile.is_verified ?? false,
         },

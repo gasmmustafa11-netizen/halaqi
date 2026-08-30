@@ -708,8 +708,9 @@ export const MessagesView: React.FC<{
                 </span>
               )}
             </div>
-            <p className="text-sm font-bold text-white truncate">
-              {selectedConv.otherUser.name}
+            <p className="text-sm font-bold text-white truncate flex items-center gap-1">
+              @{selectedConv.otherUser.username || selectedConv.otherUser.name}
+              {selectedConv.otherUser.isVerified && <VerifiedBadge />}
             </p>
           </button>
         )}

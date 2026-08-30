@@ -237,9 +237,10 @@ export interface Message {
 }
 
 export interface Conversation {
-  otherUser: {
+    otherUser: {
     id: string;
     name: string;
+    username?: string;
     avatar?: string;
     isVerified?: boolean;
   };
