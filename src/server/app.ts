@@ -3149,7 +3149,10 @@ app.post('/api/messages/conversation-state', requireAuth, async (req: Authentica
 
     if (action === 'delete') {
       await sql`
-        UPDATE conversation_states SET deleted = TRUE, hidden = FALSE WHERE user_id = ${me} AND other_id = ${otherId}
+        INSERT INTO conversation_states (user_id, other_id, deleted, hidden, pinned)
+        VALUES (${me}, ${otherId}, TRUE, FALSE, FALSE)
+        ON CONFLICT (user_id, other_id)
+        DO UPDATE SET deleted = TRUE, hidden = FALSE, pinned = FALSE
       `;
       return res.json({ success: true, action: 'delete' });
     }
