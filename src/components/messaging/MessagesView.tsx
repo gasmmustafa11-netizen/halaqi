@@ -260,7 +260,13 @@ export const MessagesView: React.FC<{
   const loadConversations = useCallback(async () => {
     try {
       const convs = await api.getConversations();
-      setConversations(convs);
+      // Ensure ordering by latest message time, newest first (Messenger-like)
+      const sorted = [...(Array.isArray(convs) ? convs : [])].sort((a: any, b: any) => {
+        const ta = new Date(a?.lastMessage?.createdAt || 0).getTime();
+        const tb = new Date(b?.lastMessage?.createdAt || 0).getTime();
+        return tb - ta; // descending
+      });
+      setConversations(sorted);
     } catch {
       /* keep previous state on transient failure */
     }
@@ -334,6 +340,8 @@ export const MessagesView: React.FC<{
     const timer = setInterval(async () => {
       await loadMessages(selectedId);
       await api.markMessagesRead(selectedId);
+      // Refresh conversation list order when new messages arrive
+      await loadConversations();
       // Keep the Navbar Messages unread badge in sync immediately.
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('halaqi:messages-unread-refresh'));
