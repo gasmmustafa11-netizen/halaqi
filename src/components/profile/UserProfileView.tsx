@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Share2,
-  Settings,
+    Settings,
+    Moon,
+    Sun,
   Grid3x3,
   Bookmark,
   Check,
@@ -33,6 +35,7 @@ import { CaptionText } from '../posts/CaptionText';
 import { ImageViewer } from '../common/ImageViewer';
 import VerifiedBadge from '../common/VerifiedBadge';
 import { notify, confirmDialog } from '../../utils/notifications';
+import { getTheme, setTheme } from '../../utils/theme';
 import HalaqiVerifiedSubscription from './HalaqiVerifiedSubscription';
 
 interface UserProfileViewProps {
@@ -936,6 +939,38 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                       English
                     </button>
 
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-400/10">
+                      <Sun className="h-5 w-5 text-amber-300" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-white">
+                        {language === 'ar' ? 'المظهر' : 'Appearance'}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                        {language === 'ar' ? 'داكن / فاتح' : 'Dark / Light'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-black/20 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setTheme('dark')}
+                      className={`rounded-lg px-4 py-2.5 text-xs font-black transition ${getTheme() === 'dark' ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10' : 'text-slate-400 hover:bg-white/[0.05] hover:text-white'}`}
+                    >
+                      {language === 'ar' ? 'داكن' : 'Dark'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTheme('light')}
+                      className={`rounded-lg px-4 py-2.5 text-xs font-black transition ${getTheme() === 'light' ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/10' : 'text-slate-400 hover:bg-white/[0.05] hover:text-white'}`}
+                    >
+                      {language === 'ar' ? 'فاتح' : 'Light'}
+                    </button>
                   </div>
                 </div>
 
