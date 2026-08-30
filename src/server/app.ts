@@ -3203,15 +3203,18 @@ app.get('/api/messages/hidden', requireAuth, async (req: AuthenticatedRequest, r
 
     // Get latest message per hidden conversation for display
     const latestMsgRows = otherIds.length ? await followSql`
-      WITH latest AS (
-        SELECT DISTINCT ON (CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END)
+      WITH ranked AS (
+        SELECT
           CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END AS other_id,
-          body, read, created_at, sender_id, type
+          body, read, created_at, sender_id, type,
+          ROW_NUMBER() OVER (
+            PARTITION BY CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END
+            ORDER BY created_at DESC
+          ) AS rn
         FROM messages
         WHERE (sender_id = ${me} OR recipient_id = ${me})
-        ORDER BY CASE WHEN sender_id = ${me} THEN recipient_id ELSE sender_id END, created_at DESC
       )
-      SELECT other_id, body, read, created_at, sender_id, type FROM latest
+      SELECT other_id, body, read, created_at, sender_id, type FROM ranked WHERE rn = 1
     ` : [];
     const latestMsgMap = new Map();
     for (const r of latestMsgRows) latestMsgMap.set(String(r.other_id), r);
