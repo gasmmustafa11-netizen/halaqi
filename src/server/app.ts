@@ -6325,49 +6325,6 @@ app.all(
 // Initialize the bot engine on the serverless entry (ensure tables + seed up
 // to 100 bots). No scheduler is started here; ticks are driven by the cron
 // job above. Safe to fire-and-forget at module load.
-// --- AI Salon Assistant (secure server-side only) ---
-app.post('/api/ai-salon', async (req: Request, res: Response) => {
-  try {
-    const { message, regionConsent } = req.body || {};
-    const userText = typeof message === 'string' ? message : '';
-    // Query real public salon data from DB (never expose keys/sensitive fields)
-    const db = (await import('./db')).default || (await import('./db'));
-    const { rows } = await db.query(
-      `SELECT id, name, type, city, price, services FROM salons WHERE approved = true AND (name ILIKE $1 OR city ILIKE $1 OR services ILIKE $1) LIMIT 6`,
-      [`%${userText}%`]
-    );
-    const cards = rows.map((r: any) => ({
-      name: r.name,
-      type: r.type || 'صالون',
-      city: r.city || 'غير محدد',
-      price: r.price ? String(r.price) : null,
-      services: r.services || '',
-    }));
-
-    // Only call Gemini if API key exists and is not leaked; use server env only
-    const apiKey = process.env.GEMINI_API_KEY || (process.env.VERCEL ? process.env.VERCEL : undefined);
-    let reply = 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
-    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
-      try {
-        const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const context = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — سعر: ${c.price || 'غير محدد'}`).join('; ');
-        const prompt = `أنت مساعد صالونات ذكي. المستخدم طلب: "${userText}". إليك بيانات حقيقية من قاعدة البيانات: ${context || 'لا توجد نتائج'}.` + (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') + ' ركب إجابة مختصرة بالعربية مع ذكر اسم الصالون والسعر إذا موجود، ولا تذكر أي معلومات حساسة.';
-        const result = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: prompt });
-        reply = result.text || reply;
-      } catch (gemErr: any) {
-        reply = 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
-      }
-    } else {
-      reply = cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.';
-    }
-    return res.json({ reply, cards });
-  } catch (err: any) {
-    console.error('[AI Salon] error:', err?.message || err);
-    return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });
-  }
-});
-
 void initBotEngine().catch(() => {});
 
 const distPath = path.resolve(process.cwd(), 'dist');

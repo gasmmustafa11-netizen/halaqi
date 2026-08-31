@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { NotificationsProvider } from './components/common/NotificationsProvider';
@@ -10,7 +10,6 @@ import { BottomNavBar } from './components/layout/BottomNavBar';
 import { Footer } from './components/layout/Footer';
 import { HomeExploreView } from './components/home/HomeExploreView';
 import { InteractiveSalonMap } from './components/map/InteractiveSalonMap';
-const SalonAIChat = lazy(() => import('./components/ai/SalonAIChat').then(m => ({ default: m.default || m })));
 import { SalonDetailView } from './components/salons/SalonDetailView';
 import { MyBookingsView } from './components/bookings/MyBookingsView';
 import { SalonDashboardView } from './components/salon-dashboard/SalonDashboardView';
@@ -298,7 +297,6 @@ function AppContent() {
             key={`explore-${refreshTick.explore ?? 0}`}
             onSelectSalon={handleSelectSalon}
             onOpenMap={() => handleNavigate('map')}
-            onOpenAI={() => handleNavigate('ai_chat')}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
           />
@@ -448,12 +446,6 @@ function AppContent() {
             initialUserId={selectedMessageUserId}
             onNavigate={handleNavigate}
           />
-        )}
-
-        {currentView === 'ai_chat' && (
-          <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-400">جاري التحميل...</div>}>
-            <SalonAIChat onBack={() => handleNavigate('explore')} />
-          </Suspense>
         )}
 
         {currentView === 'discover' && (
