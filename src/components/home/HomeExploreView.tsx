@@ -28,7 +28,6 @@ import {
 interface HomeExploreViewProps {
   onSelectSalon: (salon: Salon) => void;
   onOpenMap: () => void;
-  onOpenAI?: () => void;
   searchQuery?: string;
   onSearchChange?: (q: string) => void;
 }
@@ -148,11 +147,11 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
             </div>
 
             <button
-              onClick={onOpenAI ?? onOpenMap}
+              onClick={onOpenMap}
               className="bg-[#D4AF37] hover:bg-[#B8962D] text-black px-6 py-3 rounded-xl font-extrabold text-xs sm:text-sm transition-all shadow-xl flex items-center gap-2 shrink-0 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>صالونك</span>
+              <Compass className="w-4 h-4" />
+              <span>عرض الخريطة التفاعلية</span>
             </button>
           </div>
         </div>
