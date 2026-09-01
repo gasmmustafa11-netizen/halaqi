@@ -6345,13 +6345,15 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     if (!isGreeting) {
       try {
         const allSalons = (typeof (db as any).getApprovedSalonsFromNeon === 'function') ? await (db as any).getApprovedSalonsFromNeon() : [];
+        const stopWords = new Set(['اريد','أريد','أريد','صالون','وين','اشوف','ابحث','عن','في','من','اللي','الذي','قريب','قريبة','附近','المنطقة','البحث','عرض','كل','جميع','متاح','موجود','أ','ال']);
+        const keywords = (userText || '').toLowerCase()
+          .replace(/[^\w\s]/g, ' ')
+          .split(/\s+/)
+          .filter((w: string) => w.length > 1 && !stopWords.has(w));
+        const searchTxt = keywords.join(' ');
         const filtered = (allSalons || []).filter((s: any) => {
-          const txt = (userText || '').toLowerCase();
-          const name = (s.name || '').toString().toLowerCase();
-          const city = (s.city || '').toString().toLowerCase();
-          const area = (s.area || '').toString().toLowerCase();
-          const services = (s.services || '').toString().toLowerCase();
-          return name.includes(txt) || city.includes(txt) || area.includes(txt) || services.includes(txt);
+          const hay = `${s.name || ''} ${s.area || ''} ${s.city || ''} ${s.services || ''}`.toString().toLowerCase();
+          return !searchTxt || keywords.some((kw: string) => hay.includes(kw));
         });
         const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2;
         const selected = (isAllRequest ? (allSalons || []).slice(0, 10) : filtered.slice(0, 6));
@@ -6368,7 +6370,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
         console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
         // Fallback to sql if db method fails (should not happen for real source)
         try {
-          const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE status = 'approved' LIMIT 10`;
+          const salonRows = await sql`SELECT id, name, type, city, area, services, starting_price FROM salons WHERE status = 'approved' LIMIT 10`;
           cards = (salonRows || []).map((r: any) => ({
             id: r.id,
             name: r.name || 'صالون',
@@ -6376,7 +6378,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
             city: r.city || 'غير محدد',
             area: r.area || '',
             services: r.services || '',
-            startingPrice: r.startingPrice ? String(r.startingPrice) : null,
+            startingPrice: (r.starting_price || r.startingPrice) ? String(r.starting_price || r.startingPrice) : null,
           }));
         } catch (e) {}
       }
