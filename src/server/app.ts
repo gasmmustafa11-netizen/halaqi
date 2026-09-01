@@ -6342,16 +6342,30 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
 
     if (!isGreeting) {
       try {
-        const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE approved = true AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR area ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
-        cards = (salonRows || []).map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          type: r.type || 'صالون',
-          city: r.city || 'غير محدد',
-          area: r.area || '',
-          services: r.services || '',
-          startingPrice: r.startingPrice ? String(r.startingPrice) : null,
-        }));
+        const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2;
+        if (isAllRequest) {
+          const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE status = 'approved' LIMIT 10`;
+          cards = (salonRows || []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type || 'صالون',
+            city: r.city || 'غير محدد',
+            area: r.area || '',
+            services: r.services || '',
+            startingPrice: r.startingPrice ? String(r.startingPrice) : null,
+          }));
+        } else {
+          const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE status = 'approved' AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR area ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
+          cards = (salonRows || []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type || 'صالون',
+            city: r.city || 'غير محدد',
+            area: r.area || '',
+            services: r.services || '',
+            startingPrice: r.startingPrice ? String(r.startingPrice) : null,
+          }));
+        }
       } catch (dbErr: any) {
         console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
       }
