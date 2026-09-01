@@ -6331,12 +6331,9 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     const { message, regionConsent, conversationHistory } = req.body || {};
     const userText = typeof message === 'string' ? message : '';
     const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
-    // Query real public salon data from DB (never expose keys/sensitive fields)
-    const db = (await import('./db')).default || (await import('./db'));
-    const { rows: salonRows } = await db.query(
-      `SELECT id, name, type, city, price, services FROM salons WHERE approved = true AND (name ILIKE $1 OR city ILIKE $1 OR services ILIKE $1) LIMIT 6`,
-      [`%${userText}%`]
-    );
+    // Query real public salon data from DB using pg pool layer (no direct DB access for AI)
+    const { sql } = await import('./lib/pg-compliant');
+    const salonRows = await sql`SELECT id, name, type, city, price, services FROM salons WHERE approved = true AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
     const cards: any[] = salonRows.map((r: any) => ({
       id: r.id,
       name: r.name,
@@ -6350,20 +6347,20 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     const extraData: string[] = [];
     for (const s of cards.slice(0, 3)) {
       try {
-        const svcRows = await db.query(`SELECT name, price FROM services WHERE salon_id = $1 LIMIT 4`, [s.id]);
-        const svcs = (svcRows.rows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
+        const svcRows = await sql`SELECT name, price FROM services WHERE salon_id = ${s.id} LIMIT 4`;
+        const svcs = (svcRows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
         if (svcs) extraData.push(`خدمات ${s.name}: ${svcs}`);
       } catch (e) { /* ignore */ }
       try {
-        const postRows = await db.query(`SELECT title FROM user_posts WHERE salon_id = $1 AND approved = true LIMIT 3`, [s.id]);
-        const posts = (postRows.rows || []).map((x: any) => x.title || '').filter(Boolean).join('؛ ');
+        const postRows = await sql`SELECT title FROM user_posts WHERE salon_id = ${s.id} AND approved = true LIMIT 3`;
+        const posts = (postRows || []).map((x: any) => x.title || '').filter(Boolean).join('؛ ');
         if (posts) extraData.push(`منشورات ${s.name}: ${posts}`);
       } catch (e) { /* ignore */ }
     }
     // Availability: count available booking slots (public, no personal data)
     try {
-      const availRows = await db.query(`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`);
-      for (const ar of (availRows.rows || [])) {
+      const availRows = await sql`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`;
+      for (const ar of (availRows || [])) {
         const salonName = cards.find((c: any) => c.id === ar.salon_id)?.name || ar.salon_id;
         extraData.push(`حجوزات ${salonName}: ${ar.cnt} تأكيد`);
       }
