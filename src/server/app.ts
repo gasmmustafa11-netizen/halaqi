@@ -6336,7 +6336,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
 
     const { sql } = await import('./lib/pg-compliant');
     const dbModule = await import('./db');
-    const db = dbModule.default || dbModule;
+    const db = (dbModule as any).default || (dbModule as any).db;
     const apiKey = process.env.GEMINI_API_KEY;
 
     const normalizeArabic = (t: string) => (t || '').toString()
@@ -6373,7 +6373,72 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
           // General fallback: area/city/services matching.
           return nameMatch || keywords.some((kw: string) => hay.includes(kw));
         });
-        const selected = (isAllRequest ? (allSalons || []).slice(0, 10) : filtered.slice(0, 6));
+
+        const selectedAll = (allSalons || []);
+
+        // Specific salon requests: rank by the complete requested name instead of
+        // loose substring/character overlap. This allows small Arabic spelling
+        // differences such as "رائد الحلاق" -> "قائد الحلاق", while preventing
+        // generic words like "الحلاق" from selecting unrelated salons.
+        const exactMatches = !isAllRequest && keywords.length > 0
+          ? selectedAll
+              .map((s: any) => {
+                const name = normalizeArabic(s.name || '');
+                const requested = keywords.join(' ');
+                const nameWords = name.split(/\s+/).filter(Boolean);
+                const requestedWords = keywords.filter(Boolean);
+
+                let matchedWords = 0;
+                let closeWords = 0;
+
+                for (const kw of requestedWords) {
+                  if (nameWords.some((nw: string) => nw === kw)) {
+                    matchedWords++;
+                    continue;
+                  }
+
+                  // Allow one-character spelling difference for meaningful words.
+                  if (kw.length >= 3 && nameWords.some((nw: string) => {
+                    if (nw.length !== kw.length) return false;
+                    let diff = 0;
+                    for (let i = 0; i < kw.length; i++) {
+                      if (kw[i] !== nw[i]) diff++;
+                      if (diff > 1) return false;
+                    }
+                    return diff === 1;
+                  })) {
+                    closeWords++;
+                  }
+                }
+
+                const allRequestedWordsMatched =
+                  matchedWords + closeWords === requestedWords.length;
+
+                const genericOnly =
+                  requestedWords.length === 1 &&
+                  requestedWords[0].length <= 4;
+
+                const score =
+                  (matchedWords * 10) +
+                  (closeWords * 7) +
+                  (name === requested ? 20 : 0);
+
+                return {
+                  salon: s,
+                  score,
+                  valid: allRequestedWordsMatched && !genericOnly,
+                };
+              })
+              .filter((x: any) => x.valid)
+              .sort((a: any, b: any) => b.score - a.score)
+              .map((x: any) => x.salon)
+          : [];
+
+        const selected = isAllRequest
+          ? selectedAll.slice(0, 10)
+          : exactMatches.slice(0, 1);
+
+
         cards = selected.map((s: any) => ({
           id: s.id,
           name: s.name || s.nameEn || 'صالون',
@@ -6434,7 +6499,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
           (historyText ? `\nسياق المحادثة السابق:\n${historyText}` : '') +
           `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || (isGreeting ? 'لا توجد بيانات بحث محددة.' : 'لا توجد نتائج')}.` +
           (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') +
-          ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
+          ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. لا تظهر أي معرف (ID) من قاعدة البيانات للمستخدم. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
         const result = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite', contents: prompt });
         reply = (result as any)?.text?.trim() || reply;
       } catch (gemErr: any) {
@@ -6443,7 +6508,10 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     } else {
       reply = isGreeting ? 'هلا بيك! كيف أقدر أساعدك؟' : (cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.');
     }
-    return res.json({ reply, cards });
+    return res.json({
+      reply,
+      cards,
+    });
   } catch (err: any) {
     console.error('[AI Salon] error:', err?.message || err);
     return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });
