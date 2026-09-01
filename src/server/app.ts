@@ -6357,8 +6357,21 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
         const keywords = rawWords.map((w: string) => normalizeArabic(w)).filter((w: string) => w.length > 1 && !stopWords.has(w));
         const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2 || keywords.length === 0;
         const filtered = (allSalons || []).filter((s: any) => {
-          const hay = normalizeArabic(`${s.name || ''} ${s.area || ''} ${s.city || ''} ${s.services || ''}`);
-          return isAllRequest || keywords.some((kw: string) => hay.includes(kw));
+          const normalizedName = normalizeArabic(s.name || '');
+          const normalizedArea = normalizeArabic(s.area || '');
+          const normalizedCity = normalizeArabic(s.city || '');
+          const normalizedServices = normalizeArabic(s.services || '');
+          const hay = `${normalizedName} ${normalizedArea} ${normalizedCity} ${normalizedServices}`;
+
+          if (isAllRequest) return true;
+
+          // Strong match: salon name or its normalized Arabic form.
+          const nameMatch = keywords.some((kw: string) =>
+            normalizedName.includes(kw) || kw.includes(normalizedName)
+          );
+
+          // General fallback: area/city/services matching.
+          return nameMatch || keywords.some((kw: string) => hay.includes(kw));
         });
         const selected = (isAllRequest ? (allSalons || []).slice(0, 10) : filtered.slice(0, 6));
         cards = selected.map((s: any) => ({
