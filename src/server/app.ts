@@ -6335,6 +6335,8 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     const isGreeting = greetingWords.some(w => userText.includes(w)) || userText.trim().length < 3;
 
     const { sql } = await import('./lib/pg-compliant');
+    const dbModule = await import('./db');
+    const db = dbModule.default || dbModule;
     const apiKey = process.env.GEMINI_API_KEY;
 
     let cards: any[] = [];
@@ -6342,30 +6344,42 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
 
     if (!isGreeting) {
       try {
+        const allSalons = (typeof (db as any).getApprovedSalonsFromNeon === 'function') ? await (db as any).getApprovedSalonsFromNeon() : [];
+        const filtered = (allSalons || []).filter((s: any) => {
+          const txt = (userText || '').toLowerCase();
+          const name = (s.name || '').toString().toLowerCase();
+          const city = (s.city || '').toString().toLowerCase();
+          const area = (s.area || '').toString().toLowerCase();
+          const services = (s.services || '').toString().toLowerCase();
+          return name.includes(txt) || city.includes(txt) || area.includes(txt) || services.includes(txt);
+        });
         const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2;
-        if (isAllRequest) {
+        const selected = (isAllRequest ? (allSalons || []).slice(0, 10) : filtered.slice(0, 6));
+        cards = selected.map((s: any) => ({
+          id: s.id,
+          name: s.name || s.nameEn || 'صالون',
+          type: s.type || 'صالون',
+          city: s.city || 'غير محدد',
+          area: s.area || '',
+          services: s.services || '',
+          startingPrice: s.startingPrice ? String(s.startingPrice) : null,
+        }));
+      } catch (dbErr: any) {
+        console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
+        // Fallback to sql if db method fails (should not happen for real source)
+        try {
           const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE status = 'approved' LIMIT 10`;
           cards = (salonRows || []).map((r: any) => ({
             id: r.id,
-            name: r.name,
+            name: r.name || 'صالون',
             type: r.type || 'صالون',
             city: r.city || 'غير محدد',
             area: r.area || '',
             services: r.services || '',
             startingPrice: r.startingPrice ? String(r.startingPrice) : null,
           }));
-        } else {
-          const salonRows = await sql`SELECT id, name, type, city, area, services, startingPrice FROM salons WHERE status = 'approved' AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR area ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
-          cards = (salonRows || []).map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type || 'صالون',
-            city: r.city || 'غير محدد',
-            area: r.area || '',
-            services: r.services || '',
-            startingPrice: r.startingPrice ? String(r.startingPrice) : null,
-          }));
-        }
+        } catch (e) {}
+      }
       } catch (dbErr: any) {
         console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
       }
