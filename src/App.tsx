@@ -29,6 +29,7 @@ import { ReelsView } from './components/posts/ReelsView';
 import { PostDetailView } from './components/posts/PostDetailView';
 import { MessagesView } from './components/messaging/MessagesView';
 import { DiscoverView } from './components/discover/DiscoverView';
+import YourSalonView from './components/your-salon/YourSalonView';
 import SupportCenterView from './components/support/SupportCenterView';
 import {
   initPushNotifications,
@@ -297,6 +298,7 @@ function AppContent() {
             key={`explore-${refreshTick.explore ?? 0}`}
             onSelectSalon={handleSelectSalon}
             onOpenMap={() => handleNavigate('map')}
+            onOpenYourSalon={() => handleNavigate('your-salon')}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
           />
@@ -354,6 +356,10 @@ function AppContent() {
               selectedCity="all"
             />
           </div>
+        )}
+
+        {currentView === 'your-salon' && (
+          <YourSalonView onBack={() => handleNavigate('explore')} />
         )}
 
         {currentView === 'salon_detail' && selectedSalon && (

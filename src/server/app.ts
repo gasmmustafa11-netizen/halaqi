@@ -6325,6 +6325,81 @@ app.all(
 // Initialize the bot engine on the serverless entry (ensure tables + seed up
 // to 100 bots). No scheduler is started here; ticks are driven by the cron
 // job above. Safe to fire-and-forget at module load.
+// --- AI Salon Assistant (secure server-side only) ---
+app.post('/api/ai-salon', async (req: Request, res: Response) => {
+  try {
+    const { message, regionConsent, conversationHistory } = req.body || {};
+    const userText = typeof message === 'string' ? message : '';
+    const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
+    // Query real public salon data from DB (never expose keys/sensitive fields)
+    const db = (await import('./db')).default || (await import('./db'));
+    const { rows: salonRows } = await db.query(
+      `SELECT id, name, type, city, price, services, rating, review_count FROM salons WHERE approved = true AND (name ILIKE $1 OR city ILIKE $1 OR services ILIKE $1) LIMIT 6`,
+      [`%${userText}%`]
+    );
+    const cards: any[] = salonRows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      type: r.type || 'صالون',
+      city: r.city || 'غير محدد',
+      price: r.price ? String(r.price) : null,
+      services: r.services || '',
+      rating: r.rating ? Number(r.rating).toFixed(1) : '0',
+      reviewCount: r.review_count ? Number(r.review_count) : 0,
+    }));
+
+    // Controlled backend data: services, posts/reels, availability for found salons (public only)
+    const extraData: string[] = [];
+    for (const s of cards.slice(0, 3)) {
+      try {
+        const svcRows = await db.query(`SELECT name, price FROM services WHERE salon_id = $1 LIMIT 4`, [s.id]);
+        const svcs = (svcRows.rows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
+        if (svcs) extraData.push(`خدمات ${s.name}: ${svcs}`);
+      } catch (e) { /* ignore */ }
+      try {
+        const postRows = await db.query(`SELECT title FROM user_posts WHERE salon_id = $1 AND approved = true LIMIT 3`, [s.id]);
+        const posts = (postRows.rows || []).map((x: any) => x.title || '').filter(Boolean).join('؛ ');
+        if (posts) extraData.push(`منشورات ${s.name}: ${posts}`);
+      } catch (e) { /* ignore */ }
+    }
+    // Availability: count available booking slots (public, no personal data)
+    try {
+      const availRows = await db.query(`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`);
+      for (const ar of (availRows.rows || [])) {
+        const salonName = cards.find((c: any) => c.id === ar.salon_id)?.name || ar.salon_id;
+        extraData.push(`حجوزات ${salonName}: ${ar.cnt} تأكيد`);
+      }
+    } catch (e) { /* ignore */ }
+
+    const apiKey = process.env.GEMINI_API_KEY || (process.env.VERCEL ? process.env.VERCEL : undefined);
+    let reply = 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
+    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey });
+        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — سعر: ${c.price || 'غير محدد'} — تقييم: ${c.rating} (${c.reviewCount} تقييم) — خدمات: ${c.services || 'متنوعة'}`).join('; ');
+        const context = [cardText, ...extraData].filter(Boolean).join(' | ');
+        const historyText = history.map((h: any) => `${h.role || 'user'}: ${h.text || h.message || ''}`).join('\n');
+        const prompt = `أنت مساعد صالونات ذكي متخصص في العراق. المستخدم طلب: "${userText}".` +
+          (historyText ? `\nسياق المحادثة السابق:\n${historyText}` : '') +
+          `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || 'لا توجد نتائج'}.` +
+          (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') +
+          ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
+        const result = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: prompt });
+        reply = (result as any)?.text?.trim() || reply;
+      } catch (gemErr: any) {
+        reply = 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
+      }
+    } else {
+      reply = cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.';
+    }
+    return res.json({ reply, cards });
+  } catch (err: any) {
+    console.error('[AI Salon] error:', err?.message || err);
+    return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });
+  }
+});
+
 void initBotEngine().catch(() => {});
 
 const distPath = path.resolve(process.cwd(), 'dist');
