@@ -6331,62 +6331,71 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     const { message, regionConsent, conversationHistory } = req.body || {};
     const userText = typeof message === 'string' ? message : '';
     const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
-    // Query real public salon data from DB using pg pool layer (no direct DB access for AI)
-    const { sql } = await import('./lib/pg-compliant');
-    const salonRows = await sql`SELECT id, name, type, city, price, services FROM salons WHERE approved = true AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
-    const cards: any[] = salonRows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      type: r.type || 'صالون',
-      city: r.city || 'غير محدد',
-      price: r.price ? String(r.price) : null,
-      services: r.services || '',
-    }));
+    const greetingWords = ['شلونك','مرحبا','كيفك','هلا','سلام','hi','hello','hey'];
+    const isGreeting = greetingWords.some(w => userText.includes(w)) || userText.trim().length < 3;
 
-    // Controlled backend data: services, posts/reels, availability for found salons (public only)
-    const extraData: string[] = [];
-    for (const s of cards.slice(0, 3)) {
+    const { sql } = await import('./lib/pg-compliant');
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    let cards: any[] = [];
+    let extraData: string[] = [];
+
+    if (!isGreeting) {
       try {
-        const svcRows = await sql`SELECT name, price FROM services WHERE salon_id = ${s.id} LIMIT 4`;
-        const svcs = (svcRows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
-        if (svcs) extraData.push(`خدمات ${s.name}: ${svcs}`);
-      } catch (e) { /* ignore */ }
+        const salonRows = await sql`SELECT id, name, type, city, services FROM salons WHERE approved = true AND (name ILIKE ${'%'+userText+'%'} OR city ILIKE ${'%'+userText+'%'} OR services ILIKE ${'%'+userText+'%'}) LIMIT 6`;
+        cards = (salonRows || []).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          type: r.type || 'صالون',
+          city: r.city || 'غير محدد',
+          services: r.services || '',
+        }));
+      } catch (dbErr: any) {
+        console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
+      }
+
+      for (const s of cards.slice(0, 3)) {
+        try {
+          const svcRows = await sql`SELECT name, price FROM services WHERE salon_id = ${s.id} LIMIT 4`;
+          const svcs = (svcRows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
+          if (svcs) extraData.push(`خدمات ${s.name}: ${svcs}`);
+        } catch (e) { /* ignore */ }
+        try {
+          const postRows = await sql`SELECT caption FROM salon_posts WHERE salon_id = ${s.id} AND is_hidden IS DISTINCT FROM true LIMIT 3`;
+          const posts = (postRows || []).map((x: any) => x.caption || '').filter(Boolean).join('؛ ');
+          if (posts) extraData.push(`منشورات ${s.name}: ${posts}`);
+        } catch (e) { /* ignore */ }
+      }
+
       try {
-        const postRows = await sql`SELECT title FROM user_posts WHERE salon_id = ${s.id} AND approved = true LIMIT 3`;
-        const posts = (postRows || []).map((x: any) => x.title || '').filter(Boolean).join('؛ ');
-        if (posts) extraData.push(`منشورات ${s.name}: ${posts}`);
+        const availRows = await sql`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`;
+        for (const ar of (availRows || [])) {
+          const salonName = cards.find((c: any) => c.id === ar.salon_id)?.name || ar.salon_id;
+          extraData.push(`حجوزات ${salonName}: ${ar.cnt} تأكيد`);
+        }
       } catch (e) { /* ignore */ }
     }
-    // Availability: count available booking slots (public, no personal data)
-    try {
-      const availRows = await sql`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`;
-      for (const ar of (availRows || [])) {
-        const salonName = cards.find((c: any) => c.id === ar.salon_id)?.name || ar.salon_id;
-        extraData.push(`حجوزات ${salonName}: ${ar.cnt} تأكيد`);
-      }
-    } catch (e) { /* ignore */ }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    let reply = 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
+    let reply = isGreeting ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد."' : 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
     if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
       try {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
-        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — سعر: ${c.price || 'غير محدد'} — خدمات: ${c.services || 'متعددة'}`).join('; ');
+        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — خدمات: ${c.services || 'متنوعة'}`).join('; ');
         const context = [cardText, ...extraData].filter(Boolean).join(' | ');
         const historyText = history.map((h: any) => `${h.role || 'user'}: ${h.text || h.message || ''}`).join('\n');
         const prompt = `أنت مساعد صالونات ذكي متخصص في العراق. المستخدم طلب: "${userText}".` +
           (historyText ? `\nسياق المحادثة السابق:\n${historyText}` : '') +
-          `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || 'لا توجد نتائج'}.` +
+          `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || (isGreeting ? 'لا توجد بيانات بحث محددة.' : 'لا توجد نتائج')}.` +
           (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') +
           ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
         const result = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite', contents: prompt });
         reply = (result as any)?.text?.trim() || reply;
       } catch (gemErr: any) {
-        reply = 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
+        reply = isGreeting ? 'عذراً، حدث خلل في الرد. حاول مرة أخرى.' : 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
       }
     } else {
-      reply = cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.';
+      reply = isGreeting ? 'هلا بيك! كيف أقدر أساعدك؟' : (cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.');
     }
     return res.json({ reply, cards });
   } catch (err: any) {
