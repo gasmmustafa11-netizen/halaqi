@@ -6339,23 +6339,27 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     const db = dbModule.default || dbModule;
     const apiKey = process.env.GEMINI_API_KEY;
 
+    const normalizeArabic = (t: string) => (t || '').toString()
+      .replace(/[\u064b-\u065F\u0670\u0640]/g, '')
+      .replace(/\u0629/g, '\u0647')
+      .replace(/[\u0623\u0625\u0622]/g, '\u0627')
+      .replace(/[^\w\s\u0621-\u064A]/g, '')
+      .trim();
+
     let cards: any[] = [];
     let extraData: string[] = [];
 
     if (!isGreeting) {
       try {
         const allSalons = (typeof (db as any).getApprovedSalonsFromNeon === 'function') ? await (db as any).getApprovedSalonsFromNeon() : [];
-        const stopWords = new Set(['اريد','أريد','أريد','صالون','وين','اشوف','ابحث','عن','في','من','اللي','الذي','قريب','قريبة','附近','المنطقة','البحث','عرض','كل','جميع','متاح','موجود','أ','ال']);
-        const keywords = (userText || '').toLowerCase()
-          .replace(/[^\w\s]/g, ' ')
-          .split(/\s+/)
-          .filter((w: string) => w.length > 1 && !stopWords.has(w));
-        const searchTxt = keywords.join(' ');
+        const stopWords = new Set(['اريد','أريد','صالون','وين','اشوف','ابحث','عن','في','من','اللي','الذي','قريب','قريبة','منطقة','مدينة','الناصرية','ب','بمنطقة','المنطقة']);
+        const rawWords = (userText || '').toString().split(/\s+/).filter((w: string) => w.length > 1);
+        const keywords = rawWords.map((w: string) => normalizeArabic(w)).filter((w: string) => w.length > 1 && !stopWords.has(w));
+        const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2 || keywords.length === 0;
         const filtered = (allSalons || []).filter((s: any) => {
-          const hay = `${s.name || ''} ${s.area || ''} ${s.city || ''} ${s.services || ''}`.toString().toLowerCase();
-          return !searchTxt || keywords.some((kw: string) => hay.includes(kw));
+          const hay = normalizeArabic(`${s.name || ''} ${s.area || ''} ${s.city || ''} ${s.services || ''}`);
+          return isAllRequest || keywords.some((kw: string) => hay.includes(kw));
         });
-        const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2;
         const selected = (isAllRequest ? (allSalons || []).slice(0, 10) : filtered.slice(0, 6));
         cards = selected.map((s: any) => ({
           id: s.id,
