@@ -6369,7 +6369,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
       }
     } catch (e) { /* ignore */ }
 
-    const apiKey = process.env.GEMINI_API_KEY || (process.env.VERCEL ? process.env.VERCEL : undefined);
+    const apiKey = process.env.GEMINI_API_KEY;
     let reply = 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
     if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
       try {
@@ -6383,7 +6383,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
           `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || 'لا توجد نتائج'}.` +
           (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') +
           ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
-        const result = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: prompt });
+        const result = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite', contents: prompt });
         reply = (result as any)?.text?.trim() || reply;
       } catch (gemErr: any) {
         reply = 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
