@@ -6334,7 +6334,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
     // Query real public salon data from DB (never expose keys/sensitive fields)
     const db = (await import('./db')).default || (await import('./db'));
     const { rows: salonRows } = await db.query(
-      `SELECT id, name, type, city, price, services, rating, review_count FROM salons WHERE approved = true AND (name ILIKE $1 OR city ILIKE $1 OR services ILIKE $1) LIMIT 6`,
+      `SELECT id, name, type, city, price, services FROM salons WHERE approved = true AND (name ILIKE $1 OR city ILIKE $1 OR services ILIKE $1) LIMIT 6`,
       [`%${userText}%`]
     );
     const cards: any[] = salonRows.map((r: any) => ({
@@ -6344,8 +6344,6 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
       city: r.city || 'غير محدد',
       price: r.price ? String(r.price) : null,
       services: r.services || '',
-      rating: r.rating ? Number(r.rating).toFixed(1) : '0',
-      reviewCount: r.review_count ? Number(r.review_count) : 0,
     }));
 
     // Controlled backend data: services, posts/reels, availability for found salons (public only)
@@ -6377,7 +6375,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
       try {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
-        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — سعر: ${c.price || 'غير محدد'} — تقييم: ${c.rating} (${c.reviewCount} تقييم) — خدمات: ${c.services || 'متنوعة'}`).join('; ');
+        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city} — سعر: ${c.price || 'غير محدد'} — خدمات: ${c.services || 'متعددة'}`).join('; ');
         const context = [cardText, ...extraData].filter(Boolean).join(' | ');
         const historyText = history.map((h: any) => `${h.role || 'user'}: ${h.text || h.message || ''}`).join('\n');
         const prompt = `أنت مساعد صالونات ذكي متخصص في العراق. المستخدم طلب: "${userText}".` +
