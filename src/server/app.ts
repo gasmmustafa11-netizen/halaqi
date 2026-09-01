@@ -6380,9 +6380,6 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
           }));
         } catch (e) {}
       }
-      } catch (dbErr: any) {
-        console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
-      }
 
       for (const s of cards.slice(0, 3)) {
         try {
