@@ -278,7 +278,7 @@ function AppContent() {
   return (
     <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
-      {currentView !== 'posts' && currentView !== 'reels' && currentView !== 'photos' && (
+      {currentView !== 'posts' && currentView !== 'reels' && currentView !== 'photos' && currentView !== 'your-salon' && (
         <Navbar
           currentView={currentView}
           onNavigate={handleNavigate}
@@ -288,7 +288,7 @@ function AppContent() {
       )}
 
       {/* Main Body Content with Bento Spacing */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-20">
+      <main className={`flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 ${currentView === 'your-salon' ? 'overflow-hidden pb-0' : 'pb-20'}`}>
         {currentView === 'search' && (
           <SearchView onNavigate={handleNavigate} />
         )}
@@ -359,7 +359,7 @@ function AppContent() {
         )}
 
         {currentView === 'your-salon' && (
-          <YourSalonView onBack={() => handleNavigate('explore')} />
+          <YourSalonView onBack={() => handleNavigate('explore')} onSelectSalonId={handleSelectSalonById} />
         )}
 
         {currentView === 'salon_detail' && selectedSalon && (
@@ -464,10 +464,10 @@ function AppContent() {
       </main>
 
       {/* Footer */}
-      <Footer onNavigate={handleNavigate} />
+      {currentView !== 'your-salon' && <Footer onNavigate={handleNavigate} />}
 
       {/* Bento Bottom Navigation Bar */}
-      <BottomNavBar currentView={currentView} onNavigate={handleNavigate} />
+      {currentView !== 'your-salon' && <BottomNavBar currentView={currentView} onNavigate={handleNavigate} />}
 
       {/* Global Booking Flow Modal */}
       <BookingWizardModal onGoToBookings={() => handleNavigate('bookings')} />
