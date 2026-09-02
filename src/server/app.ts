@@ -6349,6 +6349,158 @@ app.all(
 // to 100 bots). No scheduler is started here; ticks are driven by the cron
 // job above. Safe to fire-and-forget at module load.
 // --- AI Salon Assistant (secure server-side only) ---
+async function tryGroqFallback(args: {
+  userText: string;
+  systemInstruction: string;
+  dbModule: any;
+  cards?: any[];
+}): Promise<{ reply: string; cards: any[]; toolCalls?: any[]; reason?: string }> {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey || typeof groqKey !== 'string' || groqKey.length < 8) {
+    console.log('[AI Salon] GROQ_FALLBACK skipped: no valid GROQ_API_KEY');
+    return { reply: 'لم أجد نتائج حالياً. حاول لاحقاً.', cards: args.cards || [] };
+  }
+  try {
+    const { Groq } = await import('groq-sdk');
+    const groq = new Groq({ apiKey: groqKey });
+    const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
+    const openAITools = [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'search_salons',
+          description: 'Search approved salons by keyword, area, city, or service name.',
+          parameters: {
+            type: 'object',
+            properties: {
+              keyword: { type: 'string' },
+              location: { type: 'string' },
+            },
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'get_salon',
+          description: 'Get a specific salon by name or salon id.',
+          parameters: {
+            type: 'object',
+            properties: {
+              salonId: { type: 'string' },
+              salonName: { type: 'string' },
+            },
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'search_services',
+          description: 'Search services for a salon.',
+          parameters: {
+            type: 'object',
+            properties: {
+              salonId: { type: 'string' },
+              keyword: { type: 'string' },
+            },
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'get_salon_services',
+          description: 'Get all services for a salon.',
+          parameters: {
+            type: 'object',
+            properties: {
+              salonId: { type: 'string' },
+            },
+            required: ['salonId'],
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'get_availability',
+          description: 'Retrieve salon working hours and occupied slots for a date.',
+          parameters: {
+            type: 'object',
+            properties: {
+              salonId: { type: 'string' },
+              date: { type: 'string' },
+              barberId: { type: 'string' },
+            },
+            required: ['salonId'],
+          },
+        },
+      },
+    ];
+
+    console.log('[AI Salon] GROQ_TOOLS_SCHEMA:', JSON.stringify(openAITools, null, 2));
+    const res1 = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: args.systemInstruction },
+        { role: 'user', content: args.userText }
+      ],
+      model: 'openai/gpt-oss-120b',
+      tools: openAITools as any,
+      tool_choice: 'auto',
+    });
+    const choice1 = res1.choices?.[0]?.message as any;
+    let cards = args.cards || [];
+    let reply = '';
+    const toolCallNames: string[] = [];
+    let toolResults: any[] = [];
+
+    if (choice1?.tool_calls && choice1.tool_calls.length > 0) {
+      console.log('[AI Salon] GROQ_FALLBACK: tool_calls detected', JSON.stringify(choice1.tool_calls.map((t: any) => t.function?.name)));
+      const messages2: any[] = [
+        { role: 'system', content: args.systemInstruction },
+        { role: 'user', content: args.userText },
+        { role: 'assistant', content: choice1.content || null, tool_calls: choice1.tool_calls }
+      ];
+      for (const tc of choice1.tool_calls) {
+        const name = tc.function?.name;
+        const argsParsed = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+        toolCallNames.push(name);
+        const sqlImport = async () => await import('./lib/pg-compliant');
+        const resTool = await executeTool(name, argsParsed, args.dbModule, sqlImport);
+        toolResults.push({ name, response: resTool });
+        if (resTool.salons && resTool.salons.length > 0) {
+          cards = resTool.salons.map((c: any) => ({
+            id: c.id,
+            name: c.name || 'صالون',
+            type: c.type || 'صالون',
+            city: c.city || '',
+            area: c.area || '',
+            services: c.services || '',
+            startingPrice: c.startingPrice ? String(c.startingPrice) : null,
+          }));
+        }
+        messages2.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(resTool || {}) });
+      }
+      const res2 = await groq.chat.completions.create({
+        messages: [
+          ...messages2,
+          { role: 'user', content: 'قدم الرد بالعربية/العراقية فقط مع الاعتماد على نتائج الأدوات أعلاه. لا تخترع صalونات أو أسعاراً.' }
+        ],
+        model: 'openai/gpt-oss-120b',
+      });
+      reply = (res2.choices?.[0]?.message?.content || '').trim() || 'وجدت نتائج قريبة لك من Halaqi.';
+    } else {
+      reply = (choice1?.content || '').trim() || 'لم أجد نتائج حالياً.';
+    }
+    console.log('[AI Salon] GROQ_FALLBACK executed. Reason: quota/429/missing GEMINI key. Tool calls:', toolCallNames.join(',') || 'none');
+    return { reply, cards, toolCalls: toolResults, reason: toolCallNames.length ? 'tool_calls' : 'direct' };
+  } catch (e: any) {
+    console.error('[AI Salon] GROQ_FALLBACK error:', e?.message || e);
+    return { reply: 'حدث خطأ في الاستجابة البديلة، حاول لاحقاً.', cards: args.cards || [] };
+  }
+}
+
 app.post('/api/ai-salon', async (req: Request, res: Response) => {
   try {
     const { message, regionConsent, conversationHistory, conversationState } = req.body || {};
@@ -6405,18 +6557,7 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
       required: ['reply'],
     };
 
-    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
-      try {
-        const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
-        let createPartFromFunctionResponse: any = null;
-        try {
-          const genaiMod = await import('@google/genai');
-          createPartFromFunctionResponse = (genaiMod as any).createPartFromFunctionResponse || (genaiMod as any).GoogleGenAI?.createPartFromFunctionResponse;
-        } catch (e) { /* SDK import optional for part creation */ }
-
-        const systemInstruction = `أنت مساعد صالونات ذكي في العراق، وتعمل باستخدام بيانات Halaqi الحقيقية فقط.
+    const systemInstruction = `أنت مساعد صالونات ذكي في العراق، وتعمل باستخدام بيانات Halaqi الحقيقية فقط.
 
 فهم اللغة يجب أن يكون دلالياً عبر Gemini فقط. لا تستخدم Regex ولا قوائم كلمات ولا تخمينات.
 
@@ -6434,6 +6575,17 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
 - إذا كان المعنى غير واضح فعلاً ولا يمكن البحث بشكل موثوق، اسأل سؤالاً قصيراً بالعراقية.
 - بعد استلام نتيجة الأداة، اعتمد عليها فقط في الإجابة.
 - الرد بالعربية/العراقية وبأسلوب طبيعي ومختصر.`;
+
+    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey });
+        const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
+        let createPartFromFunctionResponse: any = null;
+        try {
+          const genaiMod = await import('@google/genai');
+          createPartFromFunctionResponse = (genaiMod as any).createPartFromFunctionResponse || (genaiMod as any).GoogleGenAI?.createPartFromFunctionResponse;
+        } catch (e) { /* SDK import optional for part creation */ }
 
         const buildHistoryText = () => historyText || 'لا تاريخ';
 
@@ -6652,7 +6804,9 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
             } else {
               // Turn 2 uses the structured JSON schema.
               try {
-                const parsed = JSON.parse(rawText);
+                const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('No JSON object found in Gemini response');
+        const parsed = JSON.parse(jsonMatch[0]);
 
                 reply = parsed.reply || reply;
                 intent = parsed.intent || intent;
@@ -6704,10 +6858,28 @@ app.post('/api/ai-salon', async (req: Request, res: Response) => {
         }
       } catch (gemErr: any) {
         console.error('[AI Salon Gemini error]', gemErr?.message || gemErr);
-        reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
+        const gemMsg = String(gemErr?.message || gemErr || '').toLowerCase();
+        const isQuota = gemMsg.includes('429') || gemMsg.includes('quota') || gemMsg.includes('rate limit') || gemMsg.includes('ratelimit') || gemMsg.includes('too many requests') || gemMsg.includes('rate');
+        if (process.env.GROQ_API_KEY) {
+          console.log('[AI Salon] GEMINI_PRIMARY failed. Activating GROQ_FALLBACK. Reason:', gemErr?.message || gemErr);
+          const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
+          reply = groqRes.reply;
+          if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
+          console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
+        } else {
+          reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
+        }
       }
     } else {
-      reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
+      if (process.env.GROQ_API_KEY) {
+        console.log('[AI Salon] GEMINI_PRIMARY skipped (no API key). Activating GROQ_FALLBACK. Reason: missing GEMINI_API_KEY');
+        const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
+        reply = groqRes.reply;
+        if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
+        console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
+      } else {
+        reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
+      }
     }
 
     return res.json({ reply: reply || 'عذراً، حدث خطأ.', cards });
