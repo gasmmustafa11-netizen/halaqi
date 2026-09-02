@@ -2627,6 +2627,16 @@ app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Re
       salonId: result.booking!.salonId,
     };
 
+    const customerNotificationPayload = {
+      title: 'تم تأكيد الحجز ✅',
+      titleEn: 'Booking Confirmed ✅',
+      message: `تم الحجز بنجاح في صالون ${result.booking!.salonName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}.`,
+      messageEn: `Booking confirmed at ${result.booking!.salonName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}.`,
+      type: 'booking_confirmed' as const,
+      link: '/bookings',
+      salonId: result.booking!.salonId,
+    };
+
     for (const recipient of recipients.values()) {
       await db.createNotification({
         userId: recipient.id,
@@ -2637,6 +2647,19 @@ app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Re
         `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
       );
     }
+
+    // Customer confirmation notification (only if not already sent by another flow)
+    try {
+      const customer = req.user!;
+      const existingCustomerNotifs = (db.getState().notifications || []).filter((n: any) => n.userId === customer.id && n.type === 'booking_confirmed' && n.link === '/bookings' && n.salonId === result.booking!.salonId && n.message?.includes(result.booking!.date));
+      if (existingCustomerNotifs.length === 0) {
+        await db.createNotification({
+          userId: customer.id,
+          ...customerNotificationPayload,
+        });
+        console.log(`[BOOKING NOTIFICATION] Customer ${customer.id} notified of booking ${result.booking!.id}`);
+      }
+    } catch (e) { /* ignore duplicate errors */ }
   } catch (error: any) {
     // Never fail an already-created booking because notification delivery failed.
     console.error(
@@ -6328,196 +6351,371 @@ app.all(
 // --- AI Salon Assistant (secure server-side only) ---
 app.post('/api/ai-salon', async (req: Request, res: Response) => {
   try {
-    const { message, regionConsent, conversationHistory } = req.body || {};
-    const userText = typeof message === 'string' ? message : '';
-    const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
-    const greetingWords = ['شلونك','مرحبا','كيفك','هلا','سلام','hi','hello','hey'];
-    const isGreeting = greetingWords.some(w => userText.includes(w)) || userText.trim().length < 3;
+    const { message, regionConsent, conversationHistory, conversationState } = req.body || {};
+    const userText = typeof message === 'string' ? message.trim() : '';
+    const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-6) : [];
+    const historyText = history.map((h: any) => `${h.role || 'user'}: ${h.text || h.message || ''}`).join('\n');
 
-    const { sql } = await import('./lib/pg-compliant');
     const dbModule = await import('./db');
     const db = (dbModule as any).default || (dbModule as any).db;
     const apiKey = process.env.GEMINI_API_KEY;
 
-    const normalizeArabic = (t: string) => (t || '').toString()
-      .replace(/[\u064b-\u065F\u0670\u0640]/g, '')
-      .replace(/\u0629/g, '\u0647')
-      .replace(/[\u0623\u0625\u0622]/g, '\u0627')
-      .replace(/[^\w\s\u0621-\u064A]/g, '')
-      .trim();
+    // Conversation context: selected entities only — never cards as selected salon
+    const ctxParts: string[] = [];
+    if (conversationState && typeof conversationState === 'object') {
+      if (conversationState.salonId) ctxParts.push(`الصالون المختار (معرف): ${conversationState.salonId}${conversationState.salonName ? ' (' + conversationState.salonName + ')' : ''}`);
+      else if (conversationState.salonName) ctxParts.push(`الصالون المختار: ${conversationState.salonName}`);
+      else ctxParts.push(`لا صالون مختار حالياً`);
+      if (conversationState.serviceName) ctxParts.push(`الخدمة: ${conversationState.serviceName}`);
+      if (conversationState.date) ctxParts.push(`التاريخ: ${conversationState.date}`);
+      if (conversationState.time) ctxParts.push(`الساعة: ${conversationState.time}`);
+      if (conversationState.intent) ctxParts.push(`نية سابقة: ${conversationState.intent}`);
+      if (conversationState.pendingQuestion) ctxParts.push(`سؤال مفتوح: ${conversationState.pendingQuestion}`);
+      if (conversationState.lastResolvedContext) ctxParts.push(`سياق سابق: ${conversationState.lastResolvedContext}`);
+    }
+    const contextState = ctxParts.filter(Boolean).join(' | ') || 'لا سياق محدد';
 
     let cards: any[] = [];
-    let extraData: string[] = [];
+    let reply = '';
+    let needsClarification = false;
+    let entities: any = {};
+    let cardsRequested = false;
+    let firstTurnModelContent: any = null;
 
-    if (!isGreeting) {
-      try {
-        const allSalons = (typeof (db as any).getApprovedSalonsFromNeon === 'function') ? await (db as any).getApprovedSalonsFromNeon() : [];
-        const stopWords = new Set(['اريد','أريد','صالون','وين','اشوف','ابحث','عن','في','من','اللي','الذي','قريب','قريبة','منطقة','مدينة','الناصرية','ب','بمنطقة','المنطقة']);
-        const rawWords = (userText || '').toString().split(/\s+/).filter((w: string) => w.length > 1);
-        const keywords = rawWords.map((w: string) => normalizeArabic(w)).filter((w: string) => w.length > 1 && !stopWords.has(w));
-        const isAllRequest = /عرض|جميع|كل|متاح|موجود/i.test(userText) || userText.trim().length < 2 || keywords.length === 0;
-        const filtered = (allSalons || []).filter((s: any) => {
-          const normalizedName = normalizeArabic(s.name || '');
-          const normalizedArea = normalizeArabic(s.area || '');
-          const normalizedCity = normalizeArabic(s.city || '');
-          const normalizedServices = normalizeArabic(s.services || '');
-          const hay = `${normalizedName} ${normalizedArea} ${normalizedCity} ${normalizedServices}`;
+    const structuredSchema = {
+      type: 'object',
+      properties: {
+        reply: { type: 'string', description: 'Reply in Arabic/Iraqi tone' },
+        intent: { type: 'string', description: 'search, book, price, clarify, greet, alternative' },
+        needsClarification: { type: 'boolean' },
+        entities: {
+          type: 'object',
+          properties: {
+            salonId: { type: 'string' },
+            salonName: { type: 'string' },
+            serviceId: { type: 'string' },
+            serviceName: { type: 'string' },
+            date: { type: 'string' },
+            time: { type: 'string' },
+            location: { type: 'string' },
+          },
+        },
+        cardsRequested: { type: 'boolean' },
+      },
+      required: ['reply'],
+    };
 
-          if (isAllRequest) return true;
-
-          // Strong match: salon name or its normalized Arabic form.
-          const nameMatch = keywords.some((kw: string) =>
-            normalizedName.includes(kw) || kw.includes(normalizedName)
-          );
-
-          // General fallback: area/city/services matching.
-          return nameMatch || keywords.some((kw: string) => hay.includes(kw));
-        });
-
-        const selectedAll = (allSalons || []);
-
-        // Specific salon requests: rank by the complete requested name instead of
-        // loose substring/character overlap. This allows small Arabic spelling
-        // differences such as "رائد الحلاق" -> "قائد الحلاق", while preventing
-        // generic words like "الحلاق" from selecting unrelated salons.
-        const exactMatches = !isAllRequest && keywords.length > 0
-          ? selectedAll
-              .map((s: any) => {
-                const name = normalizeArabic(s.name || '');
-                const requested = keywords.join(' ');
-                const nameWords = name.split(/\s+/).filter(Boolean);
-                const requestedWords = keywords.filter(Boolean);
-
-                let matchedWords = 0;
-                let closeWords = 0;
-
-                for (const kw of requestedWords) {
-                  if (nameWords.some((nw: string) => nw === kw)) {
-                    matchedWords++;
-                    continue;
-                  }
-
-                  // Allow one-character spelling difference for meaningful words.
-                  if (kw.length >= 3 && nameWords.some((nw: string) => {
-                    if (nw.length !== kw.length) return false;
-                    let diff = 0;
-                    for (let i = 0; i < kw.length; i++) {
-                      if (kw[i] !== nw[i]) diff++;
-                      if (diff > 1) return false;
-                    }
-                    return diff === 1;
-                  })) {
-                    closeWords++;
-                  }
-                }
-
-                const allRequestedWordsMatched =
-                  matchedWords + closeWords === requestedWords.length;
-
-                const genericOnly =
-                  requestedWords.length === 1 &&
-                  requestedWords[0].length <= 4;
-
-                const score =
-                  (matchedWords * 10) +
-                  (closeWords * 7) +
-                  (name === requested ? 20 : 0);
-
-                return {
-                  salon: s,
-                  score,
-                  valid: allRequestedWordsMatched && !genericOnly,
-                };
-              })
-              .filter((x: any) => x.valid)
-              .sort((a: any, b: any) => b.score - a.score)
-              .map((x: any) => x.salon)
-          : [];
-
-        const selected = isAllRequest
-          ? selectedAll.slice(0, 10)
-          : exactMatches.slice(0, 1);
-
-
-        cards = selected.map((s: any) => ({
-          id: s.id,
-          name: s.name || s.nameEn || 'صالون',
-          type: s.type || 'صالون',
-          city: s.city || 'غير محدد',
-          area: s.area || '',
-          services: s.services || '',
-          startingPrice: s.startingPrice ? String(s.startingPrice) : null,
-        }));
-      } catch (dbErr: any) {
-        console.error('[AI Salon DB salons]', dbErr?.message || dbErr);
-        // Fallback to sql if db method fails (should not happen for real source)
-        try {
-          const salonRows = await sql`SELECT id, name, type, city, area, services, starting_price FROM salons WHERE status = 'approved' LIMIT 10`;
-          cards = (salonRows || []).map((r: any) => ({
-            id: r.id,
-            name: r.name || 'صالون',
-            type: r.type || 'صالون',
-            city: r.city || 'غير محدد',
-            area: r.area || '',
-            services: r.services || '',
-            startingPrice: (r.starting_price || r.startingPrice) ? String(r.starting_price || r.startingPrice) : null,
-          }));
-        } catch (e) {}
-      }
-
-      for (const s of cards.slice(0, 3)) {
-        try {
-          const svcRows = await sql`SELECT name, price FROM services WHERE salon_id = ${s.id} LIMIT 4`;
-          const svcs = (svcRows || []).map((x: any) => `${x.name}${x.price ? ':' + x.price : ''}`).join('، ');
-          if (svcs) extraData.push(`خدمات ${s.name}: ${svcs}`);
-        } catch (e) { /* ignore */ }
-        try {
-          const postRows = await sql`SELECT caption FROM salon_posts WHERE salon_id = ${s.id} AND is_hidden IS DISTINCT FROM true LIMIT 3`;
-          const posts = (postRows || []).map((x: any) => x.caption || '').filter(Boolean).join('؛ ');
-          if (posts) extraData.push(`منشورات ${s.name}: ${posts}`);
-        } catch (e) { /* ignore */ }
-      }
-
-      try {
-        const availRows = await sql`SELECT salon_id, COUNT(*) as cnt FROM bookings WHERE status = 'confirmed' GROUP BY salon_id LIMIT 6`;
-        for (const ar of (availRows || [])) {
-          const salonName = cards.find((c: any) => c.id === ar.salon_id)?.name || ar.salon_id;
-          extraData.push(`حجوزات ${salonName}: ${ar.cnt} تأكيد`);
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    let reply = isGreeting ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد."' : 'هلا بيك! إليك بعض الصالونات القريبة التي تناسب طلبك.';
     if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
       try {
         const { GoogleGenAI } = await import('@google/genai');
         const ai = new GoogleGenAI({ apiKey });
-        const cardText = cards.map((c: any) => `${c.name} (${c.type}) في ${c.city}${c.area ? ' - '+c.area : ''} — ${c.startingPrice ? 'سعر يبدأ من '+c.startingPrice : 'سعر متنوع'} — خدمات: ${c.services || 'متعددة'}`).join('; ');
-        const context = [cardText, ...extraData].filter(Boolean).join(' | ');
-        const historyText = history.map((h: any) => `${h.role || 'user'}: ${h.text || h.message || ''}`).join('\n');
-        const prompt = `أنت مساعد صالونات ذكي متخصص في العراق. المستخدم طلب: "${userText}".` +
-          (historyText ? `\nسياق المحادثة السابق:\n${historyText}` : '') +
-          `\nإليك بيانات حقيقية من قاعدة البيانات Halaqi فقط: ${context || (isGreeting ? 'لا توجد بيانات بحث محددة.' : 'لا توجد نتائج')}.` +
-          (regionConsent ? ' المستخدم سمح باستخدام الموقع الجغرافي.' : ' لم يُحدد المستخدم منطقة بعد.') +
-          ' لا تخترع أي صالون أو سعر أو تقييم أو منشور أو حجز وهمي. استخدم فقط البيانات المعطاة. لا تظهر أي معرف (ID) من قاعدة البيانات للمستخدم. ركب إجابة مختصرة بالعربية أو اللهجة العراقية مع ذكر اسم الصالون والسعر والتقييم إذا موجود، ولا تذكر أي معلومات حساسة أو خاصة أو كلمات مرور أو رموز أو بيانات مالية أو رسائل خاصة أو معلومات مستخدمين آخرين.';
-        const result = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite', contents: prompt });
-        reply = (result as any)?.text?.trim() || reply;
+        const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
+        let createPartFromFunctionResponse: any = null;
+        try {
+          const genaiMod = await import('@google/genai');
+          createPartFromFunctionResponse = (genaiMod as any).createPartFromFunctionResponse || (genaiMod as any).GoogleGenAI?.createPartFromFunctionResponse;
+        } catch (e) { /* SDK import optional for part creation */ }
+
+        const systemInstruction = `أنت مساعد صالونات ذكي في العراق، وتعمل باستخدام بيانات Halaqi الحقيقية فقط.
+
+فهم اللغة يجب أن يكون دلالياً عبر Gemini فقط. لا تستخدم Regex ولا قوائم كلمات ولا تخمينات.
+
+قواعد استخدام الأدوات:
+- إذا كان طلب المستخدم يحتاج معلومة حقيقية من Halaqi عن صالون أو خدمة أو سعر أو موقع أو مدينة/منطقة أو نتائج صالونات، يجب عليك استدعاء أداة Halaqi المناسبة قبل الرد.
+- إذا ذكر المستخدم اسم صالون ويريد الوصول إليه أو معرفة معلومات عنه، استخدم search_salons أو get_salon بدلاً من طرح سؤال غير ضروري.
+- إذا قال المستخدم "اريد صالون النجمه" أو صياغة مشابهة، استدعِ search_salons مع salon name في keyword.
+- إذا ذكر مدينة أو منطقة مع طلب البحث، استخدم location أيضاً.
+- لا تقل إنك لا تعرف أو تطلب توضيحاً إذا كان بالإمكان البحث باستخدام الأداة.
+- لا تخترع أي صالون أو خدمة أو سعر أو تقييم أو موقع أو وقت متاح.
+- لا تستخدم SQL مباشرة ولا تحصل على DB credentials.
+- لا تنفذ حجزاً تلقائياً.
+- إذا كان الطلب مجرد تحية أو كلام عام ولا يحتاج بيانات Halaqi، يمكنك الرد مباشرة بدون أداة.
+- الرسالة الحالية أعلى أولوية من السياق السابق.
+- إذا كان المعنى غير واضح فعلاً ولا يمكن البحث بشكل موثوق، اسأل سؤالاً قصيراً بالعراقية.
+- بعد استلام نتيجة الأداة، اعتمد عليها فقط في الإجابة.
+- الرد بالعربية/العراقية وبأسلوب طبيعي ومختصر.`;
+
+        const buildHistoryText = () => historyText || 'لا تاريخ';
+
+        // First turn
+        let turn = 1;
+        let functionResults: any[] = [];
+
+        const turnContent = userText;
+
+        const initialUserContent: any = {
+          role: 'user',
+          parts: [{ text: turnContent }]
+        };
+
+        // Preserve the exact first-turn model content, including thoughtSignature.
+        let firstTurnModelContent: any = null;
+
+        for (turn = 1; turn <= 2; turn++) {
+          const config: any = turn === 1
+            ? { systemInstruction }
+            : {
+                systemInstruction,
+                responseMimeType: 'application/json',
+                responseSchema: structuredSchema
+              };
+
+          let contents: any;
+
+          if (turn === 1) {
+            // Turn 1: original user message + tools.
+            contents = [initialUserContent];
+          } else {
+            // Turn 2: preserve the exact Gemini conversation sequence.
+            // Do not replace the original user message with a retrieval summary.
+            contents = [
+              initialUserContent,
+              firstTurnModelContent,
+              {
+                role: 'user',
+                parts: (functionResults as any)._parts || []
+              }
+            ];
+          }
+
+          console.log('[AI DEBUG] ===== GEMINI TURN ' + turn + ' START =====');
+          console.log('[AI DEBUG] USER:', turnContent);
+          console.log('[AI DEBUG] TOOLS_ENABLED:', turn === 1);
+
+          const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite',
+            contents,
+            config: turn === 1
+              ? {
+                  ...config,
+                  tools: [{ functionDeclarations: aiSalonToolDeclarations }],
+                  toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
+                }
+              : config,
+          });
+
+          const response = result as any;
+
+          console.log('[AI DEBUG] ===== GEMINI TURN ' + turn + ' RESPONSE =====');
+          console.log('[AI DEBUG] TEXT:', response?.text || '(none)');
+          console.log(
+            '[AI DEBUG] FUNCTION_CALLS:',
+            JSON.stringify(response?.functionCalls || [], null, 2)
+          );
+
+          console.log(
+            '[AI DEBUG] CANDIDATE_DETAILS:',
+            JSON.stringify(
+              (response?.candidates || []).map((c: any) => ({
+                finishReason: c?.finishReason || null,
+                finishMessage: c?.finishMessage || null,
+                role: c?.content?.role || null,
+                parts: (c?.content?.parts || []).map((part: any) => ({
+                  hasText: typeof part?.text === 'string',
+                  textPreview: typeof part?.text === 'string' ? part.text.slice(0, 2000) : null,
+                  hasFunctionCall: !!part?.functionCall,
+                  functionCallName: part?.functionCall?.name || null,
+                  hasFunctionResponse: !!part?.functionResponse,
+                  hasThoughtSignature: !!part?.thoughtSignature
+                }))
+              })),
+              null,
+              2
+            )
+          );
+
+          // Preserve the exact model content from turn 1.
+          // This keeps tool-call metadata / thoughtSignature intact.
+          if (turn === 1) {
+            firstTurnModelContent =
+              response?.candidates?.[0]?.content || null;
+          }
+
+          // Handle Gemini function calls.
+          if (
+            response &&
+            response.functionCalls &&
+            response.functionCalls.length > 0
+          ) {
+            if (turn >= 2) {
+              console.error(
+                '[AI Salon] Gemini requested another tool call on turn 2; stopping safely.'
+              );
+              break;
+            }
+
+            const calls = response.functionCalls;
+            const responses: any[] = [];
+            const functionResponseParts: any[] = [];
+
+            for (const call of calls) {
+              const name = call.name;
+              const args = call.args || {};
+              const callId =
+                (call as any).id || `call-${name}-${Date.now()}`;
+
+              console.log('[AI DEBUG] ===== TOOL CALL =====');
+              console.log('[AI DEBUG] TOOL NAME:', name);
+              console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
+
+              const res = await executeTool(
+                name,
+                args,
+                dbModule,
+                async () => await import('./lib/pg-compliant')
+              );
+
+              console.log('[AI DEBUG] ===== TOOL RESULT =====');
+              console.log(
+                '[AI DEBUG] TOOL RESULT:',
+                JSON.stringify(res, null, 2).slice(0, 20000)
+              );
+
+              responses.push({
+                id: callId,
+                name,
+                response: res
+              });
+
+              if (res.salons && res.salons.length > 0) {
+                cards = res.salons.map((c: any) => ({
+                  id: c.id,
+                  name: c.name || 'صالون',
+                  type: c.type || 'صالون',
+                  city: c.city || '',
+                  area: c.area || '',
+                  services: c.services || '',
+                  startingPrice: c.startingPrice || null,
+                }));
+              }
+
+              const responsePartPayload: any = {
+                name,
+                response: res || {}
+              };
+
+              const callIdReal = (call as any).id || null;
+
+              if (callIdReal) {
+                responsePartPayload.id = callIdReal;
+              }
+
+              try {
+                const part =
+                  (callIdReal && createPartFromFunctionResponse)
+                    ? createPartFromFunctionResponse(
+                        callIdReal,
+                        name,
+                        res || {}
+                      )
+                    : {
+                        functionResponse: responsePartPayload
+                      };
+
+                functionResponseParts.push(part);
+              } catch (e) {
+                functionResponseParts.push({
+                  functionResponse: responsePartPayload
+                });
+              }
+            }
+
+            functionResults = responses;
+
+            if (!firstTurnModelContent) {
+              console.error(
+                '[AI Salon] Missing firstTurnModelContent with functionCalls — abort safe'
+              );
+              reply =
+                'حدث خطأ في استجابة Gemini، حاول مرة أخرى لاحقاً.';
+              break;
+            }
+
+            // Store formal functionResponse parts for turn 2.
+            (functionResults as any)._parts = functionResponseParts;
+
+            continue;
+          }
+
+          // Final response.
+          let rawText = '';
+
+          try {
+            rawText = (response?.text || '').trim();
+          } catch (e) {}
+
+          if (rawText) {
+            if (turn === 1) {
+              // Direct Gemini answer (for example: greetings).
+              // Turn 1 is intentionally NOT forced to JSON.
+              reply = rawText;
+            } else {
+              // Turn 2 uses the structured JSON schema.
+              try {
+                const parsed = JSON.parse(rawText);
+
+                reply = parsed.reply || reply;
+                intent = parsed.intent || intent;
+                needsClarification =
+                  parsed.needsClarification || false;
+                entities = parsed.entities || entities;
+                cardsRequested =
+                  parsed.cardsRequested || false;
+              } catch (e) {
+                console.error(
+                  '[AI Salon] Turn 2 returned invalid JSON:',
+                  rawText.slice(0, 500)
+                );
+
+                if (cards && cards.length > 0) {
+                  reply =
+                    `وجدت ${cards.length} نتيجة من Halaqi: ` +
+                    `${cards.map((c: any) => c.name).join('، ')}.`;
+                } else if (needsClarification) {
+                  reply = 'أكد لي، ما هو المطلوب بالضبط؟';
+                } else {
+                  reply =
+                    'لم أجد نتائج موثوقة حالياً من Halaqi. حاول تحديد الاسم أو المنطقة.';
+                }
+              }
+            }
+          }
+
+          break;
+        }
+
+        // If we ended due to loop limit with no final reply, build safe reply
+        if (!reply && turn >= 2) {
+          reply = (cards.length ? 'وجدت نتائج قريبة لك من Halaqi.' : 'لم أجد نتائج موثوقة حالياً. حاول تحديد المنطقة أو اسم الصالون.');
+        }
+
+        // Clarification override
+        if (needsClarification && (!reply || reply.length < 8)) {
+          reply = 'أكد لي، ما هو المطلوب بالضبط؟';
+        }
+
+        // Availability honesty: never invent available slots
+        if (entities && entities.date && cards.length > 0 && !needsClarification) {
+          // If user asked about availability and we have workingHours/occupiedSlots in functionResults
+          const availRes = functionResults.find((r: any) => r.name === 'get_availability');
+          if (availRes && availRes.response && availRes.response.note) {
+            // Keep reply honest; do not add fake availability claims
+          }
+        }
       } catch (gemErr: any) {
-        reply = isGreeting ? 'عذراً، حدث خلل في الرد. حاول مرة أخرى.' : 'وجدت صالونات قريبة لك، لكن حدث خلل في التوليد.';
+        console.error('[AI Salon Gemini error]', gemErr?.message || gemErr);
+        reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
       }
     } else {
-      reply = isGreeting ? 'هلا بيك! كيف أقدر أساعدك؟' : (cards.length ? `وجدت ${cards.length} صالون مناسب لك:` : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو نوع الصالون.');
+      reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
     }
-    return res.json({
-      reply,
-      cards,
-    });
+
+    return res.json({ reply: reply || 'عذراً، حدث خطأ.', cards });
   } catch (err: any) {
     console.error('[AI Salon] error:', err?.message || err);
     return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });
   }
 });
-
 void initBotEngine().catch(() => {});
 
 const distPath = path.resolve(process.cwd(), 'dist');
