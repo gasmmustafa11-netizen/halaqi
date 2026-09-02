@@ -276,7 +276,7 @@ function AppContent() {
   };
 
   return (
-    <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
+    <div ref={swipeRootRef} className={`${currentView === 'your-salon' ? 'h-[100dvh] min-h-0' : 'min-h-screen'} bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black`}>
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
       {currentView !== 'posts' && currentView !== 'reels' && currentView !== 'photos' && currentView !== 'your-salon' && (
         <Navbar
@@ -288,7 +288,7 @@ function AppContent() {
       )}
 
       {/* Main Body Content with Bento Spacing */}
-      <main className={`flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 ${currentView === 'your-salon' ? 'flex flex-col h-full overflow-hidden pb-0' : 'pb-20'}`}>
+      <main className={`flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 ${currentView === 'your-salon' ? 'flex flex-col overflow-hidden pb-0' : 'pt-4 pb-20'}`}>
         {currentView === 'search' && (
           <SearchView onNavigate={handleNavigate} />
         )}

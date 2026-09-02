@@ -221,7 +221,7 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
   };
 
   return (
-    <div className="flex-1 min-h-0 w-full bg-[#0B0A0F] text-white flex flex-col overflow-hidden overscroll-none">
+    <div className="flex flex-col flex-1 min-h-0 w-full h-full bg-[#0B0A0F] text-white overflow-hidden overscroll-none">
       {/* Header */}
       <div className="shrink-0 bg-[#0B0A0F]/90 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center gap-3 z-40" style={{ paddingTop: 'env(safe-area-inset-top, 0.75rem)' }}>
         <button onClick={onBack} aria-label="Back" className="p-2 rounded-full hover:bg-white/10 transition" title="رجوع">
@@ -269,7 +269,7 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
       </div>
 
       {/* Input */}
-      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="shrink-0 bg-[#0B0A0F]/95 backdrop-blur-md border-t border-white/10 px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3 w-full" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0.75rem)', minHeight: '56px' }} dir="rtl">
+      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex-none shrink-0 bg-[#0B0A0F]/95 backdrop-blur-md border-t border-white/10 px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3 w-full" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0.75rem)', minHeight: '56px' }} dir="rtl">
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="اسأل عن صالون، خدمة، سعر، تقييم..." className="flex-1 min-w-0 bg-white/10 rounded-full px-4 py-3 text-sm sm:text-base outline-none focus:ring-2 focus:ring-[#D4AF37]/60 text-white placeholder:text-gray-400" dir="rtl" />
         <button type="submit" disabled={!input.trim() || loading} className="shrink-0 p-3 rounded-full bg-[#D4AF37] text-black hover:bg-amber-300 active:scale-95 transition disabled:opacity-40 shadow-lg" aria-label="إرسال" title="إرسال">
           <Send className="w-4 h-4 sm:w-5 sm:h-5" />
