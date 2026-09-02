@@ -6571,6 +6571,16 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - لا تخترع أي صالون أو خدمة أو سعر أو تقييم أو موقع أو وقت متاح.
 - لا تستخدم SQL مباشرة ولا تحصل على DB credentials.
 - لا تنفذ حجزاً تلقائياً.
+- إذا كان طلب المستخدم يتضمن رغبة بالحجز، تعامل معه كمسار حجز متعدد الخطوات:
+  1. حدّد الصالون الحقيقي باستخدام search_salons أو get_salon.
+  2. بعد تحديد الصالون، استخدم search_services أو get_salon_services للحصول على الخدمات الحقيقية.
+  3. إذا كانت الخدمة غير محددة، اطلب من المستخدم اختيار الخدمة ولا تخترع خدمة.
+  4. إذا كانت الخدمة والتاريخ متوفرين، استخدم get_availability للتحقق من المواعيد الحقيقية.
+  5. إذا كان التاريخ أو الوقت غير محدد، اطلب فقط البيانات الناقصة.
+  6. قبل إنشاء الحجز، اعرض للمستخدم ملخصاً يتضمن الصالون والخدمة والتاريخ والوقت.
+  7. لا تستدعِ create_booking إلا بعد تأكيد المستخدم الصريح لنفس الصالون والخدمة والتاريخ والوقت.
+  8. لا تعتبر مجرد قول المستخدم "أريد أن أحجز" تأكيداً نهائياً للحجز.
+  9. لا تخترع أي خدمة أو موعد أو سعر أو توفر.
 - إذا كان الطلب مجرد تحية أو كلام عام ولا يحتاج بيانات Halaqi، يمكنك الرد مباشرة بدون أداة.
 - الرسالة الحالية أعلى أولوية من السياق السابق.
 - إذا كان المعنى غير واضح فعلاً ولا يمكن البحث بشكل موثوق، اسأل سؤالاً قصيراً بالعراقية.
@@ -6593,8 +6603,11 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // First turn
         let turn = 1;
         let functionResults: any[] = [];
+        // Booking may require multiple sequential tool calls:
+        // search salon -> services -> availability -> final response.
         // Preserve the complete Gemini model/tool conversation across tool turns.
         const toolConversationParts: any[] = [];
+        const MAX_TOOL_TURNS = 6;
 
         const turnContent = userText;
 
@@ -6685,7 +6698,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             response.functionCalls &&
             response.functionCalls.length > 0
           ) {
-            if (turn >= 3) {
+            if (turn >= MAX_TOOL_TURNS) {
               console.error(
                 '[AI Salon] Gemini requested another tool call after the maximum tool turns; stopping safely.'
               );
