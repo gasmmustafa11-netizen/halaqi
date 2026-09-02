@@ -288,7 +288,7 @@ function AppContent() {
       )}
 
       {/* Main Body Content with Bento Spacing */}
-      <main className={`flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 ${currentView === 'your-salon' ? 'flex flex-col overflow-hidden pb-0' : 'pb-20'}`}>
+      <main className={`flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 ${currentView === 'your-salon' ? 'flex flex-col h-full overflow-hidden pb-0' : 'pb-20'}`}>
         {currentView === 'search' && (
           <SearchView onNavigate={handleNavigate} />
         )}
