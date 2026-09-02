@@ -49,9 +49,73 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
   }, [msgs, loading]);
 
   const tryProcessBooking = async () => {
-    // Deprecated: booking is now executed only by the authenticated AI
-    // booking tool after explicit confirmation.
-    return;
+    if (!bookingMode) return;
+    setBookingError('');
+    const userTexts = msgs.filter(m => m.role === 'user').map(m => m.text);
+    const lastUser = userTexts[userTexts.length - 1] || '';
+    // Extract salon from cards or text
+    let salonId = selectedSalonId || bookingFields.salonId || null;
+    if (!salonId && lastUser) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].cards && msgs[i].cards.length > 0) {
+          for (const card of msgs[i].cards) {
+            const name = (card.name || '').toString();
+            if (name && lastUser.includes(name)) {
+              salonId = card.id || salonId;
+              setSelectedSalonId(salonId);
+              setBookingFields(prev => ({ ...prev, salonId }));
+              break;
+            }
+          }
+        }
+        if (salonId) break;
+      }
+    }
+    if (!salonId) return; // Need salon first
+    // Fetch services if needed
+    if (!bookingServices.length || !bookingFields.serviceId) {
+      try {
+        const svcs = await api.getServices(salonId);
+        setBookingServices(svcs || []);
+      } catch (e) { /* ignore */ }
+    }
+    // Extract service from text or previous selection
+    let serviceId = bookingFields.serviceId;
+    let serviceName = bookingFields.serviceName;
+    if (!serviceId && bookingServices.length > 0 && lastUser) {
+      for (const s of bookingServices) {
+        const sName = (s.name || '').toString();
+        if (lastUser.includes(sName)) {
+          serviceId = s.id;
+          serviceName = s.name;
+          setBookingFields(prev => ({ ...prev, serviceId, serviceName }));
+          break;
+        }
+      }
+    }
+    // Extract date (YYYY-MM-DD or Arabic digits with separators)
+    let date = bookingFields.date;
+    if (!date) {
+      const dMatch = lastUser.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if (dMatch) date = `${dMatch[1]}-${dMatch[2].padStart(2,'0')}-${dMatch[3].padStart(2,'0')}`;
+      else {
+        const ar = lastUser.match(/(\d{1,2})[\s\/\-]*(\d{1,2})[\s\/\-]*(\d{4})/);
+        if (ar) date = `${ar[3]}-${ar[2].padStart(2,'0')}-${ar[1].padStart(2,'0')}`;
+      }
+      if (date) setBookingFields(prev => ({ ...prev, date }));
+    }
+    // Extract time (HH:MM)
+    let timeSlot = bookingFields.timeSlot;
+    if (!timeSlot) {
+      const tMatch = lastUser.match(/(\d{1,2}):(\d{2})/);
+      if (tMatch) timeSlot = `${tMatch[1].padStart(2,'0')}:${tMatch[2]}`;
+      if (timeSlot) setBookingFields(prev => ({ ...prev, timeSlot }));
+    }
+    // If all present and user just provided them, confirm and submit
+    if (salonId && serviceId && date && timeSlot) {
+      setBookingConfirmMsg('تم جمع البيانات، تم الحجز...');
+      await submitBooking({ salonId, serviceId, date, timeSlot });
+    }
   };
 
   const submitBooking = async (fields: { salonId: string; serviceId: string; date: string; timeSlot: string }) => {

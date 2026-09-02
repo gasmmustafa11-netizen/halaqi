@@ -6501,7 +6501,7 @@ async function tryGroqFallback(args: {
   }
 }
 
-app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/ai-salon', async (req: Request, res: Response) => {
   try {
     const { message, regionConsent, conversationHistory, conversationState } = req.body || {};
     const userText = typeof message === 'string' ? message.trim() : '';
@@ -6531,7 +6531,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
     let reply = '';
     let needsClarification = false;
     let entities: any = {};
-    let intent = '';
     let cardsRequested = false;
     let firstTurnModelContent: any = null;
 
@@ -6593,8 +6592,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // First turn
         let turn = 1;
         let functionResults: any[] = [];
-        // Preserve the complete Gemini model/tool conversation across tool turns.
-        const toolConversationParts: any[] = [];
 
         const turnContent = userText;
 
@@ -6606,7 +6603,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // Preserve the exact first-turn model content, including thoughtSignature.
         let firstTurnModelContent: any = null;
 
-        for (turn = 1; turn <= 3; turn++) {
+        for (turn = 1; turn <= 2; turn++) {
           const config: any = turn === 1
             ? { systemInstruction }
             : {
@@ -6621,25 +6618,32 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             // Turn 1: original user message + tools.
             contents = [initialUserContent];
           } else {
-            // Preserve the exact Gemini conversation sequence across tool turns.
+            // Turn 2: preserve the exact Gemini conversation sequence.
+            // Do not replace the original user message with a retrieval summary.
             contents = [
               initialUserContent,
-              ...toolConversationParts,
+              firstTurnModelContent,
+              {
+                role: 'user',
+                parts: (functionResults as any)._parts || []
+              }
             ];
           }
 
           console.log('[AI DEBUG] ===== GEMINI TURN ' + turn + ' START =====');
           console.log('[AI DEBUG] USER:', turnContent);
-          console.log('[AI DEBUG] TOOLS_ENABLED: true');
+          console.log('[AI DEBUG] TOOLS_ENABLED:', turn === 1);
 
           const result = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite',
             contents,
-            config: {
-              ...config,
-              tools: [{ functionDeclarations: aiSalonToolDeclarations }],
-              toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
-            },
+            config: turn === 1
+              ? {
+                  ...config,
+                  tools: [{ functionDeclarations: aiSalonToolDeclarations }],
+                  toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
+                }
+              : config,
           });
 
           const response = result as any;
@@ -6685,9 +6689,9 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             response.functionCalls &&
             response.functionCalls.length > 0
           ) {
-            if (turn >= 3) {
+            if (turn >= 2) {
               console.error(
-                '[AI Salon] Gemini requested another tool call after the maximum tool turns; stopping safely.'
+                '[AI Salon] Gemini requested another tool call on turn 2; stopping safely.'
               );
               break;
             }
@@ -6706,34 +6710,11 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               console.log('[AI DEBUG] TOOL NAME:', name);
               console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
 
-              const explicitBookingConfirm =
-                /^(اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)([!.،؟ ]*)$/iu.test(userText.trim());
-
-              const previousState = conversationState || {};
-
-              const bookingMatchesConfirmedState =
-                name === 'create_booking' &&
-                String(args.salonId || '').trim() === String(previousState.salonId || '').trim() &&
-                String(args.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
-                String(args.date || '').trim() === String(previousState.date || '').trim() &&
-                String(args.timeSlot || '').trim() === String(previousState.time || '').trim();
-
               const res = await executeTool(
                 name,
                 args,
                 dbModule,
-                async () => await import('./lib/pg-compliant'),
-                {
-                  user: req.user,
-                  allowBooking:
-                    !!req.user &&
-                    explicitBookingConfirm &&
-                    bookingMatchesConfirmedState &&
-                    !!previousState.salonId &&
-                    !!previousState.serviceId &&
-                    !!previousState.date &&
-                    !!previousState.time,
-                }
+                async () => await import('./lib/pg-compliant')
               );
 
               console.log('[AI DEBUG] ===== TOOL RESULT =====');
@@ -6802,19 +6783,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               break;
             }
 
-            // Preserve the model tool-call content followed by the formal
-            // function responses so the next Gemini turn can continue correctly.
-            const modelContentForToolTurn =
-              response?.candidates?.[0]?.content || null;
-
-            if (modelContentForToolTurn) {
-              toolConversationParts.push(modelContentForToolTurn);
-            }
-
-            toolConversationParts.push({
-              role: 'user',
-              parts: functionResponseParts
-            });
+            // Store formal functionResponse parts for turn 2.
+            (functionResults as any)._parts = functionResponseParts;
 
             continue;
           }
@@ -6912,28 +6882,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       }
     }
 
-    return res.json({
-      reply: reply || 'عذراً، حدث خطأ.',
-      cards,
-      intent,
-      entities,
-      needsClarification,
-      conversationState: {
-        intent,
-        location: entities?.location,
-        salonId: entities?.salonId,
-        salonName: entities?.salonName,
-        serviceId: entities?.serviceId,
-        serviceName: entities?.serviceName,
-        date: entities?.date,
-        time: entities?.time,
-        pendingQuestion: needsClarification ? reply : undefined,
-        lastResolvedContext:
-          entities?.salonName || entities?.serviceName
-            ? `السياق الحالي: ${entities?.salonName || ''} ${entities?.serviceName || ''}`.trim()
-            : undefined,
-      },
-    });
+    return res.json({ reply: reply || 'عذراً، حدث خطأ.', cards });
   } catch (err: any) {
     console.error('[AI Salon] error:', err?.message || err);
     return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });

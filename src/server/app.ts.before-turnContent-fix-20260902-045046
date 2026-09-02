@@ -6349,159 +6349,7 @@ app.all(
 // to 100 bots). No scheduler is started here; ticks are driven by the cron
 // job above. Safe to fire-and-forget at module load.
 // --- AI Salon Assistant (secure server-side only) ---
-async function tryGroqFallback(args: {
-  userText: string;
-  systemInstruction: string;
-  dbModule: any;
-  cards?: any[];
-}): Promise<{ reply: string; cards: any[]; toolCalls?: any[]; reason?: string }> {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey || typeof groqKey !== 'string' || groqKey.length < 8) {
-    console.log('[AI Salon] GROQ_FALLBACK skipped: no valid GROQ_API_KEY');
-    return { reply: 'لم أجد نتائج حالياً. حاول لاحقاً.', cards: args.cards || [] };
-  }
-  try {
-    const { Groq } = await import('groq-sdk');
-    const groq = new Groq({ apiKey: groqKey });
-    const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
-    const openAITools = [
-      {
-        type: 'function' as const,
-        function: {
-          name: 'search_salons',
-          description: 'Search approved salons by keyword, area, city, or service name.',
-          parameters: {
-            type: 'object',
-            properties: {
-              keyword: { type: 'string' },
-              location: { type: 'string' },
-            },
-          },
-        },
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'get_salon',
-          description: 'Get a specific salon by name or salon id.',
-          parameters: {
-            type: 'object',
-            properties: {
-              salonId: { type: 'string' },
-              salonName: { type: 'string' },
-            },
-          },
-        },
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'search_services',
-          description: 'Search services for a salon.',
-          parameters: {
-            type: 'object',
-            properties: {
-              salonId: { type: 'string' },
-              keyword: { type: 'string' },
-            },
-          },
-        },
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'get_salon_services',
-          description: 'Get all services for a salon.',
-          parameters: {
-            type: 'object',
-            properties: {
-              salonId: { type: 'string' },
-            },
-            required: ['salonId'],
-          },
-        },
-      },
-      {
-        type: 'function' as const,
-        function: {
-          name: 'get_availability',
-          description: 'Retrieve salon working hours and occupied slots for a date.',
-          parameters: {
-            type: 'object',
-            properties: {
-              salonId: { type: 'string' },
-              date: { type: 'string' },
-              barberId: { type: 'string' },
-            },
-            required: ['salonId'],
-          },
-        },
-      },
-    ];
-
-    console.log('[AI Salon] GROQ_TOOLS_SCHEMA:', JSON.stringify(openAITools, null, 2));
-    const res1 = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: args.systemInstruction },
-        { role: 'user', content: args.userText }
-      ],
-      model: 'openai/gpt-oss-120b',
-      tools: openAITools as any,
-      tool_choice: 'auto',
-    });
-    const choice1 = res1.choices?.[0]?.message as any;
-    let cards = args.cards || [];
-    let reply = '';
-    const toolCallNames: string[] = [];
-    let toolResults: any[] = [];
-
-    if (choice1?.tool_calls && choice1.tool_calls.length > 0) {
-      console.log('[AI Salon] GROQ_FALLBACK: tool_calls detected', JSON.stringify(choice1.tool_calls.map((t: any) => t.function?.name)));
-      const messages2: any[] = [
-        { role: 'system', content: args.systemInstruction },
-        { role: 'user', content: args.userText },
-        { role: 'assistant', content: choice1.content || null, tool_calls: choice1.tool_calls }
-      ];
-      for (const tc of choice1.tool_calls) {
-        const name = tc.function?.name;
-        const argsParsed = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-        toolCallNames.push(name);
-        const sqlImport = async () => await import('./lib/pg-compliant');
-        const resTool = await executeTool(name, argsParsed, args.dbModule, sqlImport);
-        toolResults.push({ name, response: resTool });
-        if (resTool.salons && resTool.salons.length > 0) {
-          cards = resTool.salons.map((c: any) => ({
-            id: c.id,
-            name: c.name || 'صالون',
-            type: c.type || 'صالون',
-            city: c.city || '',
-            area: c.area || '',
-            services: c.services || '',
-            startingPrice: c.startingPrice ? String(c.startingPrice) : null,
-          }));
-        }
-        messages2.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(resTool || {}) });
-      }
-      const res2 = await groq.chat.completions.create({
-        messages: [
-          ...messages2,
-          { role: 'user', content: 'قدم الرد بالعربية/العراقية فقط مع الاعتماد على نتائج الأدوات أعلاه. لا تخترع صalونات أو أسعاراً.' }
-        ],
-        model: 'openai/gpt-oss-120b',
-      });
-      reply = (res2.choices?.[0]?.message?.content || '').trim() || 'وجدت نتائج قريبة لك من Halaqi.';
-    } else {
-      reply = (choice1?.content || '').trim() || 'لم أجد نتائج حالياً.';
-    }
-    console.log('[AI Salon] GROQ_FALLBACK executed. Reason: quota/429/missing GEMINI key. Tool calls:', toolCallNames.join(',') || 'none');
-    return { reply, cards, toolCalls: toolResults, reason: toolCallNames.length ? 'tool_calls' : 'direct' };
-  } catch (e: any) {
-    console.error('[AI Salon] GROQ_FALLBACK error:', e?.message || e);
-    return { reply: 'حدث خطأ في الاستجابة البديلة، حاول لاحقاً.', cards: args.cards || [] };
-  }
-}
-
-app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+app.post('/api/ai-salon', async (req: Request, res: Response) => {
   try {
     const { message, regionConsent, conversationHistory, conversationState } = req.body || {};
     const userText = typeof message === 'string' ? message.trim() : '';
@@ -6531,7 +6379,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
     let reply = '';
     let needsClarification = false;
     let entities: any = {};
-    let intent = '';
     let cardsRequested = false;
     let firstTurnModelContent: any = null;
 
@@ -6558,25 +6405,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       required: ['reply'],
     };
 
-    const systemInstruction = `أنت مساعد صالونات ذكي في العراق، وتعمل باستخدام بيانات Halaqi الحقيقية فقط.
-
-فهم اللغة يجب أن يكون دلالياً عبر Gemini فقط. لا تستخدم Regex ولا قوائم كلمات ولا تخمينات.
-
-قواعد استخدام الأدوات:
-- إذا كان طلب المستخدم يحتاج معلومة حقيقية من Halaqi عن صالون أو خدمة أو سعر أو موقع أو مدينة/منطقة أو نتائج صالونات، يجب عليك استدعاء أداة Halaqi المناسبة قبل الرد.
-- إذا ذكر المستخدم اسم صالون ويريد الوصول إليه أو معرفة معلومات عنه، استخدم search_salons أو get_salon بدلاً من طرح سؤال غير ضروري.
-- إذا قال المستخدم "اريد صالون النجمه" أو صياغة مشابهة، استدعِ search_salons مع salon name في keyword.
-- إذا ذكر مدينة أو منطقة مع طلب البحث، استخدم location أيضاً.
-- لا تقل إنك لا تعرف أو تطلب توضيحاً إذا كان بالإمكان البحث باستخدام الأداة.
-- لا تخترع أي صالون أو خدمة أو سعر أو تقييم أو موقع أو وقت متاح.
-- لا تستخدم SQL مباشرة ولا تحصل على DB credentials.
-- لا تنفذ حجزاً تلقائياً.
-- إذا كان الطلب مجرد تحية أو كلام عام ولا يحتاج بيانات Halaqi، يمكنك الرد مباشرة بدون أداة.
-- الرسالة الحالية أعلى أولوية من السياق السابق.
-- إذا كان المعنى غير واضح فعلاً ولا يمكن البحث بشكل موثوق، اسأل سؤالاً قصيراً بالعراقية.
-- بعد استلام نتيجة الأداة، اعتمد عليها فقط في الإجابة.
-- الرد بالعربية/العراقية وبأسلوب طبيعي ومختصر.`;
-
     if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
       try {
         const { GoogleGenAI } = await import('@google/genai');
@@ -6588,15 +6416,13 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           createPartFromFunctionResponse = (genaiMod as any).createPartFromFunctionResponse || (genaiMod as any).GoogleGenAI?.createPartFromFunctionResponse;
         } catch (e) { /* SDK import optional for part creation */ }
 
+        const systemInstruction = `أنت مساعد صالونات ذكي في العراق. فهمك الدلالي أساسياً عبر Gemini فقط. لا تستخدم Regex أو قوائم كلمات. فهم العراقي والفصحى والأخطاء الإملائية والاختصارات والكلام المختلط عربي/إنجليزي. الرسالة الحالية (CURRENT USER MESSAGE) أعلى أولوية من السياق السابق. لا تعيد تحديد الصالون من السياق إذا أكد المستخدم طلباً جديداً. إذا لم يكن المعنى واضحاً، اسأل سؤالاً قصيراً بالعراقية ولا تخمن. لا تخترع صالوناً أو خدمة أو سعر أو تقييم أو موقع أو وقت متاح. لا تستخدم SQL مباشرة. لا تحصل على DB credentials. لا تنفذ حجزاً تلقائياً. الرد بالعربية/العراقية.`;
+
         const buildHistoryText = () => historyText || 'لا تاريخ';
 
         // First turn
         let turn = 1;
         let functionResults: any[] = [];
-        // Preserve the complete Gemini model/tool conversation across tool turns.
-        const toolConversationParts: any[] = [];
-
-        const turnContent = userText;
 
         const initialUserContent: any = {
           role: 'user',
@@ -6606,7 +6432,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // Preserve the exact first-turn model content, including thoughtSignature.
         let firstTurnModelContent: any = null;
 
-        for (turn = 1; turn <= 3; turn++) {
+        for (turn = 1; turn <= 2; turn++) {
           const config: any = turn === 1
             ? { systemInstruction }
             : {
@@ -6621,25 +6447,29 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             // Turn 1: original user message + tools.
             contents = [initialUserContent];
           } else {
-            // Preserve the exact Gemini conversation sequence across tool turns.
+            // Turn 2: preserve the exact Gemini conversation sequence.
+            // Do not replace the original user message with a retrieval summary.
             contents = [
               initialUserContent,
-              ...toolConversationParts,
+              firstTurnModelContent,
+              {
+                role: 'user',
+                parts: (functionResults as any)._parts || []
+              }
             ];
           }
 
           console.log('[AI DEBUG] ===== GEMINI TURN ' + turn + ' START =====');
           console.log('[AI DEBUG] USER:', turnContent);
-          console.log('[AI DEBUG] TOOLS_ENABLED: true');
+          console.log('[AI DEBUG] TOOLS_ENABLED:', turn === 1);
 
           const result = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite',
             contents,
-            config: {
-              ...config,
-              tools: [{ functionDeclarations: aiSalonToolDeclarations }],
-              toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
-            },
+            config,
+            tools: turn === 1
+              ? [{ functionDeclarations: aiSalonToolDeclarations }]
+              : undefined,
           });
 
           const response = result as any;
@@ -6649,27 +6479,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           console.log(
             '[AI DEBUG] FUNCTION_CALLS:',
             JSON.stringify(response?.functionCalls || [], null, 2)
-          );
-
-          console.log(
-            '[AI DEBUG] CANDIDATE_DETAILS:',
-            JSON.stringify(
-              (response?.candidates || []).map((c: any) => ({
-                finishReason: c?.finishReason || null,
-                finishMessage: c?.finishMessage || null,
-                role: c?.content?.role || null,
-                parts: (c?.content?.parts || []).map((part: any) => ({
-                  hasText: typeof part?.text === 'string',
-                  textPreview: typeof part?.text === 'string' ? part.text.slice(0, 2000) : null,
-                  hasFunctionCall: !!part?.functionCall,
-                  functionCallName: part?.functionCall?.name || null,
-                  hasFunctionResponse: !!part?.functionResponse,
-                  hasThoughtSignature: !!part?.thoughtSignature
-                }))
-              })),
-              null,
-              2
-            )
           );
 
           // Preserve the exact model content from turn 1.
@@ -6685,9 +6494,9 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             response.functionCalls &&
             response.functionCalls.length > 0
           ) {
-            if (turn >= 3) {
+            if (turn >= 2) {
               console.error(
-                '[AI Salon] Gemini requested another tool call after the maximum tool turns; stopping safely.'
+                '[AI Salon] Gemini requested another tool call on turn 2; stopping safely.'
               );
               break;
             }
@@ -6706,34 +6515,11 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               console.log('[AI DEBUG] TOOL NAME:', name);
               console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
 
-              const explicitBookingConfirm =
-                /^(اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)([!.،؟ ]*)$/iu.test(userText.trim());
-
-              const previousState = conversationState || {};
-
-              const bookingMatchesConfirmedState =
-                name === 'create_booking' &&
-                String(args.salonId || '').trim() === String(previousState.salonId || '').trim() &&
-                String(args.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
-                String(args.date || '').trim() === String(previousState.date || '').trim() &&
-                String(args.timeSlot || '').trim() === String(previousState.time || '').trim();
-
               const res = await executeTool(
                 name,
                 args,
                 dbModule,
-                async () => await import('./lib/pg-compliant'),
-                {
-                  user: req.user,
-                  allowBooking:
-                    !!req.user &&
-                    explicitBookingConfirm &&
-                    bookingMatchesConfirmedState &&
-                    !!previousState.salonId &&
-                    !!previousState.serviceId &&
-                    !!previousState.date &&
-                    !!previousState.time,
-                }
+                async () => await import('./lib/pg-compliant')
               );
 
               console.log('[AI DEBUG] ===== TOOL RESULT =====');
@@ -6802,19 +6588,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               break;
             }
 
-            // Preserve the model tool-call content followed by the formal
-            // function responses so the next Gemini turn can continue correctly.
-            const modelContentForToolTurn =
-              response?.candidates?.[0]?.content || null;
-
-            if (modelContentForToolTurn) {
-              toolConversationParts.push(modelContentForToolTurn);
-            }
-
-            toolConversationParts.push({
-              role: 'user',
-              parts: functionResponseParts
-            });
+            // Store formal functionResponse parts for turn 2.
+            (functionResults as any)._parts = functionResponseParts;
 
             continue;
           }
@@ -6834,9 +6609,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             } else {
               // Turn 2 uses the structured JSON schema.
               try {
-                const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON object found in Gemini response');
-        const parsed = JSON.parse(jsonMatch[0]);
+                const parsed = JSON.parse(rawText);
 
                 reply = parsed.reply || reply;
                 intent = parsed.intent || intent;
@@ -6888,52 +6661,13 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         }
       } catch (gemErr: any) {
         console.error('[AI Salon Gemini error]', gemErr?.message || gemErr);
-        const gemMsg = String(gemErr?.message || gemErr || '').toLowerCase();
-        const isQuota = gemMsg.includes('429') || gemMsg.includes('quota') || gemMsg.includes('rate limit') || gemMsg.includes('ratelimit') || gemMsg.includes('too many requests') || gemMsg.includes('rate');
-        if (process.env.GROQ_API_KEY) {
-          console.log('[AI Salon] GEMINI_PRIMARY failed. Activating GROQ_FALLBACK. Reason:', gemErr?.message || gemErr);
-          const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
-          reply = groqRes.reply;
-          if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
-          console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
-        } else {
-          reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
-        }
+        reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
       }
     } else {
-      if (process.env.GROQ_API_KEY) {
-        console.log('[AI Salon] GEMINI_PRIMARY skipped (no API key). Activating GROQ_FALLBACK. Reason: missing GEMINI_API_KEY');
-        const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
-        reply = groqRes.reply;
-        if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
-        console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
-      } else {
-        reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
-      }
+      reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
     }
 
-    return res.json({
-      reply: reply || 'عذراً، حدث خطأ.',
-      cards,
-      intent,
-      entities,
-      needsClarification,
-      conversationState: {
-        intent,
-        location: entities?.location,
-        salonId: entities?.salonId,
-        salonName: entities?.salonName,
-        serviceId: entities?.serviceId,
-        serviceName: entities?.serviceName,
-        date: entities?.date,
-        time: entities?.time,
-        pendingQuestion: needsClarification ? reply : undefined,
-        lastResolvedContext:
-          entities?.salonName || entities?.serviceName
-            ? `السياق الحالي: ${entities?.salonName || ''} ${entities?.serviceName || ''}`.trim()
-            : undefined,
-      },
-    });
+    return res.json({ reply: reply || 'عذراً، حدث خطأ.', cards });
   } catch (err: any) {
     console.error('[AI Salon] error:', err?.message || err);
     return res.status(500).json({ reply: 'حدث خطأ داخلي. حاول لاحقاً.', cards: [] });

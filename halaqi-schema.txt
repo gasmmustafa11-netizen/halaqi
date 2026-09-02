@@ -1,0 +1,42 @@
+src/server/db.ts:40:    ALTER TABLE post_comments
+src/server/db.ts:46:    CREATE TABLE IF NOT EXISTS comment_reactions (
+src/server/db.ts:83:        CREATE TABLE IF NOT EXISTS learned_interests (
+src/server/db.ts:157:        CREATE TABLE IF NOT EXISTS device_push_tokens (
+src/server/db.ts:178:        CREATE TABLE IF NOT EXISTS notification_preferences (
+src/server/db.ts:2414:      CREATE TABLE IF NOT EXISTS support_tickets (
+src/server/db.ts:2428:      CREATE TABLE IF NOT EXISTS support_ticket_messages (
+src/server/db.ts:2635:        CREATE TABLE IF NOT EXISTS content_reports (
+src/server/db.ts:2652:        CREATE TABLE IF NOT EXISTS moderation_logs (
+src/server/db.ts:2674:      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+src/server/db.ts:2675:      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+src/server/db.ts:2676:      await sql`ALTER TABLE user_posts ADD COLUMN IF NOT EXISTS moderation_status TEXT`;
+src/server/db.ts:2677:      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+src/server/db.ts:2678:      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+src/server/db.ts:2679:      await sql`ALTER TABLE salon_posts ADD COLUMN IF NOT EXISTS moderation_status TEXT`;
+src/server/db.ts:2680:      await sql`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false`;
+src/server/db.ts:2681:      await sql`ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS hidden_reason TEXT`;
+src/server/db.ts:2682:      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_restricted BOOLEAN DEFAULT false`;
+src/server/db.ts:2683:      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_warned BOOLEAN DEFAULT false`;
+src/server/db.ts:2684:       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false`;
+src/server/db.ts:5661:        ALTER TABLE users
+src/server/db.ts:5670:      CREATE TABLE IF NOT EXISTS bot_profiles (
+src/server/db.ts:5677:      CREATE TABLE IF NOT EXISTS bot_control (
+src/server/db.ts:5692:      CREATE TABLE IF NOT EXISTS bot_media (
+src/server/db.ts:5709:        ALTER TABLE user_posts
+src/server/db.ts:5714:        ALTER TABLE users
+src/server/db.ts:5735:        ALTER TABLE users
+src/server/app.ts:71:      CREATE TABLE IF NOT EXISTS user_follows (
+src/server/app.ts:2792:        CREATE TABLE IF NOT EXISTS messages (
+src/server/app.ts:2806:          ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'
+src/server/app.ts:2816:          ALTER TABLE messages ADD COLUMN conversation_id TEXT
+src/server/app.ts:2827:          ALTER TABLE messages ADD COLUMN type TEXT NOT NULL DEFAULT 'text'
+src/server/app.ts:2834:          ALTER TABLE messages ADD COLUMN media_url TEXT
+src/server/app.ts:2841:          ALTER TABLE messages ADD COLUMN media_thumbnail TEXT
+src/server/app.ts:2848:          ALTER TABLE messages ADD COLUMN media_metadata TEXT
+src/server/app.ts:2874:        CREATE TABLE IF NOT EXISTS conversation_states (
+src/server/app.ts:2889:        CREATE TABLE IF NOT EXISTS user_message_pins (
+src/server/app.ts:5110:        ALTER TABLE users
+src/server/app.ts:5114:        CREATE TABLE IF NOT EXISTS connection_requests (
+src/server/app.ts:5129:        CREATE TABLE IF NOT EXISTS user_blocks (
+src/server/app.ts:5138:        CREATE TABLE IF NOT EXISTS user_reports (
+src/server/app.ts:5149:        CREATE TABLE IF NOT EXISTS anonymous_conversations (

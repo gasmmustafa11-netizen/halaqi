@@ -1,0 +1,1506 @@
+===== BOOKING AI AUDIT =====
+### AI BOOKING
+src/App.tsx:5:import { BookingProvider, useBooking } from './context/BookingContext';
+src/App.tsx:14:import { MyBookingsView } from './components/bookings/MyBookingsView';
+src/App.tsx:24:import { BookingWizardModal } from './components/booking/BookingWizardModal';
+src/App.tsx:99:  // Strict swipe order: HOME → POSTS → PHOTOS → REELS → MY BOOKINGS → JOIN AS A SALON → PROFILE
+src/App.tsx:100:  const swipeSections = ['explore', 'posts', 'photos', 'reels', 'bookings', 'register_salon', 'profile'];
+src/App.tsx:372:        {currentView === 'bookings' && (
+src/App.tsx:373:          <MyBookingsView onSelectSalonId={handleSelectSalonById} />
+src/App.tsx:472:      {/* Global Booking Flow Modal */}
+src/App.tsx:473:      <BookingWizardModal onGoToBookings={() => handleNavigate('bookings')} />
+src/App.tsx:495:          <BookingProvider>
+src/App.tsx:497:          </BookingProvider>
+src/types/index.ts:31:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts:32:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts:123:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts:126:export interface Booking {
+src/types/index.ts:128:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts:152:  status: BookingStatus;
+src/types/index.ts:171:  bookingId: string;
+src/types/index.ts:188:  minBookingAmount: number; // IQD
+src/types/index.ts:206:  type: 'message' | 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended' | 'post_like' | 'post_comment' | 'follow' | 'review'   | 'support_reply'
+src/types/index.ts:357:  bookings: boolean;
+src/types/index.ts.before_booking_notification_fix:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_notification_fix:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.before_booking_notification_fix:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.before_booking_notification_fix:117:export interface Booking {
+src/types/index.ts.before_booking_notification_fix:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.before_booking_notification_fix:143:  status: BookingStatus;
+src/types/index.ts.before_booking_notification_fix:155:  bookingId: string;
+src/types/index.ts.before_booking_notification_fix:172:  minBookingAmount: number; // IQD
+src/types/index.ts.before_booking_notification_fix:187:  type: 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/types/index.ts.before_qr_step1_20260822_215447:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_qr_step1_20260822_215447:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.before_qr_step1_20260822_215447:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.before_qr_step1_20260822_215447:117:export interface Booking {
+src/types/index.ts.before_qr_step1_20260822_215447:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.before_qr_step1_20260822_215447:143:  status: BookingStatus;
+src/types/index.ts.before_qr_step1_20260822_215447:155:  bookingId: string;
+src/types/index.ts.before_qr_step1_20260822_215447:172:  minBookingAmount: number; // IQD
+src/types/index.ts.before_qr_step1_20260822_215447:187:  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/types/index.ts.before_booking_completed_20260822_222100:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_completed_20260822_222100:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.before_booking_completed_20260822_222100:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.before_booking_completed_20260822_222100:117:export interface Booking {
+src/types/index.ts.before_booking_completed_20260822_222100:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.before_booking_completed_20260822_222100:143:  status: BookingStatus;
+src/types/index.ts.before_booking_completed_20260822_222100:162:  bookingId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:179:  minBookingAmount: number; // IQD
+src/types/index.ts.before_booking_completed_20260822_222100:194:  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/types/index.ts.backup_before_salon_ban_20260823_040554:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.backup_before_salon_ban_20260823_040554:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.backup_before_salon_ban_20260823_040554:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.backup_before_salon_ban_20260823_040554:117:export interface Booking {
+src/types/index.ts.backup_before_salon_ban_20260823_040554:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.backup_before_salon_ban_20260823_040554:143:  status: BookingStatus;
+src/types/index.ts.backup_before_salon_ban_20260823_040554:162:  bookingId: string;
+src/types/index.ts.backup_before_salon_ban_20260823_040554:179:  minBookingAmount: number; // IQD
+src/types/index.ts.backup_before_salon_ban_20260823_040554:194:  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/types/index.ts.before-user-post-profile-fix:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before-user-post-profile-fix:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.before-user-post-profile-fix:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.before-user-post-profile-fix:117:export interface Booking {
+src/types/index.ts.before-user-post-profile-fix:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.before-user-post-profile-fix:143:  status: BookingStatus;
+src/types/index.ts.before-user-post-profile-fix:162:  bookingId: string;
+src/types/index.ts.before-user-post-profile-fix:179:  minBookingAmount: number; // IQD
+src/types/index.ts.before-user-post-profile-fix:194:  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/types/index.ts.before_post_like_notification_20260824_201809:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_post_like_notification_20260824_201809:23:  targetType: 'user' | 'salon' | 'booking' | 'service' | 'system' | 'auth';
+src/types/index.ts.before_post_like_notification_20260824_201809:114:export type BookingStatus = 'confirmed' | 'pending' | 'completed' | 'cancelled';
+src/types/index.ts.before_post_like_notification_20260824_201809:117:export interface Booking {
+src/types/index.ts.before_post_like_notification_20260824_201809:119:  bookingNumber: string; // e.g. "HLQ-2026-9842"
+src/types/index.ts.before_post_like_notification_20260824_201809:143:  status: BookingStatus;
+src/types/index.ts.before_post_like_notification_20260824_201809:162:  bookingId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:179:  minBookingAmount: number; // IQD
+src/types/index.ts.before_post_like_notification_20260824_201809:194:  type: 'booking_created' | 'booking_confirmed' | 'booking_reminder' | 'booking_cancelled' | 'booking_completed' | 'offer' | 'system' | 'new_user' | 'new_salon' | 'salon_approved' | 'salon_rejected' | 'salon_suspended';
+src/server/db.ts:10:  Booking,
+src/server/db.ts:106:// failure (or missing configuration) can never break likes/comments/bookings.
+src/server/db.ts:113:  | 'bookings'
+src/server/db.ts:123:  bookings: boolean;
+src/server/db.ts:134:  bookings: true,
+src/server/db.ts:145:  'bookings',
+src/server/db.ts:184:          bookings BOOLEAN NOT NULL DEFAULT TRUE,
+src/server/db.ts:210:    case 'booking_created':
+src/server/db.ts:211:    case 'booking_confirmed':
+src/server/db.ts:212:    case 'booking_reminder':
+src/server/db.ts:213:    case 'booking_cancelled':
+src/server/db.ts:214:    case 'booking_completed':
+src/server/db.ts:215:      return 'bookings';
+src/server/db.ts:250:  } else if (notification.type.startsWith('booking')) {
+src/server/db.ts:251:    screen = 'booking';
+src/server/db.ts:487:  bookings: Booking[];
+src/server/db.ts:1131:export const initialBookings: Booking[] = [
+src/server/db.ts:1134:    bookingNumber: 'HLQ-2026-9842',
+src/server/db.ts:1163:    bookingNumber: 'HLQ-2026-9104',
+src/server/db.ts:1196:    bookingId: 'bk_2',
+src/server/db.ts:1210:    bookingId: 'bk_demo_1',
+src/server/db.ts:1221:    bookingId: 'bk_demo_3',
+src/server/db.ts:1236:    minBookingAmount: 10000,
+src/server/db.ts:1247:    minBookingAmount: 25000,
+src/server/db.ts:1258:    minBookingAmount: 50000,
+src/server/db.ts:1271:    titleEn: 'Booking Confirmed',
+src/server/db.ts:1273:    messageEn: 'Your booking HLQ-2026-9842 at Royal Lounge is confirmed for tomorrow at 05:00 PM.',
+src/server/db.ts:1274:    type: 'booking_confirmed',
+src/server/db.ts:1277:    link: '/bookings',
+src/server/db.ts:1309:  privacyEn: `Your privacy is our priority. We only use your location to calculate nearby salon distances and your contact to facilitate your appointment confirmation.`,
+src/server/db.ts:1330:      bookings: [...initialBookings],
+src/server/db.ts:3346:          (user_id, likes, comments, followers, messages, bookings, reviews, reels, admin)
+src/server/db.ts:3349:           ${next.bookings}, ${next.reviews}, ${next.reels}, ${next.admin})
+src/server/db.ts:3355:          bookings = EXCLUDED.bookings,
+src/server/db.ts:3663:  async getBookingsForSalonOwnerFromNeon(userId: string): Promise<Booking[]> {
+src/server/db.ts:3667:        b.booking_number,
+src/server/db.ts:3696:      FROM bookings b
+src/server/db.ts:3704:      bookingNumber: b.booking_number,
+src/server/db.ts:3739:  async getAllBookingsFromNeon(): Promise<Booking[]> {
+src/server/db.ts:3743:        booking_number,
+src/server/db.ts:3776:      FROM bookings
+src/server/db.ts:3782:      bookingNumber: b.booking_number,
+src/server/db.ts:3825:  // Strict Double-booking check & atomic booking creation
+src/server/db.ts:3826:  createBookingAtomic(
+src/server/db.ts:3827:    bookingData: Omit<Booking, 'id' | 'bookingNumber' | 'createdAt' | 'commissionAmount' | 'salonPayout'>,
+src/server/db.ts:3832:    booking?: Booking;
+src/server/db.ts:3836:    const customer = this.state.users.find((u) => u.id === bookingData.customerId);
+src/server/db.ts:3845:    const salon = this.state.salons.find((s) => s.id === bookingData.salonId);
+src/server/db.ts:3855:      (srv) => srv.id === bookingData.serviceId && srv.salonId === bookingData.salonId
+src/server/db.ts:3864:    // New bookings are allowed without a barber.
+src/server/db.ts:3865:    const barber = bookingData.barberId
+src/server/db.ts:3867:          (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+src/server/db.ts:3871:    if (bookingData.barberId && !barber) {
+src/server/db.ts:3878:    // 5. Check double booking only when a specific barber exists.
+src/server/db.ts:3879:    // A salon-level booking without a barber must not be blocked by barber slots.
+src/server/db.ts:3880:    if (bookingData.barberId) {
+src/server/db.ts:3881:      const conflict = this.state.bookings.find(
+src/server/db.ts:3883:          b.barberId === bookingData.barberId &&
+src/server/db.ts:3884:          b.date === bookingData.date &&
+src/server/db.ts:3885:          b.timeSlot === bookingData.timeSlot &&
+src/server/db.ts:3900:        bt.salonId === bookingData.salonId &&
+src/server/db.ts:3901:        bt.date === bookingData.date &&
+src/server/db.ts:3902:        (!bt.barberId || bt.barberId === bookingData.barberId) &&
+src/server/db.ts:3903:        bookingData.timeSlot >= bt.startTime &&
+src/server/db.ts:3904:        bookingData.timeSlot <= bt.endTime
+src/server/db.ts:3941:    const newBooking: Booking = {
+src/server/db.ts:3942:      ...bookingData,
+src/server/db.ts:3944:      bookingNumber: `HLQ-2026-${randomNum}`,
+src/server/db.ts:3963:    this.state.bookings.unshift(newBooking);
+src/server/db.ts:3965:    // Persist booking to Neon.
+src/server/db.ts:3968:      INSERT INTO bookings (
+src/server/db.ts:3970:        booking_number,
+src/server/db.ts:4005:        ${newBooking.id},
+src/server/db.ts:4006:        ${newBooking.bookingNumber},
+src/server/db.ts:4007:        ${newBooking.salonId},
+src/server/db.ts:4008:        ${newBooking.salonName},
+src/server/db.ts:4009:        ${newBooking.salonAddress},
+src/server/db.ts:4010:        ${newBooking.salonPhone},
+src/server/db.ts:4011:        ${newBooking.salonType},
+src/server/db.ts:4012:        ${newBooking.serviceId},
+src/server/db.ts:4013:        ${newBooking.serviceName},
+src/server/db.ts:4014:        ${newBooking.barberId ?? null},
+src/server/db.ts:4015:        ${newBooking.barberName ?? null},
+src/server/db.ts:4016:        ${newBooking.customerId},
+src/server/db.ts:4017:        ${newBooking.customerName},
+src/server/db.ts:4018:        ${newBooking.customerPhone},
+src/server/db.ts:4019:        ${newBooking.customerEmail ?? null},
+src/server/db.ts:4020:        ${newBooking.notes ?? null},
+src/server/db.ts:4021:        ${newBooking.date},
+src/server/db.ts:4022:        ${newBooking.timeSlot},
+src/server/db.ts:4023:        ${newBooking.durationMinutes},
+src/server/db.ts:4024:        ${newBooking.price},
+src/server/db.ts:4025:        ${newBooking.discountAmount},
+src/server/db.ts:4026:        ${newBooking.finalPrice},
+src/server/db.ts:4027:        ${newBooking.commissionAmount},
+src/server/db.ts:4028:        ${newBooking.salonPayout},
+src/server/db.ts:4029:        ${newBooking.status},
+src/server/db.ts:4030:        ${newBooking.paymentMethod ?? null},
+src/server/db.ts:4031:        ${newBooking.paymentStatus ?? null},
+src/server/db.ts:4032:        ${newBooking.createdAt},
+src/server/db.ts:4033:        ${newBooking.rated ?? false},
+src/server/db.ts:4034:        ${newBooking.cancellationReason ?? null},
+src/server/db.ts:4035:      ${newBooking.completionQrNonce ?? null},
+src/server/db.ts:4036:      ${newBooking.completionQrExpiresAt ?? null},
+src/server/db.ts:4037:      ${newBooking.completedAt ?? null},
+src/server/db.ts:4038:      ${newBooking.completedBy ?? null}
+src/server/db.ts:4041:        booking_number = EXCLUDED.booking_number,
+src/server/db.ts:4074:      console.error('[BOOKING] Failed to persist booking to Neon:', error?.message || error);
+src/server/db.ts:4080:      userId: newBooking.customerId,
+src/server/db.ts:4082:      titleEn: 'Booking Confirmed',
+src/server/db.ts:4083:      message: `تم حجز موعدك بنجاح في ${newBooking.salonName} يوم ${newBooking.date} الساعة ${newBooking.timeSlot} مع ${newBooking.barberName}.`,
+src/server/db.ts:4084:      messageEn: `Your appointment is confirmed at ${newBooking.salonName} on ${newBooking.date} at ${newBooking.timeSlot}.`,
+src/server/db.ts:4085:      type: 'booking_confirmed',
+src/server/db.ts:4088:      link: '/bookings',
+src/server/db.ts:4096:      action: 'BOOKING_CREATE',
+src/server/db.ts:4097:      targetType: 'booking',
+src/server/db.ts:4098:      targetId: newBooking.id,
+src/server/db.ts:4099:      details: `إنشاء حجز جديد برقم ${newBooking.bookingNumber} في ${salon.name} بقيمة ${finalPrice} د.ع`,
+src/server/db.ts:4106:      booking: newBooking,
+src/server/db.ts:4110:  async completeBookingByQr(
+src/server/db.ts:4111:    bookingId: string,
+src/server/db.ts:4117:    booking?: Booking;
+src/server/db.ts:4120:    const booking = this.state.bookings.find((b) => b.id === bookingId);
+src/server/db.ts:4122:    if (!booking) {
+src/server/db.ts:4129:    // Only salon owner/staff/admin can complete a booking by QR.
+src/server/db.ts:4141:    // Salon owner/staff must belong to the booking salon.
+src/server/db.ts:4145:        booking.salonId
+src/server/db.ts:4157:    if (booking.status === 'completed' || booking.completedAt) {
+src/server/db.ts:4164:    if (booking.status === 'cancelled') {
+src/server/db.ts:4173:      !booking.completionQrNonce ||
+src/server/db.ts:4175:      booking.completionQrNonce !== qrNonce
+src/server/db.ts:4181:        action: 'BOOKING_QR_INVALID',
+src/server/db.ts:4182:        targetType: 'booking',
+src/server/db.ts:4183:        targetId: booking.id,
+src/server/db.ts:4184:        details: `محاولة استخدام QR غير صالح للحجز ${booking.bookingNumber}`,
+src/server/db.ts:4197:      booking.completionQrExpiresAt &&
+src/server/db.ts:4198:      new Date(booking.completionQrExpiresAt).getTime() < Date.now()
+src/server/db.ts:4204:        action: 'BOOKING_QR_EXPIRED',
+src/server/db.ts:4205:        targetType: 'booking',
+src/server/db.ts:4206:        targetId: booking.id,
+src/server/db.ts:4207:        details: `محاولة استخدام QR منتهي للحجز ${booking.bookingNumber}`,
+src/server/db.ts:4220:    booking.status = 'completed';
+src/server/db.ts:4221:    booking.completedAt = completedAt;
+src/server/db.ts:4222:    booking.completedBy = requestingUser.id;
+src/server/db.ts:4225:    booking.completionQrNonce = undefined;
+src/server/db.ts:4226:    booking.completionQrExpiresAt = undefined;
+src/server/db.ts:4234:          UPDATE bookings
+src/server/db.ts:4236:            status = ${booking.status},
+src/server/db.ts:4241:          WHERE id = ${booking.id}
+src/server/db.ts:4271:        '[BOOKING_QR] Failed to persist completion to Neon:',
+src/server/db.ts:4276:      booking.status = 'confirmed';
+src/server/db.ts:4277:      booking.completedAt = undefined;
+src/server/db.ts:4278:      booking.completedBy = undefined;
+src/server/db.ts:4279:      booking.completionQrNonce = qrNonce;
+src/server/db.ts:4293:      userId: booking.customerId,
+src/server/db.ts:4295:      titleEn: 'Appointment Completed',
+src/server/db.ts:4296:      message: `تم تأكيد إكمال موعدك في ${booking.salonName}. شكراً لاستخدامك حلاقي.`,
+src/server/db.ts:4297:      messageEn: `Your appointment at ${booking.salonName} has been completed successfully.`,
+src/server/db.ts:4298:      type: 'booking_completed',
+src/server/db.ts:4299:      link: '/bookings',
+src/server/db.ts:4300:      salonId: booking.salonId,
+src/server/db.ts:4308:        titleEn: 'Booking Completed ✅',
+src/server/db.ts:4309:        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName} بنجاح عبر QR.`,
+src/server/db.ts:4310:        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed successfully via QR.`,
+src/server/db.ts:4311:        type: 'booking_completed',
+src/server/db.ts:4312:        link: '/bookings',
+src/server/db.ts:4313:        salonId: booking.salonId,
+src/server/db.ts:4327:        message: `تم إتمام الحجز ${booking.bookingNumber} في ${booking.salonName}. قيمة الخدمة: ${booking.finalPrice.toLocaleString()} د.ع.`,
+src/server/db.ts:4328:        messageEn: `Booking ${booking.bookingNumber} at ${booking.salonName} was completed. Service value: ${booking.finalPrice.toLocaleString()} IQD.`,
+src/server/db.ts:4329:        type: 'booking_completed',
+src/server/db.ts:4331:        salonId: booking.salonId,
+src/server/db.ts:4340:      action: 'BOOKING_QR_COMPLETED',
+src/server/db.ts:4341:      targetType: 'booking',
+src/server/db.ts:4342:      targetId: booking.id,
+src/server/db.ts:4343:      details: `إكمال الحجز ${booking.bookingNumber} عبر QR في صالون ${booking.salonName}`,
+src/server/db.ts:4350:      booking,
+src/server/db.ts:4354:  cancelBooking(
+src/server/db.ts:4355:    bookingId: string,
+src/server/db.ts:4360:    const booking = this.state.bookings.find((b) => b.id === bookingId);
+src/server/db.ts:4361:    if (!booking) {
+src/server/db.ts:4366:    // Customer can only cancel their own booking
+src/server/db.ts:4367:    // Salon Owner can only cancel booking for their own salon
+src/server/db.ts:4368:    // Admin can cancel any booking
+src/server/db.ts:4369:    if (requestingUser.role === 'customer' && booking.customerId !== requestingUser.id) {
+src/server/db.ts:4375:      !this.isApprovedSalonOwner(requestingUser.id, booking.salonId)
+src/server/db.ts:4380:    booking.status = 'cancelled';
+src/server/db.ts:4381:    booking.cancellationReason = reason || `تم الإلغاء بواسطة ${requestingUser.name}`;
+src/server/db.ts:4386:      userId: booking.customerId,
+src/server/db.ts:4388:      titleEn: 'Booking Cancelled',
+src/server/db.ts:4389:      message: `تم إلغاء حجزك رقم ${booking.bookingNumber} في ${booking.salonName}. أصبح الموعد متاحاً الآن للآخرين.`,
+src/server/db.ts:4390:      messageEn: `Booking ${booking.bookingNumber} has been cancelled.`,
+src/server/db.ts:4391:      type: 'booking_cancelled',
+src/server/db.ts:4394:      link: '/bookings',
+src/server/db.ts:4402:      action: 'BOOKING_CANCEL',
+src/server/db.ts:4403:      targetType: 'booking',
+src/server/db.ts:4404:      targetId: booking.id,
+src/server/db.ts:4405:      details: `إلغاء الحجز ${booking.bookingNumber} لصالون ${booking.salonName}. السبب: ${booking.cancellationReason}`,
+src/server/db.ts:4414:    return this.state.bookings
+src/server/db.ts:4434:    // Verify customer has a real booking at this salon
+src/server/db.ts:4435:    const hasCompletedBooking = this.state.bookings.some(
+src/server/db.ts:4439:    if (!hasCompletedBooking && requestingUser.role !== 'admin') {
+src/server/db.ts:4452:    // Update booking rated flag if bookingId is provided
+src/server/db.ts:4453:    if (reviewData.bookingId) {
+src/server/db.ts:4454:      const booking = this.state.bookings.find((b) => b.id === reviewData.bookingId);
+src/server/db.ts:4455:      if (booking) {
+src/server/db.ts:4456:        booking.rated = true;
+src/server/db.ts:5656:  // flag; the engine never books salons or performs payments.
+src/server/db.ts:6647:   * Only completed bookings with completed_at inside the requested
+src/server/db.ts:6662:      completedBookingsCount: number;
+src/server/db.ts:6708:            COUNT(*)::integer AS completed_bookings_count,
+src/server/db.ts:6711:          FROM bookings b
+src/server/db.ts:6728:          completed_bookings_count,
+src/server/db.ts:6744:          a.completed_bookings_count,
+src/server/db.ts:6762:          completed_bookings_count = EXCLUDED.completed_bookings_count,
+src/server/db.ts:6769:          completed_bookings_count,
+src/server/db.ts:6779:        completedBookingsCount: Number(r.completed_bookings_count || 0),
+src/server/db.ts:6833:      completedBookingsCount: number;
+src/server/db.ts:6908:          COALESCE(ss.completed_bookings_count, 0)::integer
+src/server/db.ts:6909:            AS completed_bookings_count,
+src/server/db.ts:6963:          completedBookingsCount: Number(r.completed_bookings_count || 0),
+src/server/db.ts:7222:  validateCoupon(code: string, bookingAmount: number): { valid: boolean; coupon?: Coupon; discount?: number; message?: string } {
+src/server/db.ts:7230:    if (bookingAmount < coupon.minBookingAmount) {
+src/server/db.ts:7231:      return { valid: false, message: `الحد الأدنى للاستفادة من هذا الكوبون هو ${coupon.minBookingAmount.toLocaleString()} د.ع` };
+src/server/db.ts:7234:    let discount = Math.round((bookingAmount * coupon.discountPercent) / 100);
+src/server/db.ts:7350:      bookings,
+src/server/db.ts:7366:      sql`SELECT * FROM bookings`,
+src/server/db.ts:7446:    if (bookings.length) {
+src/server/db.ts:7447:      db.getState().bookings = bookings.map((b: any) => ({
+src/server/db.ts:7449:        bookingNumber: b.booking_number,
+src/server/db.ts:7496:        bookingId: r.booking_id,
+src/server/db.ts:7521:        minBookingAmount: Number(c.min_booking_amount || 0),
+src/server/db.ts:7659:      `تم تحميل بيانات Neon: salons=${salons.length}, barbers=${barbers.length}, services=${services.length}, bookings=${bookings.length}`
+src/server/app.ts:2354:   BOOKINGS ENDPOINTS (restored)
+src/server/app.ts:2357:app.get('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:2362:    // Always read authoritative booking data from Neon.
+src/server/app.ts:2363:    let bookings = await db.getAllBookingsFromNeon();
+src/server/app.ts:2367:      bookings = bookings.filter((b) => b.customerId === user.id);
+src/server/app.ts:2371:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts:2375:      bookings = bookings.filter(
+src/server/app.ts:2382:        bookings = bookings.filter(
+src/server/app.ts:2388:        bookings = bookings.filter(
+src/server/app.ts:2395:      bookings = bookings.filter(
+src/server/app.ts:2402:      bookings,
+src/server/app.ts:2406:      '[GET BOOKINGS NEON] Failed:',
+src/server/app.ts:2413:      bookings: [],
+src/server/app.ts:2418:app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
+src/server/app.ts:2427:app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:2428:  const bookingPayload = req.body;
+src/server/app.ts:2434:    ...bookingPayload,
+src/server/app.ts:2436:    customerName: bookingPayload.customerName || customer.name,
+src/server/app.ts:2437:    customerPhone: bookingPayload.customerPhone || customer.phone,
+src/server/app.ts:2451:  // BOOKING SALON SYNC
+src/server/app.ts:2453:  // Sync the selected salon before validating the booking.
+src/server/app.ts:2475:        `[BOOKING SALON SYNC] Salon ${salonFromNeon.id} loaded from Neon`
+src/server/app.ts:2479:        '[BOOKING SALON SYNC] Failed to load salon from Neon:',
+src/server/app.ts:2491:  // BOOKING SERVICE NEON SYNC FINAL
+src/server/app.ts:2522:        `[BOOKING SERVICE SYNC] Service ${serviceFromNeon.id} loaded from Neon`
+src/server/app.ts:2526:        '[BOOKING SERVICE SYNC] Failed:',
+src/server/app.ts:2539:  // The customer books the salon/service/time directly.
+src/server/app.ts:2543:  const bookingWithoutBarber = {
+src/server/app.ts:2550:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts:2553:  const result = await db.createBookingAtomic(
+src/server/app.ts:2554:    bookingWithoutBarber,
+src/server/app.ts:2559:  if (!result.success || !result.booking) {
+src/server/app.ts:2566:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts:2567:  // IMPORTANT: notifications must never block the booking response.
+src/server/app.ts:2572:      (s) => s.id === result.booking!.salonId
+src/server/app.ts:2587:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts:2592:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts:2622:      titleEn: 'New Booking 🎉',
+src/server/app.ts:2623:      message: `لديك حجز جديد من ${result.booking!.customerName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}، المبلغ: ${result.booking!.finalPrice.toLocaleString()} د.ع.`,
+src/server/app.ts:2624:      messageEn: `You have a new booking from ${result.booking!.customerName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}. Amount: ${result.booking!.finalPrice.toLocaleString()} IQD.`,
+src/server/app.ts:2625:      type: 'booking_created' as const,
+src/server/app.ts:2626:      link: '/bookings',
+src/server/app.ts:2627:      salonId: result.booking!.salonId,
+src/server/app.ts:2632:      titleEn: 'Booking Confirmed ✅',
+src/server/app.ts:2633:      message: `تم الحجز بنجاح في صالون ${result.booking!.salonName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}.`,
+src/server/app.ts:2634:      messageEn: `Booking confirmed at ${result.booking!.salonName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}.`,
+src/server/app.ts:2635:      type: 'booking_confirmed' as const,
+src/server/app.ts:2636:      link: '/bookings',
+src/server/app.ts:2637:      salonId: result.booking!.salonId,
+src/server/app.ts:2647:        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
+src/server/app.ts:2654:      const existingCustomerNotifs = (db.getState().notifications || []).filter((n: any) => n.userId === customer.id && n.type === 'booking_confirmed' && n.link === '/bookings' && n.salonId === result.booking!.salonId && n.message?.includes(result.booking!.date));
+src/server/app.ts:2660:        console.log(`[BOOKING NOTIFICATION] Customer ${customer.id} notified of booking ${result.booking!.id}`);
+src/server/app.ts:2664:    // Never fail an already-created booking because notification delivery failed.
+src/server/app.ts:2666:      '[BOOKING NOTIFICATION] Failed to create notification:',
+src/server/app.ts:2672:    // Return successful booking immediately.
+src/server/app.ts:2676:      booking: result.booking,
+src/server/app.ts:2680:app.post('/api/bookings/:id/complete-by-qr', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:2693:    const result = await db.completeBookingByQr(
+src/server/app.ts:2709:      booking: result.booking,
+src/server/app.ts:2712:    console.error('[BOOKING_QR] Failed to complete booking:', error?.message || error);
+src/server/app.ts:2721:app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:2734:  const booking = db.getState().bookings.find(
+src/server/app.ts:2738:  if (!booking) {
+src/server/app.ts:2745:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts:2748:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts:2756:  booking.status = status as typeof booking.status;
+src/server/app.ts:2762:    action: 'BOOKING_STATUS_CHANGE',
+src/server/app.ts:2763:    targetType: 'booking',
+src/server/app.ts:2764:    targetId: booking.id,
+src/server/app.ts:2765:    details: `تغيير حالة الحجز ${booking.bookingNumber} إلى ${status}`,
+src/server/app.ts:2772:    booking,
+src/server/app.ts:2776:app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:2779:  const result = db.cancelBooking(req.params.id, req.user!, reason, ip);
+src/server/app.ts:6504:app.post('/api/ai-salon', async (req: Request, res: Response) => {
+src/server/app.ts:6541:        intent: { type: 'string', description: 'search, book, price, clarify, greet, alternative' },
+src/server/app.ts.backup-20260824-062726:1243:// BOOKINGS (STRICT SERVER-AUTHORITATIVE & RBAC)
+src/server/app.ts.backup-20260824-062726:1245:app.get('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1250:    // Always read authoritative booking data from Neon.
+src/server/app.ts.backup-20260824-062726:1251:    let bookings = await db.getAllBookingsFromNeon();
+src/server/app.ts.backup-20260824-062726:1255:      bookings = bookings.filter((b) => b.customerId === user.id);
+src/server/app.ts.backup-20260824-062726:1259:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts.backup-20260824-062726:1263:      bookings = bookings.filter(
+src/server/app.ts.backup-20260824-062726:1270:        bookings = bookings.filter(
+src/server/app.ts.backup-20260824-062726:1276:        bookings = bookings.filter(
+src/server/app.ts.backup-20260824-062726:1283:      bookings = bookings.filter(
+src/server/app.ts.backup-20260824-062726:1290:      bookings,
+src/server/app.ts.backup-20260824-062726:1294:      '[GET BOOKINGS NEON] Failed:',
+src/server/app.ts.backup-20260824-062726:1301:      bookings: [],
+src/server/app.ts.backup-20260824-062726:1306:app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1315:app.post('/api/bookings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1316:  const bookingPayload = req.body;
+src/server/app.ts.backup-20260824-062726:1322:    ...bookingPayload,
+src/server/app.ts.backup-20260824-062726:1324:    customerName: bookingPayload.customerName || customer.name,
+src/server/app.ts.backup-20260824-062726:1325:    customerPhone: bookingPayload.customerPhone || customer.phone,
+src/server/app.ts.backup-20260824-062726:1339:  // BOOKING SALON SYNC
+src/server/app.ts.backup-20260824-062726:1341:  // Sync the selected salon before validating the booking.
+src/server/app.ts.backup-20260824-062726:1363:        `[BOOKING SALON SYNC] Salon ${salonFromNeon.id} loaded from Neon`
+src/server/app.ts.backup-20260824-062726:1367:        '[BOOKING SALON SYNC] Failed to load salon from Neon:',
+src/server/app.ts.backup-20260824-062726:1379:  // BOOKING SERVICE NEON SYNC FINAL
+src/server/app.ts.backup-20260824-062726:1410:        `[BOOKING SERVICE SYNC] Service ${serviceFromNeon.id} loaded from Neon`
+src/server/app.ts.backup-20260824-062726:1414:        '[BOOKING SERVICE SYNC] Failed:',
+src/server/app.ts.backup-20260824-062726:1427:  // The customer books the salon/service/time directly.
+src/server/app.ts.backup-20260824-062726:1431:  const bookingWithoutBarber = {
+src/server/app.ts.backup-20260824-062726:1438:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts.backup-20260824-062726:1441:  const result = await db.createBookingAtomic(
+src/server/app.ts.backup-20260824-062726:1442:    bookingWithoutBarber,
+src/server/app.ts.backup-20260824-062726:1447:  if (!result.success || !result.booking) {
+src/server/app.ts.backup-20260824-062726:1454:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts.backup-20260824-062726:1455:  // IMPORTANT: notifications must never block the booking response.
+src/server/app.ts.backup-20260824-062726:1460:      (s) => s.id === result.booking!.salonId
+src/server/app.ts.backup-20260824-062726:1475:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts.backup-20260824-062726:1480:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts.backup-20260824-062726:1510:      titleEn: 'New Booking 🎉',
+src/server/app.ts.backup-20260824-062726:1511:      message: `لديك حجز جديد من ${result.booking!.customerName} يوم ${result.booking!.date} الساعة ${result.booking!.timeSlot}. الخدمة: ${result.booking!.serviceName}، المبلغ: ${result.booking!.finalPrice.toLocaleString()} د.ع.`,
+src/server/app.ts.backup-20260824-062726:1512:      messageEn: `You have a new booking from ${result.booking!.customerName} on ${result.booking!.date} at ${result.booking!.timeSlot}. Service: ${result.booking!.serviceName}. Amount: ${result.booking!.finalPrice.toLocaleString()} IQD.`,
+src/server/app.ts.backup-20260824-062726:1513:      type: 'booking_created' as const,
+src/server/app.ts.backup-20260824-062726:1514:      link: '/bookings',
+src/server/app.ts.backup-20260824-062726:1515:      salonId: result.booking!.salonId,
+src/server/app.ts.backup-20260824-062726:1525:        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
+src/server/app.ts.backup-20260824-062726:1529:    // Never fail an already-created booking because notification delivery failed.
+src/server/app.ts.backup-20260824-062726:1531:      '[BOOKING NOTIFICATION] Failed to create notification:',
+src/server/app.ts.backup-20260824-062726:1537:    // Return successful booking immediately.
+src/server/app.ts.backup-20260824-062726:1541:      booking: result.booking,
+src/server/app.ts.backup-20260824-062726:1546:app.post('/api/bookings/:id/complete-by-qr', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1559:    const result = await db.completeBookingByQr(
+src/server/app.ts.backup-20260824-062726:1575:      booking: result.booking,
+src/server/app.ts.backup-20260824-062726:1578:    console.error('[BOOKING_QR] Failed to complete booking:', error?.message || error);
+src/server/app.ts.backup-20260824-062726:1587:app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1600:  const booking = db.getState().bookings.find(
+src/server/app.ts.backup-20260824-062726:1604:  if (!booking) {
+src/server/app.ts.backup-20260824-062726:1611:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts.backup-20260824-062726:1614:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts.backup-20260824-062726:1622:  booking.status = status as typeof booking.status;
+src/server/app.ts.backup-20260824-062726:1628:    action: 'BOOKING_STATUS_CHANGE',
+src/server/app.ts.backup-20260824-062726:1629:    targetType: 'booking',
+src/server/app.ts.backup-20260824-062726:1630:    targetId: booking.id,
+src/server/app.ts.backup-20260824-062726:1631:    details: `تغيير حالة الحجز ${booking.bookingNumber} إلى ${status}`,
+src/server/app.ts.backup-20260824-062726:1638:    booking,
+src/server/app.ts.backup-20260824-062726:1642:app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:1645:  const result = db.cancelBooking(req.params.id, req.user!, reason, ip);
+src/server/app.ts.backup-20260824-062726:1665:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup-20260824-062726:1681:      bookingId: bookingId || '',
+src/server/app.ts.backup-20260824-062726:2373:  const totalBookings = state.bookings.length;
+src/server/app.ts.backup-20260824-062726:2374:  const confirmedBookings = state.bookings.filter((b) => b.status === 'confirmed').length;
+src/server/app.ts.backup-20260824-062726:2375:  const completedBookings = state.bookings.filter((b) => b.status === 'completed').length;
+src/server/app.ts.backup-20260824-062726:2376:  const cancelledBookings = state.bookings.filter((b) => b.status === 'cancelled').length;
+src/server/app.ts.backup-20260824-062726:2378:  const totalRevenue = state.bookings
+src/server/app.ts.backup-20260824-062726:2382:  const platformCommission = state.bookings
+src/server/app.ts.backup-20260824-062726:2386:  const cancellationRate = totalBookings > 0 ? Math.round((cancelledBookings / totalBookings) * 100) : 0;
+src/server/app.ts.backup-20260824-062726:2389:    { day: 'السبت', bookings: 18, revenue: 380000, commission: 38000 },
+src/server/app.ts.backup-20260824-062726:2390:    { day: 'الأحد', bookings: 24, revenue: 520000, commission: 52000 },
+src/server/app.ts.backup-20260824-062726:2391:    { day: 'الإثنين', bookings: 19, revenue: 410000, commission: 41000 },
+src/server/app.ts.backup-20260824-062726:2392:    { day: 'الثلاثاء', bookings: 27, revenue: 610000, commission: 61000 },
+src/server/app.ts.backup-20260824-062726:2393:    { day: 'الأربعاء', bookings: 32, revenue: 740000, commission: 74000 },
+src/server/app.ts.backup-20260824-062726:2394:    { day: 'الخميس', bookings: 45, revenue: 1050000, commission: 105000 },
+src/server/app.ts.backup-20260824-062726:2395:    { day: 'الجمعة', bookings: 50, revenue: 1280000, commission: 128000 },
+src/server/app.ts.backup-20260824-062726:2418:      totalBookings,
+src/server/app.ts.backup-20260824-062726:2419:      confirmedBookings,
+src/server/app.ts.backup-20260824-062726:2420:      completedBookings,
+src/server/app.ts.backup-20260824-062726:2421:      cancelledBookings,
+src/server/app.ts.backup-before-salon-fix:667:// BOOKINGS (STRICT SERVER-AUTHORITATIVE & RBAC)
+src/server/app.ts.backup-before-salon-fix:669:app.get('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:671:  let bookings = db.getState().bookings;
+src/server/app.ts.backup-before-salon-fix:675:  // Customer can ONLY view their own bookings
+src/server/app.ts.backup-before-salon-fix:677:    bookings = bookings.filter((b) => b.customerId === user.id);
+src/server/app.ts.backup-before-salon-fix:679:    // Salon owner can ONLY view bookings for their salon(s)
+src/server/app.ts.backup-before-salon-fix:681:    bookings = bookings.filter(
+src/server/app.ts.backup-before-salon-fix:687:      bookings = bookings.filter((b) => b.customerId === customerId);
+src/server/app.ts.backup-before-salon-fix:690:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup-before-salon-fix:695:    bookings = bookings.filter((b) => b.status === status);
+src/server/app.ts.backup-before-salon-fix:698:  res.json({ success: true, bookings });
+src/server/app.ts.backup-before-salon-fix:701:app.get('/api/bookings/occupied-slots', (req: Request, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:710:app.post('/api/bookings', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:711:  const bookingPayload = req.body;
+src/server/app.ts.backup-before-salon-fix:717:    ...bookingPayload,
+src/server/app.ts.backup-before-salon-fix:719:    customerName: bookingPayload.customerName || customer.name,
+src/server/app.ts.backup-before-salon-fix:720:    customerPhone: bookingPayload.customerPhone || customer.phone,
+src/server/app.ts.backup-before-salon-fix:734:  const result = db.createBookingAtomic(securePayload, req.body.couponCode, ip);
+src/server/app.ts.backup-before-salon-fix:739:  res.status(201).json({ success: true, booking: result.booking });
+src/server/app.ts.backup-before-salon-fix:742:app.put('/api/bookings/:id/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:745:  const booking = db.getState().bookings.find((b) => b.id === req.params.id);
+src/server/app.ts.backup-before-salon-fix:747:  if (!booking) {
+src/server/app.ts.backup-before-salon-fix:751:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup-before-salon-fix:752:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup-before-salon-fix:756:  booking.status = status;
+src/server/app.ts.backup-before-salon-fix:762:    action: 'BOOKING_STATUS_CHANGE',
+src/server/app.ts.backup-before-salon-fix:763:    targetType: 'booking',
+src/server/app.ts.backup-before-salon-fix:764:    targetId: booking.id,
+src/server/app.ts.backup-before-salon-fix:765:    details: `تغيير حالة الحجز ${booking.bookingNumber} إلى ${status}`,
+src/server/app.ts.backup-before-salon-fix:770:  res.json({ success: true, booking });
+src/server/app.ts.backup-before-salon-fix:773:app.post('/api/bookings/:id/cancel', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:776:  const result = db.cancelBooking(req.params.id, req.user!, reason, ip);
+src/server/app.ts.backup-before-salon-fix:796:  const { salonId, bookingId, rating, comment } = req.body;
+
+### NOTIFICATIONS
+src/App.tsx:4:import { NotificationsProvider } from './components/common/NotificationsProvider';
+src/App.tsx:35:  initPushNotifications,
+src/App.tsx:67:    initPushNotifications();
+src/App.tsx:68:    // initPushNotifications is safe on web (no-op) and idempotent enough for mount.
+src/App.tsx:86:  // FEATURE: dedicated Post Detail overlay opened directly from a notification.
+src/App.tsx:218:    // Open a specific post from a notification
+src/App.tsx:231:    // notification). The overlay sits above the current screen, so closing it
+src/App.tsx:232:    // returns the user to the state they came from (e.g. Notifications).
+src/App.tsx:475:      {/* FEATURE: Post Detail overlay opened directly from notifications */}
+src/App.tsx:494:        <NotificationsProvider>
+src/App.tsx:498:        </NotificationsProvider>
+src/types/index.ts:196:export interface Notification {
+src/types/index.ts:352:export interface NotificationPreferences {
+src/types/index.ts:363:export type PushCategory = keyof NotificationPreferences;
+src/types/index.ts.before_booking_notification_fix:180:export interface Notification {
+src/types/index.ts.before_qr_step1_20260822_215447:180:export interface Notification {
+src/types/index.ts.before_booking_completed_20260822_222100:187:export interface Notification {
+src/types/index.ts.backup_before_salon_ban_20260823_040554:187:export interface Notification {
+src/types/index.ts.before-user-post-profile-fix:187:export interface Notification {
+src/types/index.ts.before_post_like_notification_20260824_201809:187:export interface Notification {
+src/server/db.ts:13:  Notification,
+src/server/db.ts:101:// PUSH NOTIFICATIONS (mobile) — infrastructure
+src/server/db.ts:118:export interface NotificationPreferences {
+src/server/db.ts:129:export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+src/server/db.ts:140:const PUSH_PREFS_COLUMNS: (keyof NotificationPreferences)[] = [
+src/server/db.ts:178:        CREATE TABLE IF NOT EXISTS notification_preferences (
+src/server/db.ts:199:// Map an existing Halaqi notification type to a user preference category.
+src/server/db.ts:232:function buildPushData(notification: {
+src/server/db.ts:245:  const link = notification.link || '';
+src/server/db.ts:246:  if (notification.type === 'post_like' || notification.type === 'post_comment') {
+src/server/db.ts:250:  } else if (notification.type.startsWith('booking')) {
+src/server/db.ts:252:  } else if (notification.type === 'message') {
+src/server/db.ts:254:  } else if (notification.type === 'follow') {
+src/server/db.ts:256:    id = notification.actorUserId || '';
+src/server/db.ts:257:  } else if (notification.type === 'review') {
+src/server/db.ts:262:    notificationId: notification.id,
+src/server/db.ts:263:    type: notification.type,
+src/server/db.ts:266:    actorUserId: notification.actorUserId || '',
+src/server/db.ts:268:    titleAr: notification.title,
+src/server/db.ts:269:    titleEn: notification.titleEn,
+src/server/db.ts:270:    bodyAr: notification.message,
+src/server/db.ts:271:    bodyEn: notification.messageEn,
+src/server/db.ts:355:              notification: { title, body },
+src/server/db.ts:378:        notification: { title, body },
+src/server/db.ts:493:  notifications: Notification[];
+src/server/db.ts:1266:export const initialNotifications: Notification[] = [
+src/server/db.ts:1336:      notifications: [...initialNotifications],
+src/server/db.ts:2303:      this.createNotification({
+src/server/db.ts:2348:  // Create notification
+src/server/db.ts:2349:  async createNotification(data: {
+src/server/db.ts:2356:    type: Notification['type'];
+src/server/db.ts:2359:  }): Promise<Notification> {
+src/server/db.ts:2360:    const notification: Notification = {
+src/server/db.ts:2375:    this.state.notifications.unshift(notification);
+src/server/db.ts:2377:    // Persist notification in Neon database.
+src/server/db.ts:2378:    // The current Neon notifications table does not have salon_id.
+src/server/db.ts:2380:      INSERT INTO notifications
+src/server/db.ts:2383:      (${notification.id}, ${notification.userId}, ${notification.actorUserId ?? null}, ${notification.title},
+src/server/db.ts:2384:       ${notification.titleEn}, ${notification.message}, ${notification.messageEn},
+src/server/db.ts:2385:       ${notification.type}, ${notification.read}, ${notification.createdAt},
+src/server/db.ts:2386:       ${notification.link ?? null})
+src/server/db.ts:2391:    console.log('[NOTIFICATION SAVED TO NEON]', {
+src/server/db.ts:2392:      notificationId: notification.id,
+src/server/db.ts:2393:      userId: notification.userId,
+src/server/db.ts:2394:      type: notification.type,
+src/server/db.ts:2398:    // Keep max 500 notifications in memory
+src/server/db.ts:2399:    if (this.state.notifications.length > 500) {
+src/server/db.ts:2400:      this.state.notifications.pop();
+src/server/db.ts:2404:    void this.deliverPushForNotification(notification).catch(() => {});
+src/server/db.ts:2406:    return notification;
+src/server/db.ts:2630:  // ---- Push notification delivery hook ----
+src/server/db.ts:3202:  async deliverPushForNotification(notification: Notification): Promise<void> {
+src/server/db.ts:3204:      let category = resolvePushCategory(notification.type);
+src/server/db.ts:3206:      // Reels reuse the unified like/comment notifications; detect a video post
+src/server/db.ts:3209:        (notification.type === 'post_like' || notification.type === 'post_comment') &&
+src/server/db.ts:3210:        notification.link
+src/server/db.ts:3213:          (notification.link.split('?')[1]) || ''
+src/server/db.ts:3226:      await this.sendPushToUser(notification.userId, {
+src/server/db.ts:3227:        title: notification.title,
+src/server/db.ts:3228:        body: notification.message,
+src/server/db.ts:3230:        data: buildPushData(notification),
+src/server/db.ts:3303:  // ---- Notification preferences ----
+src/server/db.ts:3305:  async getNotificationPreferences(
+src/server/db.ts:3307:  ): Promise<NotificationPreferences> {
+src/server/db.ts:3311:        SELECT * FROM notification_preferences WHERE user_id = ${userId} LIMIT 1
+src/server/db.ts:3314:        return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+src/server/db.ts:3317:      const prefs: NotificationPreferences = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+src/server/db.ts:3325:      console.error('[PUSH] getNotificationPreferences failed:', error);
+src/server/db.ts:3326:      return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+src/server/db.ts:3330:  async setNotificationPreferences(
+src/server/db.ts:3332:    updates: Partial<NotificationPreferences>
+src/server/db.ts:3333:  ): Promise<NotificationPreferences> {
+src/server/db.ts:3336:      const current = await this.getNotificationPreferences(userId);
+src/server/db.ts:3337:      const next: NotificationPreferences = { ...current };
+src/server/db.ts:3345:        INSERT INTO notification_preferences
+src/server/db.ts:3362:      console.error('[PUSH] setNotificationPreferences failed:', error);
+src/server/db.ts:3363:      return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+src/server/db.ts:3378:      const prefs = await this.getNotificationPreferences(userId);
+src/server/db.ts:4077:    // Create automated customer notification
+src/server/db.ts:4078:    this.state.notifications.unshift({
+src/server/db.ts:4288:    // Fire-and-forget notifications (non-blocking)
+src/server/db.ts:4291:    // Customer notification
+src/server/db.ts:4292:    this.createNotification({
+src/server/db.ts:4303:    // Salon owner notification
+src/server/db.ts:4305:      this.createNotification({
+src/server/db.ts:4317:    // Admin notifications
+src/server/db.ts:4323:      this.createNotification({
+src/server/db.ts:4384:    this.state.notifications.unshift({
+src/server/db.ts:5548:        this.createNotification({
+src/server/db.ts:6215:      // Fire-and-forget notification to post owner.
+src/server/db.ts:6217:        this.createNotification({
+src/server/db.ts:7244:export async function getNotificationsFromNeon(userId: string): Promise<Notification[]> {
+src/server/db.ts:7260:    FROM notifications n
+src/server/db.ts:7353:      notifications,
+src/server/db.ts:7369:      sql`SELECT * FROM notifications`,
+src/server/db.ts:7530:    if (notifications.length) {
+src/server/db.ts:7531:      db.getState().notifications = notifications.map((n: any) => ({
+src/server/app.ts:12:import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
+src/server/app.ts:124:          notificationId: `sec_${Date.now()}`,
+src/server/app.ts:152:   PUSH NOTIFICATION DEVICE TOKENS
+src/server/app.ts:194:   NOTIFICATION PREFERENCES
+src/server/app.ts:196:app.get('/api/notifications/preferences', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:198:    const prefs = await db.getNotificationPreferences(req.user!.id);
+src/server/app.ts:206:app.put('/api/notifications/preferences', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts:209:    const prefs = await db.setNotificationPreferences(req.user!.id, updates);
+src/server/app.ts:336:      await db.createNotification({
+src/server/app.ts:362:      await db.createNotification({
+src/server/app.ts:961:      await db.createNotification({
+src/server/app.ts:973:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts:977:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts:2567:  // IMPORTANT: notifications must never block the booking response.
+src/server/app.ts:2587:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts:2592:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts:2620:    const notificationPayload = {
+src/server/app.ts:2630:    const customerNotificationPayload = {
+src/server/app.ts:2641:      await db.createNotification({
+src/server/app.ts:2643:        ...notificationPayload,
+src/server/app.ts:2647:        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
+src/server/app.ts:2651:    // Customer confirmation notification (only if not already sent by another flow)
+src/server/app.ts:2654:      const existingCustomerNotifs = (db.getState().notifications || []).filter((n: any) => n.userId === customer.id && n.type === 'booking_confirmed' && n.link === '/bookings' && n.salonId === result.booking!.salonId && n.message?.includes(result.booking!.date));
+src/server/app.ts:2656:        await db.createNotification({
+src/server/app.ts:2658:          ...customerNotificationPayload,
+src/server/app.ts:2660:        console.log(`[BOOKING NOTIFICATION] Customer ${customer.id} notified of booking ${result.booking!.id}`);
+src/server/app.ts:2664:    // Never fail an already-created booking because notification delivery failed.
+src/server/app.ts:2666:      '[BOOKING NOTIFICATION] Failed to create notification:',
+src/server/app.ts:2673:    // Notification delivery is intentionally fire-and-forget.
+src/server/app.ts:3506:    // unread count) only — NOT as duplicate entries in the Notifications
+src/server/app.ts:3507:    // section. Intentionally no `type: 'message'` notification is created
+src/server/app.ts:3511:    // push notification without duplicating the in-app notification centre.
+src/server/app.ts:3518:          notificationId: id,
+src/server/app.ts:3905:      /* Fire-and-forget notification on follow. */
+src/server/app.ts:3907:        db.createNotification({
+src/server/app.ts:4675:          db.createNotification({
+src/server/app.ts:4703:          db.createNotification({
+src/server/app.ts:5021:   NOTIFICATIONS
+src/server/app.ts:5025:  '/api/notifications',
+src/server/app.ts:5031:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.ts:5035:        notifications,
+src/server/app.ts:5039:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.ts:5045:        notifications: [],
+src/server/app.ts:5054:   NOTIFICATION READ
+src/server/app.ts:5057:  '/api/notifications/:id/read',
+src/server/app.ts:5061:      const notificationId = req.params.id;
+src/server/app.ts:5065:        UPDATE notifications
+src/server/app.ts:5067:        WHERE id = ${notificationId}
+src/server/app.ts:5071:      const notification = db.getState().notifications.find(
+src/server/app.ts:5072:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.ts:5075:      if (notification) {
+src/server/app.ts:5076:        notification.read = true;
+src/server/app.ts:5085:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.ts:5773:      db.createNotification({
+src/server/app.ts:5786:        db.createNotification({
+src/server/app.ts:5797:      db.createNotification({
+src/server/app.ts:5808:      db.createNotification({
+src/server/app.ts:5861:          db.createNotification({
+src/server/app.ts:5988:        db.createNotification({
+src/server/app.before-feed-api-optimization.ts:5:import { getNotificationsFromNeon } from './db.js';
+src/server/app.before-feed-api-optimization.ts:574:            await db.createNotification({
+src/server/app.before-feed-api-optimization.ts:585:              '[FOLLOW NOTIFICATION] notification created',
+src/server/app.before-feed-api-optimization.ts:592:        } catch (notificationError: any) {
+src/server/app.before-feed-api-optimization.ts:597:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.before-feed-api-optimization.ts:598:            notificationError?.message || notificationError
+src/server/app.before-feed-api-optimization.ts:966:   NOTIFICATIONS
+src/server/app.before-feed-api-optimization.ts:970:  '/api/notifications',
+src/server/app.before-feed-api-optimization.ts:976:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-feed-api-optimization.ts:980:        notifications,
+src/server/app.before-feed-api-optimization.ts:984:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.before-feed-api-optimization.ts:990:        notifications: [],
+src/server/app.before-feed-api-optimization.ts:999:   NOTIFICATION READ
+src/server/app.before-feed-api-optimization.ts:1002:  '/api/notifications/:id/read',
+src/server/app.before-feed-api-optimization.ts:1006:      const notificationId = req.params.id;
+src/server/app.before-feed-api-optimization.ts:1010:        UPDATE notifications
+src/server/app.before-feed-api-optimization.ts:1012:        WHERE id = ${notificationId}
+src/server/app.before-feed-api-optimization.ts:1016:      const notification = db.getState().notifications.find(
+src/server/app.before-feed-api-optimization.ts:1017:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-feed-api-optimization.ts:1020:      if (notification) {
+src/server/app.before-feed-api-optimization.ts:1021:        notification.read = true;
+src/server/app.before-feed-api-optimization.ts:1030:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.before-live-neon-search.ts:5:import { getNotificationsFromNeon } from './db.js';
+src/server/app.before-live-neon-search.ts:649:            await db.createNotification({
+src/server/app.before-live-neon-search.ts:660:              '[FOLLOW NOTIFICATION] notification created',
+src/server/app.before-live-neon-search.ts:667:        } catch (notificationError: any) {
+src/server/app.before-live-neon-search.ts:672:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.before-live-neon-search.ts:673:            notificationError?.message || notificationError
+src/server/app.before-live-neon-search.ts:1107:   NOTIFICATIONS
+src/server/app.before-live-neon-search.ts:1111:  '/api/notifications',
+src/server/app.before-live-neon-search.ts:1117:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-live-neon-search.ts:1121:        notifications,
+src/server/app.before-live-neon-search.ts:1125:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.before-live-neon-search.ts:1131:        notifications: [],
+src/server/app.before-live-neon-search.ts:1140:   NOTIFICATION READ
+src/server/app.before-live-neon-search.ts:1143:  '/api/notifications/:id/read',
+src/server/app.before-live-neon-search.ts:1147:      const notificationId = req.params.id;
+src/server/app.before-live-neon-search.ts:1151:        UPDATE notifications
+src/server/app.before-live-neon-search.ts:1153:        WHERE id = ${notificationId}
+src/server/app.before-live-neon-search.ts:1157:      const notification = db.getState().notifications.find(
+src/server/app.before-live-neon-search.ts:1158:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-live-neon-search.ts:1161:      if (notification) {
+src/server/app.before-live-neon-search.ts:1162:        notification.read = true;
+src/server/app.before-live-neon-search.ts:1171:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.before-neon-search-users.tsx:5:import { getNotificationsFromNeon } from './db.js';
+src/server/app.before-neon-search-users.tsx:649:            await db.createNotification({
+src/server/app.before-neon-search-users.tsx:660:              '[FOLLOW NOTIFICATION] notification created',
+src/server/app.before-neon-search-users.tsx:667:        } catch (notificationError: any) {
+src/server/app.before-neon-search-users.tsx:672:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.before-neon-search-users.tsx:673:            notificationError?.message || notificationError
+src/server/app.before-neon-search-users.tsx:1139:   NOTIFICATIONS
+src/server/app.before-neon-search-users.tsx:1143:  '/api/notifications',
+src/server/app.before-neon-search-users.tsx:1149:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-neon-search-users.tsx:1153:        notifications,
+src/server/app.before-neon-search-users.tsx:1157:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.before-neon-search-users.tsx:1163:        notifications: [],
+src/server/app.before-neon-search-users.tsx:1172:   NOTIFICATION READ
+src/server/app.before-neon-search-users.tsx:1175:  '/api/notifications/:id/read',
+src/server/app.before-neon-search-users.tsx:1179:      const notificationId = req.params.id;
+src/server/app.before-neon-search-users.tsx:1183:        UPDATE notifications
+src/server/app.before-neon-search-users.tsx:1185:        WHERE id = ${notificationId}
+src/server/app.before-neon-search-users.tsx:1189:      const notification = db.getState().notifications.find(
+src/server/app.before-neon-search-users.tsx:1190:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-neon-search-users.tsx:1193:      if (notification) {
+src/server/app.before-neon-search-users.tsx:1194:        notification.read = true;
+src/server/app.before-neon-search-users.tsx:1203:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.before-profile-name-search-fix.ts:5:import { getNotificationsFromNeon } from './db.js';
+src/server/app.before-profile-name-search-fix.ts:596:            await db.createNotification({
+src/server/app.before-profile-name-search-fix.ts:607:              '[FOLLOW NOTIFICATION] notification created',
+src/server/app.before-profile-name-search-fix.ts:614:        } catch (notificationError: any) {
+src/server/app.before-profile-name-search-fix.ts:619:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.before-profile-name-search-fix.ts:620:            notificationError?.message || notificationError
+src/server/app.before-profile-name-search-fix.ts:1054:   NOTIFICATIONS
+src/server/app.before-profile-name-search-fix.ts:1058:  '/api/notifications',
+src/server/app.before-profile-name-search-fix.ts:1064:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-profile-name-search-fix.ts:1068:        notifications,
+src/server/app.before-profile-name-search-fix.ts:1072:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.before-profile-name-search-fix.ts:1078:        notifications: [],
+src/server/app.before-profile-name-search-fix.ts:1087:   NOTIFICATION READ
+src/server/app.before-profile-name-search-fix.ts:1090:  '/api/notifications/:id/read',
+src/server/app.before-profile-name-search-fix.ts:1094:      const notificationId = req.params.id;
+src/server/app.before-profile-name-search-fix.ts:1098:        UPDATE notifications
+src/server/app.before-profile-name-search-fix.ts:1100:        WHERE id = ${notificationId}
+src/server/app.before-profile-name-search-fix.ts:1104:      const notification = db.getState().notifications.find(
+src/server/app.before-profile-name-search-fix.ts:1105:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-profile-name-search-fix.ts:1108:      if (notification) {
+src/server/app.before-profile-name-search-fix.ts:1109:        notification.read = true;
+src/server/app.before-profile-name-search-fix.ts:1118:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.ts.backup-20260824-062726:9:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup-20260824-062726:290:      await db.createNotification({
+src/server/app.ts.backup-20260824-062726:742:      await db.createNotification({
+src/server/app.ts.backup-20260824-062726:754:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup-20260824-062726:758:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup-20260824-062726:1018:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup-20260824-062726:1025:        notificationType = 'salon_approved';
+src/server/app.ts.backup-20260824-062726:1031:        notificationType = 'salon_suspended';
+src/server/app.ts.backup-20260824-062726:1037:        notificationType = 'salon_rejected';
+src/server/app.ts.backup-20260824-062726:1041:        await db.createNotification({
+src/server/app.ts.backup-20260824-062726:1047:          type: notificationType,
+src/server/app.ts.backup-20260824-062726:1053:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup-20260824-062726:1057:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup-20260824-062726:1455:  // IMPORTANT: notifications must never block the booking response.
+src/server/app.ts.backup-20260824-062726:1475:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts.backup-20260824-062726:1480:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts.backup-20260824-062726:1508:    const notificationPayload = {
+src/server/app.ts.backup-20260824-062726:1519:      await db.createNotification({
+src/server/app.ts.backup-20260824-062726:1521:        ...notificationPayload,
+src/server/app.ts.backup-20260824-062726:1525:        `[BOOKING NOTIFICATION] Booking ${result.booking!.id} notified user ${recipient.id} (${recipient.role})`
+src/server/app.ts.backup-20260824-062726:1529:    // Never fail an already-created booking because notification delivery failed.
+src/server/app.ts.backup-20260824-062726:1531:      '[BOOKING NOTIFICATION] Failed to create notification:',
+src/server/app.ts.backup-20260824-062726:1538:    // Notification delivery is intentionally fire-and-forget.
+src/server/app.ts.backup-20260824-062726:2167:            await db.createNotification({
+src/server/app.ts.backup-20260824-062726:2177:        } catch (notificationError: any) {
+src/server/app.ts.backup-20260824-062726:2180:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.ts.backup-20260824-062726:2181:            notificationError?.message || notificationError
+src/server/app.ts.backup-20260824-062726:2237:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup-20260824-062726:2239:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:2241:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup-20260824-062726:2242:    res.json({ success: true, notifications });
+src/server/app.ts.backup-20260824-062726:2244:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup-20260824-062726:2252:app.put('/api/notifications/:id/read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-20260824-062726:2257:      UPDATE notifications
+src/server/app.ts.backup-20260824-062726:2264:    const notif = db.getState().notifications.find(
+src/server/app.ts.backup-20260824-062726:2275:      '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.ts.backup-before-salon-fix:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup-before-salon-fix:166:      await db.createNotification({
+src/server/app.ts.backup-before-salon-fix:336:      await db.createNotification({
+src/server/app.ts.backup-before-salon-fix:348:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup-before-salon-fix:352:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup-before-salon-fix:509:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup-before-salon-fix:516:        notificationType = 'salon_approved';
+src/server/app.ts.backup-before-salon-fix:522:        notificationType = 'salon_suspended';
+src/server/app.ts.backup-before-salon-fix:528:        notificationType = 'salon_rejected';
+src/server/app.ts.backup-before-salon-fix:531:      db.createNotification({
+src/server/app.ts.backup-before-salon-fix:537:        type: notificationType,
+src/server/app.ts.backup-before-salon-fix:1046:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup-before-salon-fix:1048:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:1050:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup-before-salon-fix:1051:    res.json({ success: true, notifications });
+src/server/app.ts.backup-before-salon-fix:1053:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup-before-salon-fix:1061:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup-before-salon-fix:1062:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert2_20260821_200704:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_neon_insert2_20260821_200704:167:      await db.createNotification({
+src/server/app.ts.backup_neon_insert2_20260821_200704:391:      await db.createNotification({
+src/server/app.ts.backup_neon_insert2_20260821_200704:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert2_20260821_200704:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert2_20260821_200704:633:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_neon_insert2_20260821_200704:640:        notificationType = 'salon_approved';
+src/server/app.ts.backup_neon_insert2_20260821_200704:646:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_neon_insert2_20260821_200704:652:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_neon_insert2_20260821_200704:656:        await db.createNotification({
+src/server/app.ts.backup_neon_insert2_20260821_200704:662:          type: notificationType,
+src/server/app.ts.backup_neon_insert2_20260821_200704:668:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup_neon_insert2_20260821_200704:672:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup_neon_insert2_20260821_200704:1182:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_neon_insert2_20260821_200704:1184:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert2_20260821_200704:1186:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_neon_insert2_20260821_200704:1187:    res.json({ success: true, notifications });
+src/server/app.ts.backup_neon_insert2_20260821_200704:1189:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_neon_insert2_20260821_200704:1197:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert2_20260821_200704:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert3_20260821_200732:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_neon_insert3_20260821_200732:167:      await db.createNotification({
+src/server/app.ts.backup_neon_insert3_20260821_200732:391:      await db.createNotification({
+src/server/app.ts.backup_neon_insert3_20260821_200732:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert3_20260821_200732:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert3_20260821_200732:633:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_neon_insert3_20260821_200732:640:        notificationType = 'salon_approved';
+src/server/app.ts.backup_neon_insert3_20260821_200732:646:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_neon_insert3_20260821_200732:652:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_neon_insert3_20260821_200732:656:        await db.createNotification({
+src/server/app.ts.backup_neon_insert3_20260821_200732:662:          type: notificationType,
+src/server/app.ts.backup_neon_insert3_20260821_200732:668:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup_neon_insert3_20260821_200732:672:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup_neon_insert3_20260821_200732:1182:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_neon_insert3_20260821_200732:1184:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert3_20260821_200732:1186:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_neon_insert3_20260821_200732:1187:    res.json({ success: true, notifications });
+src/server/app.ts.backup_neon_insert3_20260821_200732:1189:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_neon_insert3_20260821_200732:1197:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert3_20260821_200732:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.notifications-backup:7:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.notifications-backup:152:      await db.createNotification({
+src/server/app.ts.notifications-backup:321:    await db.createNotification({
+src/server/app.ts.notifications-backup:483:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.notifications-backup:490:        notificationType = 'salon_approved';
+src/server/app.ts.notifications-backup:496:        notificationType = 'salon_suspended';
+src/server/app.ts.notifications-backup:502:        notificationType = 'salon_rejected';
+src/server/app.ts.notifications-backup:505:      db.createNotification({
+src/server/app.ts.notifications-backup:511:        type: notificationType,
+src/server/app.ts.notifications-backup:1020:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.notifications-backup:1022:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1024:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.notifications-backup:1025:    res.json({ success: true, notifications });
+src/server/app.ts.notifications-backup:1027:    console.error('Notifications Neon error:', error);
+src/server/app.ts.notifications-backup:1035:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1036:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert_20260821_200521:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_neon_insert_20260821_200521:167:      await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200521:391:      await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200521:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200521:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200521:633:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_neon_insert_20260821_200521:640:        notificationType = 'salon_approved';
+src/server/app.ts.backup_neon_insert_20260821_200521:646:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_neon_insert_20260821_200521:652:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_neon_insert_20260821_200521:656:        await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200521:662:          type: notificationType,
+src/server/app.ts.backup_neon_insert_20260821_200521:668:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200521:672:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200521:1182:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_neon_insert_20260821_200521:1184:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert_20260821_200521:1186:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_neon_insert_20260821_200521:1187:    res.json({ success: true, notifications });
+src/server/app.ts.backup_neon_insert_20260821_200521:1189:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_neon_insert_20260821_200521:1197:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert_20260821_200521:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert_20260821_200551:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_neon_insert_20260821_200551:167:      await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200551:391:      await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200551:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200551:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200551:633:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_neon_insert_20260821_200551:640:        notificationType = 'salon_approved';
+src/server/app.ts.backup_neon_insert_20260821_200551:646:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_neon_insert_20260821_200551:652:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_neon_insert_20260821_200551:656:        await db.createNotification({
+src/server/app.ts.backup_neon_insert_20260821_200551:662:          type: notificationType,
+src/server/app.ts.backup_neon_insert_20260821_200551:668:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200551:672:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200551:1182:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_neon_insert_20260821_200551:1184:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert_20260821_200551:1186:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_neon_insert_20260821_200551:1187:    res.json({ success: true, notifications });
+src/server/app.ts.backup_neon_insert_20260821_200551:1189:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_neon_insert_20260821_200551:1197:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert_20260821_200551:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_salon_20260821_195237:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_salon_20260821_195237:167:      await db.createNotification({
+src/server/app.ts.backup_salon_20260821_195237:337:      await db.createNotification({
+src/server/app.ts.backup_salon_20260821_195237:349:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_salon_20260821_195237:353:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_salon_20260821_195237:532:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_salon_20260821_195237:539:        notificationType = 'salon_approved';
+src/server/app.ts.backup_salon_20260821_195237:545:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_salon_20260821_195237:551:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_salon_20260821_195237:554:      db.createNotification({
+src/server/app.ts.backup_salon_20260821_195237:560:        type: notificationType,
+src/server/app.ts.backup_salon_20260821_195237:1069:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_salon_20260821_195237:1071:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_salon_20260821_195237:1073:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_salon_20260821_195237:1074:    res.json({ success: true, notifications });
+src/server/app.ts.backup_salon_20260821_195237:1076:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_salon_20260821_195237:1084:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_salon_20260821_195237:1085:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_tsfix_20260821_195504:8:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.backup_tsfix_20260821_195504:167:      await db.createNotification({
+src/server/app.ts.backup_tsfix_20260821_195504:391:      await db.createNotification({
+src/server/app.ts.backup_tsfix_20260821_195504:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_tsfix_20260821_195504:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_tsfix_20260821_195504:633:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.backup_tsfix_20260821_195504:640:        notificationType = 'salon_approved';
+src/server/app.ts.backup_tsfix_20260821_195504:646:        notificationType = 'salon_suspended';
+src/server/app.ts.backup_tsfix_20260821_195504:652:        notificationType = 'salon_rejected';
+src/server/app.ts.backup_tsfix_20260821_195504:656:        await db.createNotification({
+src/server/app.ts.backup_tsfix_20260821_195504:662:          type: notificationType,
+src/server/app.ts.backup_tsfix_20260821_195504:668:          `[SALON NOTIFICATION] ${notificationType} sent to owner ${owner.id} for salon ${salon.id}`
+src/server/app.ts.backup_tsfix_20260821_195504:672:          `[SALON NOTIFICATION] Failed for owner ${owner.id}:`,
+src/server/app.ts.backup_tsfix_20260821_195504:1182:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.backup_tsfix_20260821_195504:1184:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_tsfix_20260821_195504:1186:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.backup_tsfix_20260821_195504:1187:    res.json({ success: true, notifications });
+src/server/app.ts.backup_tsfix_20260821_195504:1189:    console.error('Notifications Neon error:', error);
+src/server/app.ts.backup_tsfix_20260821_195504:1197:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_tsfix_20260821_195504:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.before-profile-debug:5:import { getNotificationsFromNeon } from './db.js';
+src/server/app.ts.before-profile-debug:649:            await db.createNotification({
+src/server/app.ts.before-profile-debug:660:              '[FOLLOW NOTIFICATION] notification created',
+src/server/app.ts.before-profile-debug:667:        } catch (notificationError: any) {
+src/server/app.ts.before-profile-debug:672:            '[FOLLOW NOTIFICATION ERROR]',
+src/server/app.ts.before-profile-debug:673:            notificationError?.message || notificationError
+src/server/app.ts.before-profile-debug:1164:   NOTIFICATIONS
+src/server/app.ts.before-profile-debug:1168:  '/api/notifications',
+src/server/app.ts.before-profile-debug:1174:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.ts.before-profile-debug:1178:        notifications,
+src/server/app.ts.before-profile-debug:1182:        '[NOTIFICATIONS GET ERROR]',
+src/server/app.ts.before-profile-debug:1188:        notifications: [],
+src/server/app.ts.before-profile-debug:1197:   NOTIFICATION READ
+src/server/app.ts.before-profile-debug:1200:  '/api/notifications/:id/read',
+src/server/app.ts.before-profile-debug:1204:      const notificationId = req.params.id;
+src/server/app.ts.before-profile-debug:1208:        UPDATE notifications
+src/server/app.ts.before-profile-debug:1210:        WHERE id = ${notificationId}
+src/server/app.ts.before-profile-debug:1214:      const notification = db.getState().notifications.find(
+src/server/app.ts.before-profile-debug:1215:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.ts.before-profile-debug:1218:      if (notification) {
+src/server/app.ts.before-profile-debug:1219:        notification.read = true;
+src/server/app.ts.before-profile-debug:1228:        '[NOTIFICATION READ] Failed to persist read state:',
+src/server/app.ts.before-supabase-images:7:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.before-supabase-images:160:      await db.createNotification({
+src/server/app.ts.before-supabase-images:330:      await db.createNotification({
+src/server/app.ts.before-supabase-images:342:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.before-supabase-images:346:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.before-supabase-images:503:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.before-supabase-images:510:        notificationType = 'salon_approved';
+src/server/app.ts.before-supabase-images:516:        notificationType = 'salon_suspended';
+src/server/app.ts.before-supabase-images:522:        notificationType = 'salon_rejected';
+src/server/app.ts.before-supabase-images:525:      db.createNotification({
+src/server/app.ts.before-supabase-images:531:        type: notificationType,
+src/server/app.ts.before-supabase-images:1040:// NOTIFICATIONS ENDPOINTS
+src/server/app.ts.before-supabase-images:1042:app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.before-supabase-images:1044:    const notifications = await getNotificationsFromNeon(req.user!.id);
+src/server/app.ts.before-supabase-images:1045:    res.json({ success: true, notifications });
+src/server/app.ts.before-supabase-images:1047:    console.error('Notifications Neon error:', error);
+src/server/app.ts.before-supabase-images:1055:app.put('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.before-supabase-images:1056:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.before-user-posts-feed-fix:9:import { db, getNotificationsFromNeon } from './db';
+src/server/app.ts.before-user-posts-feed-fix:290:      await db.createNotification({
+src/server/app.ts.before-user-posts-feed-fix:742:      await db.createNotification({
+src/server/app.ts.before-user-posts-feed-fix:754:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.before-user-posts-feed-fix:758:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.before-user-posts-feed-fix:1018:      let notificationType: 'salon_approved' | 'salon_rejected' | 'salon_suspended' = 'salon_rejected';
+src/server/app.ts.before-user-posts-feed-fix:1025:        notificationType = 'salon_approved';
+src/server/app.ts.before-user-posts-feed-fix:1031:        notificationType = 'salon_suspended';
+
+### RECIPIENT ROUTING
+src/App.tsx:373:          <MyBookingsView onSelectSalonId={handleSelectSalonById} />
+src/types/index.ts:31:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_notification_fix:1:export type UserRole = 'customer' | 'salon_owner' | 'staff' | 'admin';
+src/types/index.ts.before_booking_notification_fix:11:  salonId?: string; // If salon owner or staff
+src/types/index.ts.before_booking_notification_fix:19:  userId: string;
+src/types/index.ts.before_booking_notification_fix:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_notification_fix:79:  ownerId: string;
+src/types/index.ts.before_booking_notification_fix:85:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:101:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:120:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:153:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:177:  salonId?: string; // If specific to salon or platform-wide
+src/types/index.ts.before_booking_notification_fix:182:  userId: string;
+src/types/index.ts.before_booking_notification_fix:191:  salonId?: string;
+src/types/index.ts.before_booking_notification_fix:206:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:233:  salonId: string;
+src/types/index.ts.before_booking_notification_fix:234:  ownerId: string;
+src/types/index.ts.before_booking_notification_fix:247:  userId: string;
+src/types/index.ts.before_booking_notification_fix:257:  userId: string;
+src/types/index.ts.before_qr_step1_20260822_215447:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_completed_20260822_222100:1:export type UserRole = 'customer' | 'salon_owner' | 'staff' | 'admin';
+src/types/index.ts.before_booking_completed_20260822_222100:11:  salonId?: string; // If salon owner or staff
+src/types/index.ts.before_booking_completed_20260822_222100:19:  userId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_booking_completed_20260822_222100:79:  ownerId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:85:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:101:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:120:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:160:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:184:  salonId?: string; // If specific to salon or platform-wide
+src/types/index.ts.before_booking_completed_20260822_222100:189:  userId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:198:  salonId?: string;
+src/types/index.ts.before_booking_completed_20260822_222100:213:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:240:  salonId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:241:  ownerId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:254:  userId: string;
+src/types/index.ts.before_booking_completed_20260822_222100:264:  userId: string;
+src/types/index.ts.backup_before_salon_ban_20260823_040554:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before-user-post-profile-fix:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_post_like_notification_20260824_201809:1:export type UserRole = 'customer' | 'salon_owner' | 'staff' | 'admin';
+src/types/index.ts.before_post_like_notification_20260824_201809:11:  salonId?: string; // If salon owner or staff
+src/types/index.ts.before_post_like_notification_20260824_201809:19:  userId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:22:  action: string; // e.g. "ADMIN_LOGIN", "ROLE_CHANGE", "SALON_APPROVE", "SALON_SUSPEND", "USER_BAN", "SETTINGS_UPDATE", "BOOKING_CANCEL"
+src/types/index.ts.before_post_like_notification_20260824_201809:79:  ownerId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:85:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:101:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:120:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:160:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:184:  salonId?: string; // If specific to salon or platform-wide
+src/types/index.ts.before_post_like_notification_20260824_201809:189:  userId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:198:  salonId?: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:213:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:240:  salonId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:241:  ownerId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:253:  userId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:267:  userId: string;
+src/types/index.ts.before_post_like_notification_20260824_201809:277:  userId: string;
+src/server/db.ts:256:    id = notification.actorUserId || '';
+src/server/db.ts:266:    actorUserId: notification.actorUserId || '',
+src/server/db.ts:2383:      (${notification.id}, ${notification.userId}, ${notification.actorUserId ?? null}, ${notification.title},
+src/server/db.ts:2393:      userId: notification.userId,
+src/server/db.ts:3226:      await this.sendPushToUser(notification.userId, {
+src/server/db.ts:3311:        SELECT * FROM notification_preferences WHERE user_id = ${userId} LIMIT 1
+src/server/db.ts:3336:      const current = await this.getNotificationPreferences(userId);
+src/server/db.ts:3346:          (user_id, likes, comments, followers, messages, bookings, reviews, reels, admin)
+src/server/db.ts:3349:           ${next.bookings}, ${next.reviews}, ${next.reels}, ${next.admin})
+src/server/db.ts:3378:      const prefs = await this.getNotificationPreferences(userId);
+src/server/db.ts:3663:  async getBookingsForSalonOwnerFromNeon(userId: string): Promise<Booking[]> {
+src/server/db.ts:3845:    const salon = this.state.salons.find((s) => s.id === bookingData.salonId);
+src/server/db.ts:3855:      (srv) => srv.id === bookingData.serviceId && srv.salonId === bookingData.salonId
+src/server/db.ts:3867:          (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+src/server/db.ts:3900:        bt.salonId === bookingData.salonId &&
+src/server/db.ts:4007:        ${newBooking.salonId},
+src/server/db.ts:4080:      userId: newBooking.customerId,
+src/server/db.ts:4129:    // Only salon owner/staff/admin can complete a booking by QR.
+src/server/db.ts:4145:        booking.salonId
+src/server/db.ts:4293:      userId: booking.customerId,
+src/server/db.ts:4300:      salonId: booking.salonId,
+src/server/db.ts:4313:        salonId: booking.salonId,
+src/server/db.ts:4317:    // Admin notifications
+src/server/db.ts:4331:        salonId: booking.salonId,
+src/server/db.ts:4368:    // Admin can cancel any booking
+src/server/db.ts:4375:      !this.isApprovedSalonOwner(requestingUser.id, booking.salonId)
+src/server/db.ts:4386:      userId: booking.customerId,
+src/server/db.ts:4439:    if (!hasCompletedBooking && requestingUser.role !== 'admin') {
+src/server/db.ts:7244:export async function getNotificationsFromNeon(userId: string): Promise<Notification[]> {
+src/server/app.ts:12:import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
+src/server/app.ts:973:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts:977:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts:2371:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts:2550:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts:2566:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts:2572:      (s) => s.id === result.booking!.salonId
+src/server/app.ts:2587:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts:2592:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts:2627:      salonId: result.booking!.salonId,
+src/server/app.ts:2637:      salonId: result.booking!.salonId,
+src/server/app.ts:2654:      const existingCustomerNotifs = (db.getState().notifications || []).filter((n: any) => n.userId === customer.id && n.type === 'booking_confirmed' && n.link === '/bookings' && n.salonId === result.booking!.salonId && n.message?.includes(result.booking!.date));
+src/server/app.ts:2745:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts:2748:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts:5031:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.ts:5072:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-feed-api-optimization.ts:976:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-feed-api-optimization.ts:1017:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-live-neon-search.ts:1117:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-live-neon-search.ts:1158:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-neon-search-users.tsx:1149:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-neon-search-users.tsx:1190:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.before-profile-name-search-fix.ts:1064:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.before-profile-name-search-fix.ts:1105:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.ts.backup-20260824-062726:754:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup-20260824-062726:758:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup-20260824-062726:1259:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts.backup-20260824-062726:1438:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts.backup-20260824-062726:1454:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts.backup-20260824-062726:1460:      (s) => s.id === result.booking!.salonId
+src/server/app.ts.backup-20260824-062726:1475:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts.backup-20260824-062726:1480:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts.backup-20260824-062726:1515:      salonId: result.booking!.salonId,
+src/server/app.ts.backup-20260824-062726:1611:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts.backup-20260824-062726:1614:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts.backup-20260824-062726:1665:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup-before-salon-fix:348:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup-before-salon-fix:352:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup-before-salon-fix:690:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup-before-salon-fix:751:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup-before-salon-fix:752:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup-before-salon-fix:796:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup-before-salon-fix:1062:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert2_20260821_200704:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert2_20260821_200704:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert2_20260821_200704:826:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_neon_insert2_20260821_200704:887:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_neon_insert2_20260821_200704:888:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_neon_insert2_20260821_200704:932:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_neon_insert2_20260821_200704:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert3_20260821_200732:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert3_20260821_200732:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert3_20260821_200732:826:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_neon_insert3_20260821_200732:887:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_neon_insert3_20260821_200732:888:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_neon_insert3_20260821_200732:932:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_neon_insert3_20260821_200732:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.notifications-backup:14:  requireSalonOwnerOrAdmin,
+src/server/app.ts.notifications-backup:84:// Admin lift salon suspension
+src/server/app.ts.notifications-backup:85:app.put('/api/admin/salons/:id/lift-sanction', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:98:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:100:    userRole: 'admin',
+src/server/app.ts.notifications-backup:129:      userId: 'unknown',
+src/server/app.ts.notifications-backup:148:  // Notify admin about successful user login
+src/server/app.ts.notifications-backup:149:  if (user.role !== 'admin') {
+src/server/app.ts.notifications-backup:150:    const adminUsers = db.getAdminUsers();
+src/server/app.ts.notifications-backup:151:    for (const admin of adminUsers) {
+src/server/app.ts.notifications-backup:153:        userId: admin.id,
+src/server/app.ts.notifications-backup:159:        link: '/admin',
+src/server/app.ts.notifications-backup:166:    userId: user.id,
+src/server/app.ts.notifications-backup:169:    action: user.role === 'admin' ? 'ADMIN_LOGIN' : 'USER_LOGIN',
+src/server/app.ts.notifications-backup:192:  // Role restrictions: Registration can NEVER create an admin
+src/server/app.ts.notifications-backup:193:  if (role === 'admin') {
+src/server/app.ts.notifications-backup:239:  // Only Admin can see pending/rejected salons
+src/server/app.ts.notifications-backup:240:  const isAdmin = req.user?.role === 'admin';
+src/server/app.ts.notifications-backup:244:    if (isAdmin) {
+src/server/app.ts.notifications-backup:245:      // admin sees all
+src/server/app.ts.notifications-backup:246:    } else if (isOwner && req.user?.salonId) {
+src/server/app.ts.notifications-backup:248:      salons = salons.filter((s) => s.status === 'approved' || s.id === req.user?.salonId || s.ownerId === req.user?.id);
+src/server/app.ts.notifications-backup:286:  const reviews = db.getState().reviews.filter((r) => r.salonId === salon.id);
+src/server/app.ts.notifications-backup:297:app.post('/api/salons', requireAuth, requireRole('salon_owner', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:304:    ownerId: req.user!.id,
+src/server/app.ts.notifications-backup:308:    status: req.user!.role === 'admin' ? 'approved' : 'pending', // Requires admin approval for owners
+src/server/app.ts.notifications-backup:309:    isVerified: req.user!.role === 'admin',
+src/server/app.ts.notifications-backup:315:  // Notify admins about the new salon awaiting approval
+src/server/app.ts.notifications-backup:316:  const admins = db.getState().users.filter(
+src/server/app.ts.notifications-backup:317:    (u) => u.role === 'admin' && u.isActive
+src/server/app.ts.notifications-backup:320:  for (const admin of admins) {
+src/server/app.ts.notifications-backup:322:      userId: admin.id,
+src/server/app.ts.notifications-backup:326:      messageEn: `A new salon "${newSalon.name}" was registered and is awaiting admin approval.`,
+src/server/app.ts.notifications-backup:328:      link: `/admin/salons/${newSalon.id}`,
+src/server/app.ts.notifications-backup:332:  // If creator is salon_owner, link salonId to user
+src/server/app.ts.notifications-backup:336:      userInDb.salonId = newSalon.id;
+src/server/app.ts.notifications-backup:341:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:355:app.put('/api/salons/:id', requireAuth, requireSalonOwnerOrAdmin, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:361:  // Salon owners cannot change their own approval status or commission rate (Admin only)
+src/server/app.ts.notifications-backup:363:  if (req.user!.role !== 'admin') {
+src/server/app.ts.notifications-backup:367:    delete updatePayload.ownerId;
+src/server/app.ts.notifications-backup:373:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:387:app.delete('/api/salons/:id', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:396:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:398:    userRole: 'admin',
+src/server/app.ts.notifications-backup:410:// Admin approve/reject/suspend salon
+src/server/app.ts.notifications-backup:411:app.put('/api/admin/salons/:id/status', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:421:      const salonId = salon.id;
+src/server/app.ts.notifications-backup:423:      await sql`DELETE FROM salons WHERE id = ${salonId}`;
+src/server/app.ts.notifications-backup:426:        (s) => s.id === salonId
+src/server/app.ts.notifications-backup:434:        userId: req.user!.id,
+src/server/app.ts.notifications-backup:436:        userRole: 'admin',
+src/server/app.ts.notifications-backup:439:        targetId: salonId,
+src/server/app.ts.notifications-backup:448:        salonId,
+src/server/app.ts.notifications-backup:475:  if (salon.ownerId && status) {
+src/server/app.ts.notifications-backup:476:    const owner = db.getUserById(salon.ownerId);
+src/server/app.ts.notifications-backup:501:        messageEn = `Your salon "${salon.name}" is still awaiting admin review.`;
+src/server/app.ts.notifications-backup:506:        userId: owner.id,
+src/server/app.ts.notifications-backup:518:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:520:    userRole: 'admin',
+src/server/app.ts.notifications-backup:536:  const { salonId } = req.query;
+src/server/app.ts.notifications-backup:537:  if (salonId) {
+src/server/app.ts.notifications-backup:538:    return res.json({ success: true, services: db.getServicesBySalon(salonId as string) });
+src/server/app.ts.notifications-backup:543:app.post('/api/services', requireAuth, requireSalonOwnerOrAdmin, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:551:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:557:    details: `إضافة خدمة جديدة ${newService.name} بسعر ${newService.price} د.ع للصالون ${newService.salonId}`,
+src/server/app.ts.notifications-backup:570:  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetService.salonId)) {
+src/server/app.ts.notifications-backup:583:  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetService.salonId)) {
+src/server/app.ts.notifications-backup:595:  const { salonId } = req.query;
+src/server/app.ts.notifications-backup:596:  if (salonId) {
+src/server/app.ts.notifications-backup:597:    return res.json({ success: true, barbers: db.getBarbersBySalon(salonId as string) });
+src/server/app.ts.notifications-backup:602:app.post('/api/barbers', requireAuth, requireSalonOwnerOrAdmin, (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:619:  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetBarber.salonId)) {
+src/server/app.ts.notifications-backup:632:  if (req.user!.role !== 'admin' && !db.isApprovedSalonOwner(req.user!.id, targetBarber.salonId)) {
+src/server/app.ts.notifications-backup:644:  const { customerId, salonId, status } = req.query;
+src/server/app.ts.notifications-backup:654:    const ownedSalonId = user.salonId;
+src/server/app.ts.notifications-backup:656:      (b) => (ownedSalonId && b.salonId === ownedSalonId) || db.isSalonOwner(user.id, b.salonId)
+src/server/app.ts.notifications-backup:658:  } else if (user.role === 'admin') {
+src/server/app.ts.notifications-backup:659:    // Admin can filter by customerId or salonId if passed
+src/server/app.ts.notifications-backup:663:    if (salonId) {
+src/server/app.ts.notifications-backup:664:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.notifications-backup:699:    !securePayload.salonId ||
+src/server/app.ts.notifications-backup:725:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.notifications-backup:726:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.notifications-backup:733:    userId: user.id,
+src/server/app.ts.notifications-backup:761:  const { salonId } = req.query;
+src/server/app.ts.notifications-backup:762:  if (salonId) {
+src/server/app.ts.notifications-backup:763:    const reviews = db.getState().reviews.filter((r) => r.salonId === salonId);
+src/server/app.ts.notifications-backup:770:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.notifications-backup:773:  if (!salonId || !rating || !comment) {
+src/server/app.ts.notifications-backup:777:  const salon = db.getSalonById(salonId);
+src/server/app.ts.notifications-backup:784:      salonId,
+src/server/app.ts.notifications-backup:809:  const salonId = typeof req.query.salonId === 'string'
+src/server/app.ts.notifications-backup:810:    ? req.query.salonId
+src/server/app.ts.notifications-backup:813:  const posts = db.getSalonPosts(salonId);
+src/server/app.ts.notifications-backup:820:  const { salonId, imageUrl, caption } = req.body;
+src/server/app.ts.notifications-backup:822:  if (!salonId || !imageUrl) {
+src/server/app.ts.notifications-backup:831:      salonId,
+src/server/app.ts.notifications-backup:981:app.post('/api/coupons', requireAuth, requireRole('admin', 'salon_owner'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:997:  const favSalonIds = db.getState().favorites.filter((f) => f.userId === uid).map((f) => f.salonId);
+src/server/app.ts.notifications-backup:998:  const salons = db.getState().salons.filter((s) => favSalonIds.includes(s.id));
+src/server/app.ts.notifications-backup:999:  res.json({ success: true, salons, salonIds: favSalonIds });
+src/server/app.ts.notifications-backup:1003:  const { salonId } = req.body;
+src/server/app.ts.notifications-backup:1006:  const index = favorites.findIndex((f) => f.userId === uid && f.salonId === salonId);
+src/server/app.ts.notifications-backup:1013:    favorites.push({ userId: uid, salonId });
+src/server/app.ts.notifications-backup:1036:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.notifications-backup:1048:app.post('/api/cities', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1060:// STRICT ADMIN ENDPOINTS (RBAC PROTECTED)
+src/server/app.ts.notifications-backup:1062:app.get('/api/admin/audit-logs', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1067:app.get('/api/admin/users', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1072:app.put('/api/admin/users/:id/role', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1082:app.put('/api/admin/users/:id/ban', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1091:app.delete('/api/admin/users/:id', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1100:app.get('/api/admin/settings', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1104:app.put('/api/admin/settings', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.notifications-backup:1109:    userId: req.user!.id,
+src/server/app.ts.notifications-backup:1111:    userRole: 'admin',
+src/server/app.ts.notifications-backup:1122:app.get('/api/admin/stats', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+src/server/app.ts.backup_neon_insert_20260821_200521:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200521:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200521:826:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_neon_insert_20260821_200521:887:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_neon_insert_20260821_200521:888:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_neon_insert_20260821_200521:932:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_neon_insert_20260821_200521:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_neon_insert_20260821_200551:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_neon_insert_20260821_200551:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_neon_insert_20260821_200551:826:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_neon_insert_20260821_200551:887:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_neon_insert_20260821_200551:888:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_neon_insert_20260821_200551:932:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_neon_insert_20260821_200551:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_salon_20260821_195237:349:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_salon_20260821_195237:353:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_salon_20260821_195237:713:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_salon_20260821_195237:774:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_salon_20260821_195237:775:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_salon_20260821_195237:819:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_salon_20260821_195237:1085:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.backup_tsfix_20260821_195504:403:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.backup_tsfix_20260821_195504:407:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.backup_tsfix_20260821_195504:826:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.backup_tsfix_20260821_195504:887:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.backup_tsfix_20260821_195504:888:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.backup_tsfix_20260821_195504:932:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.backup_tsfix_20260821_195504:1198:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.before-profile-debug:1174:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.ts.before-profile-debug:1215:        (n) => n.id === notificationId && n.userId === userId
+src/server/app.ts.before-supabase-images:342:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.before-supabase-images:346:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.before-supabase-images:684:      bookings = bookings.filter((b) => b.salonId === salonId);
+src/server/app.ts.before-supabase-images:745:  // Role check: Only the salon owner of this booking or Admin can update status
+src/server/app.ts.before-supabase-images:746:  if (user.role !== 'admin' && !db.isSalonOwner(user.id, booking.salonId)) {
+src/server/app.ts.before-supabase-images:790:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/app.ts.before-supabase-images:1056:  const notif = db.getState().notifications.find((n) => n.id === req.params.id && n.userId === req.user!.id);
+src/server/app.ts.before-user-posts-feed-fix:754:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.before-user-posts-feed-fix:758:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.before-user-posts-feed-fix:1259:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts.before-user-posts-feed-fix:1438:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts.before-user-posts-feed-fix:1454:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts.before-user-posts-feed-fix:1460:      (s) => s.id === result.booking!.salonId
+src/server/app.ts.before-user-posts-feed-fix:1475:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts.before-user-posts-feed-fix:1480:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts.before-user-posts-feed-fix:1515:      salonId: result.booking!.salonId,
+src/server/app.ts.before-user-posts-feed-fix:1611:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts.before-user-posts-feed-fix:1614:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts.before-user-posts-feed-fix:1665:  const { salonId, bookingId, rating, comment } = req.body;
+src/server/db.backup.ts:1184:    const salon = this.state.salons.find((s) => s.id === bookingData.salonId);
+src/server/db.backup.ts:1194:      (srv) => srv.id === bookingData.serviceId && srv.salonId === bookingData.salonId
+src/server/db.backup.ts:1203:      (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+src/server/db.backup.ts:1228:        bt.salonId === bookingData.salonId &&
+src/server/db.backup.ts:1287:      userId: newBooking.customerId,
+src/server/db.backup.ts:1331:    // Admin can cancel any booking
+src/server/db.backup.ts:1336:    if (requestingUser.role === 'salon_owner' && !this.isSalonOwner(requestingUser.id, booking.salonId)) {
+src/server/db.backup.ts:1346:      userId: booking.customerId,
+src/server/db.backup.ts:1399:    if (!hasCompletedBooking && requestingUser.role !== 'admin') {
+src/server/app.ts.ai-backup:12:import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
+src/server/app.ts.ai-backup:973:        `[NOTIFICATION] New salon notification sent to admin ${admin.id} for salon ${newSalon.id}`
+src/server/app.ts.ai-backup:977:        `[NOTIFICATION] Failed for admin ${admin.id}:`,
+src/server/app.ts.ai-backup:2371:      bookings = await db.getBookingsForSalonOwnerFromNeon(user.id);
+src/server/app.ts.ai-backup:2550:    `[BOOKING] Creating salon booking without barber: salon=${securePayload.salonId} service=${securePayload.serviceId} date=${securePayload.date} time=${securePayload.timeSlot}`
+src/server/app.ts.ai-backup:2566:  // Notify both the salon owner and platform admins after a successful booking.
+src/server/app.ts.ai-backup:2572:      (s) => s.id === result.booking!.salonId
+src/server/app.ts.ai-backup:2587:          `[BOOKING NOTIFICATION] Salon owner ${salon.ownerId} was not found`
+src/server/app.ts.ai-backup:2592:        `[BOOKING NOTIFICATION] Salon ${result.booking!.salonId} has no ownerId`
+src/server/app.ts.ai-backup:2627:      salonId: result.booking!.salonId,
+src/server/app.ts.ai-backup:2637:      salonId: result.booking!.salonId,
+src/server/app.ts.ai-backup:2654:      const existingCustomerNotifs = (db.getState().notifications || []).filter((n: any) => n.userId === customer.id && n.type === 'booking_confirmed' && n.link === '/bookings' && n.salonId === result.booking!.salonId && n.message?.includes(result.booking!.date));
+src/server/app.ts.ai-backup:2745:  // Only the salon owner of this booking or Admin can update status.
+src/server/app.ts.ai-backup:2748:    !db.isSalonOwner(user.id, booking.salonId)
+src/server/app.ts.ai-backup:5031:      const notifications = await getNotificationsFromNeon(userId);
+src/server/app.ts.ai-backup:5072:        (n) => n.id === notificationId && n.userId === userId
+src/server/db.ts.notifications-backup:44:  favorites: { userId: string; salonId: string }[];
+src/server/db.ts.notifications-backup:65:const adminHash = hashPassword(process.env.HALAQI_ADMIN_PASSWORD || '', defaultSalt);
+src/server/db.ts.notifications-backup:114:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:123:    id: 'user_admin_1',
+src/server/db.ts.notifications-backup:125:    email: 'admin@halaqi.iq',
+src/server/db.ts.notifications-backup:127:    role: 'admin',
+src/server/db.ts.notifications-backup:133:    passwordHash: adminHash,
+src/server/db.ts.notifications-backup:141:    userId: 'user_admin_1',
+src/server/db.ts.notifications-backup:142:    userEmail: 'admin@halaqi.iq',
+src/server/db.ts.notifications-backup:143:    userRole: 'admin',
+src/server/db.ts.notifications-backup:153:    userId: 'user_admin_1',
+src/server/db.ts.notifications-backup:154:    userEmail: 'admin@halaqi.iq',
+src/server/db.ts.notifications-backup:155:    userRole: 'admin',
+src/server/db.ts.notifications-backup:197:    ownerId: 'user_owner_1',
+src/server/db.ts.notifications-backup:230:    ownerId: 'user_owner_2',
+src/server/db.ts.notifications-backup:262:    ownerId: 'user_owner_3',
+src/server/db.ts.notifications-backup:294:    ownerId: 'user_owner_4',
+src/server/db.ts.notifications-backup:325:    ownerId: 'user_owner_5',
+src/server/db.ts.notifications-backup:356:    ownerId: 'user_owner_6',
+src/server/db.ts.notifications-backup:387:    ownerId: 'user_owner_7',
+src/server/db.ts.notifications-backup:418:    ownerId: 'user_owner_8',
+src/server/db.ts.notifications-backup:427:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:442:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:456:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:472:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:486:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:502:    salonId: 'salon_3',
+src/server/db.ts.notifications-backup:518:    salonId: 'salon_6',
+src/server/db.ts.notifications-backup:536:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:549:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:562:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:575:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:587:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:601:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:614:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:627:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:640:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:652:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:666:    salonId: 'salon_6',
+src/server/db.ts.notifications-backup:683:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:712:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:742:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:756:    salonId: 'salon_1',
+src/server/db.ts.notifications-backup:767:    salonId: 'salon_2',
+src/server/db.ts.notifications-backup:817:    userId: 'user_cust_1',
+src/server/db.ts.notifications-backup:829:    userId: 'user_cust_1',
+src/server/db.ts.notifications-backup:888:        { userId: 'user_cust_1', salonId: 'salon_1' },
+src/server/db.ts.notifications-backup:889:        { userId: 'user_cust_1', salonId: 'salon_2' },
+src/server/db.ts.notifications-backup:898:    salonId: string,
+src/server/db.ts.notifications-backup:906:      WHERE id = ${salonId}
+src/server/db.ts.notifications-backup:936:      ownerId: s.owner_id,
+src/server/db.ts.notifications-backup:943:  async deleteSalonFromNeon(salonId: string): Promise<boolean> {
+src/server/db.ts.notifications-backup:946:      WHERE id = ${salonId}
+src/server/db.ts.notifications-backup:1011:      salonId?: string;
+src/server/db.ts.notifications-backup:1021:    // STRICT SECURITY: Public registration CANNOT grant admin role
+src/server/db.ts.notifications-backup:1034:      salonId: assignedRole === 'salon_owner' ? userData.salonId : undefined,
+src/server/db.ts.notifications-backup:1044:    // Notify all admins about the new registration
+src/server/db.ts.notifications-backup:1045:    const admins = this.state.users.filter((u) => u.role === 'admin' && u.isActive);
+src/server/db.ts.notifications-backup:1047:    for (const admin of admins) {
+src/server/db.ts.notifications-backup:1049:        userId: admin.id,
+src/server/db.ts.notifications-backup:1055:        link: '/admin/users',
+src/server/db.ts.notifications-backup:1060:      userId: newUser.id,
+src/server/db.ts.notifications-backup:1095:    userId: string;
+src/server/db.ts.notifications-backup:1102:    salonId?: string;
+src/server/db.ts.notifications-backup:1106:      userId: data.userId,
+src/server/db.ts.notifications-backup:1115:      salonId: data.salonId,
+src/server/db.ts.notifications-backup:1125:      (${notification.id}, ${notification.userId}, ${notification.title},
+src/server/db.ts.notifications-backup:1142:  // Admin User Management
+src/server/db.ts.notifications-backup:1143:  updateUserRole(userId: string, newRole: UserRole, adminUser: User, ip?: string): { success: boolean; error?: string } {
+src/server/db.ts.notifications-backup:1144:    if (adminUser.role !== 'admin') {
+src/server/db.ts.notifications-backup:1148:    const user = this.state.users.find((u) => u.id === userId);
+src/server/db.ts.notifications-backup:1155:      userId: adminUser.id,
+src/server/db.ts.notifications-backup:1156:      userEmail: adminUser.email,
+src/server/db.ts.notifications-backup:1157:      userRole: 'admin',
+src/server/db.ts.notifications-backup:1169:  toggleUserBan(userId: string, adminUser: User, ip?: string): { success: boolean; isBanned?: boolean; error?: string } {
+src/server/db.ts.notifications-backup:1170:    if (adminUser.role !== 'admin') {
+src/server/db.ts.notifications-backup:1174:    const user = this.state.users.find((u) => u.id === userId);
+src/server/db.ts.notifications-backup:1177:    if (user.role === 'admin') {
+src/server/db.ts.notifications-backup:1184:      userId: adminUser.id,
+src/server/db.ts.notifications-backup:1185:      userEmail: adminUser.email,
+src/server/db.ts.notifications-backup:1186:      userRole: 'admin',
+src/server/db.ts.notifications-backup:1198:  deleteUser(userId: string, adminUser: User, ip?: string): { success: boolean; error?: string } {
+src/server/db.ts.notifications-backup:1199:    if (adminUser.role !== 'admin') {
+src/server/db.ts.notifications-backup:1203:    const index = this.state.users.findIndex((u) => u.id === userId);
+src/server/db.ts.notifications-backup:1207:    if (targetUser.role === 'admin') {
+src/server/db.ts.notifications-backup:1214:      userId: adminUser.id,
+src/server/db.ts.notifications-backup:1215:      userEmail: adminUser.email,
+src/server/db.ts.notifications-backup:1216:      userRole: 'admin',
+src/server/db.ts.notifications-backup:1229:  isSalonOwner(userId: string, salonId: string): boolean {
+src/server/db.ts.notifications-backup:1230:    const user = this.state.users.find((u) => u.id === userId);
+src/server/db.ts.notifications-backup:1232:    if (user.role === 'admin') return true;
+src/server/db.ts.notifications-backup:1233:    const salon = this.state.salons.find((s) => s.id === salonId);
+src/server/db.ts.notifications-backup:1234:    return Boolean(salon && (salon.ownerId === userId || user.salonId === salonId));
+src/server/db.ts.notifications-backup:1238:  isApprovedSalonOwner(userId: string, salonId: string): boolean {
+src/server/db.ts.notifications-backup:1239:    const user = this.state.users.find((u) => u.id === userId);
+src/server/db.ts.notifications-backup:1242:    if (user.role === 'admin') return true;
+src/server/db.ts.notifications-backup:1244:    const salon = this.state.salons.find((s) => s.id === salonId);
+src/server/db.ts.notifications-backup:1249:      (salon.ownerId === userId || user.salonId === salonId)
+src/server/db.ts.notifications-backup:1293:  getServicesBySalon(salonId: string): Service[] {
+src/server/db.ts.notifications-backup:1294:    return this.state.services.filter((srv) => srv.salonId === salonId);
+src/server/db.ts.notifications-backup:1297:  getBarbersBySalon(salonId: string): Barber[] {
+src/server/db.ts.notifications-backup:1298:    return this.state.barbers.filter((b) => b.salonId === salonId);
+src/server/db.ts.notifications-backup:1321:    const salon = this.state.salons.find((s) => s.id === bookingData.salonId);
+src/server/db.ts.notifications-backup:1331:      (srv) => srv.id === bookingData.serviceId && srv.salonId === bookingData.salonId
+src/server/db.ts.notifications-backup:1340:      (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+src/server/db.ts.notifications-backup:1365:        bt.salonId === bookingData.salonId &&
+src/server/db.ts.notifications-backup:1424:      userId: newBooking.customerId,
+src/server/db.ts.notifications-backup:1437:      userId: customer.id,
+src/server/db.ts.notifications-backup:1468:    // Admin can cancel any booking
+src/server/db.ts.notifications-backup:1473:    if (requestingUser.role === 'salon_owner' && salon.status !== 'approved' || requestingUser.role === 'salon_owner' && !this.isSalonOwner(requestingUser.id, booking.salonId)) {
+src/server/db.ts.notifications-backup:1483:      userId: booking.customerId,
+src/server/db.ts.notifications-backup:1496:      userId: requestingUser.id,
+src/server/db.ts.notifications-backup:1533:      (b) => b.customerId === requestingUser.id && b.salonId === reviewData.salonId && (b.status === 'completed' || b.status === 'confirmed')
+src/server/db.ts.notifications-backup:1536:    if (!hasCompletedBooking && requestingUser.role !== 'admin') {
+src/server/db.ts.notifications-backup:1558:    const salonReviews = this.state.reviews.filter((r) => r.salonId === reviewData.salonId);
+src/server/db.ts.notifications-backup:1560:    const salon = this.state.salons.find((s) => s.id === reviewData.salonId);
+src/server/db.ts.notifications-backup:1567:      userId: requestingUser.id,
+src/server/db.ts.notifications-backup:1572:      targetId: reviewData.salonId,
+src/server/db.ts.notifications-backup:1573:      details: `إضافة تقييم جديد (${reviewData.rating}/5) لصالون ${salon?.name || reviewData.salonId}`,
+src/server/db.ts.notifications-backup:1585:  getSalonPosts(salonId?: string): SalonPost[] {
+src/server/db.ts.notifications-backup:1586:    const posts = salonId
+src/server/db.ts.notifications-backup:1587:      ? this.state.salonPosts.filter((p) => p.salonId === salonId)
+src/server/db.ts.notifications-backup:1599:      salonId: string;
+src/server/db.ts.notifications-backup:1605:    if (requestingUser.role !== 'salon_owner' && requestingUser.role !== 'admin') {
+src/server/db.ts.notifications-backup:1609:    const salon = this.state.salons.find((s) => s.id === data.salonId);
+src/server/db.ts.notifications-backup:1616:      salon.ownerId !== requestingUser.id
+src/server/db.ts.notifications-backup:1627:      salonId: salon.id,
+src/server/db.ts.notifications-backup:1628:      ownerId: salon.ownerId,
+src/server/db.ts.notifications-backup:1643:      (${post.id}, ${post.salonId}, ${post.ownerId}, ${post.salonName},
+src/server/db.ts.notifications-backup:1664:      requestingUser.role === 'admin' ||
+src/server/db.ts.notifications-backup:1666:        post.ownerId === requestingUser.id);
+src/server/db.ts.notifications-backup:1698:      (l) => l.postId === postId && l.userId === requestingUser.id
+src/server/db.ts.notifications-backup:1717:      userId: requestingUser.id,
+src/server/db.ts.notifications-backup:1733:    userId: string
+src/server/db.ts.notifications-backup:1737:        (l) => l.postId === postId && l.userId === userId
+src/server/db.ts.notifications-backup:1764:      userId: requestingUser.id,
+src/server/db.ts.notifications-backup:1799:      requestingUser.role === 'admin' ||
+src/server/db.ts.notifications-backup:1800:      comment.userId === requestingUser.id ||
+src/server/db.ts.notifications-backup:1802:        post?.ownerId === requestingUser.id);
+src/server/db.ts.notifications-backup:1837:export async function getNotificationsFromNeon(userId: string): Promise<Notification[]> {
+src/server/db.ts.notifications-backup:1842:    WHERE user_id = ${userId}
+src/server/db.ts.notifications-backup:1849:    userId: n.user_id,
+src/server/db.ts.notifications-backup:1879:        salonId: u.salon_id || undefined,
+src/server/db.ts.notifications-backup:1955:        ownerId: s.owner_id,
+src/server/db.ts.notifications-backup:1965:        salonId: b.salon_id,
+src/server/db.ts.notifications-backup:1983:        salonId: s.salon_id,
+src/server/db.ts.notifications-backup:2001:        salonId: b.salon_id,
+src/server/db.ts.notifications-backup:2037:        salonId: r.salon_id,
+src/server/db.ts.notifications-backup:2069:        salonId: c.salon_id || undefined,
+src/server/db.ts.notifications-backup:2076:        userId: n.user_id,
+src/server/db.ts.notifications-backup:2105:        salonId: b.salon_id,
+src/server/db.ts.notifications-backup:2118:        userId: f.user_id,
+src/server/db.ts.notifications-backup:2119:        salonId: f.salon_id,
+src/server/db.ts.notifications-backup:2126:        salonId: p.salon_id,
+src/server/db.ts.notifications-backup:2127:        ownerId: p.owner_id,
+src/server/db.ts.notifications-backup:2144:        userId: c.user_id,
+src/server/db.ts.notifications-backup:2156:        userId: l.user_id,
+src/server/db.ts.notifications-backup:2164:        userId: a.user_id,
+src/server/db.before-search-name-sync.ts:1888:      (${notification.id}, ${notification.userId}, ${notification.title},
+src/server/db.before-search-name-sync.ts:1898:      userId: notification.userId,
+src/server/db.before-search-name-sync.ts:2132:  async getBookingsForSalonOwnerFromNeon(userId: string): Promise<Booking[]> {
+src/server/db.before-search-name-sync.ts:2314:    const salon = this.state.salons.find((s) => s.id === bookingData.salonId);
+src/server/db.before-search-name-sync.ts:2324:      (srv) => srv.id === bookingData.serviceId && srv.salonId === bookingData.salonId
+src/server/db.before-search-name-sync.ts:2336:          (b) => b.id === bookingData.barberId && b.salonId === bookingData.salonId
+src/server/db.before-search-name-sync.ts:2369:        bt.salonId === bookingData.salonId &&

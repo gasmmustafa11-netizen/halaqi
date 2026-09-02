@@ -6593,8 +6593,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // First turn
         let turn = 1;
         let functionResults: any[] = [];
-        // Preserve the complete Gemini model/tool conversation across tool turns.
-        const toolConversationParts: any[] = [];
 
         const turnContent = userText;
 
@@ -6606,7 +6604,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // Preserve the exact first-turn model content, including thoughtSignature.
         let firstTurnModelContent: any = null;
 
-        for (turn = 1; turn <= 3; turn++) {
+        for (turn = 1; turn <= 2; turn++) {
           const config: any = turn === 1
             ? { systemInstruction }
             : {
@@ -6621,16 +6619,21 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             // Turn 1: original user message + tools.
             contents = [initialUserContent];
           } else {
-            // Preserve the exact Gemini conversation sequence across tool turns.
+            // Turn 2: preserve the exact Gemini conversation sequence.
+            // Do not replace the original user message with a retrieval summary.
             contents = [
               initialUserContent,
-              ...toolConversationParts,
+              firstTurnModelContent,
+              {
+                role: 'user',
+                parts: (functionResults as any)._parts || []
+              }
             ];
           }
 
           console.log('[AI DEBUG] ===== GEMINI TURN ' + turn + ' START =====');
           console.log('[AI DEBUG] USER:', turnContent);
-          console.log('[AI DEBUG] TOOLS_ENABLED: true');
+          console.log('[AI DEBUG] TOOLS_ENABLED:', turn === 1);
 
           const result = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite',
@@ -6685,9 +6688,9 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             response.functionCalls &&
             response.functionCalls.length > 0
           ) {
-            if (turn >= 3) {
+            if (turn >= 2) {
               console.error(
-                '[AI Salon] Gemini requested another tool call after the maximum tool turns; stopping safely.'
+                '[AI Salon] Gemini requested another tool call on turn 2; stopping safely.'
               );
               break;
             }
@@ -6802,19 +6805,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               break;
             }
 
-            // Preserve the model tool-call content followed by the formal
-            // function responses so the next Gemini turn can continue correctly.
-            const modelContentForToolTurn =
-              response?.candidates?.[0]?.content || null;
-
-            if (modelContentForToolTurn) {
-              toolConversationParts.push(modelContentForToolTurn);
-            }
-
-            toolConversationParts.push({
-              role: 'user',
-              parts: functionResponseParts
-            });
+            // Store formal functionResponse parts for turn 2.
+            (functionResults as any)._parts = functionResponseParts;
 
             continue;
           }

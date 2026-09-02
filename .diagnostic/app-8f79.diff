@@ -1,0 +1,270 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 937b6c3..e3fd0a2 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,6 +1,7 @@
+-import React, { useState, useEffect, useRef, useCallback } from 'react';
++import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+ import { AuthProvider, useAuth } from './context/AuthContext';
+ import { LanguageProvider, useLanguage } from './context/LanguageContext';
++import { MobileErrorBoundary } from './components/common/MobileErrorBoundary';
+ import { NotificationsProvider } from './components/common/NotificationsProvider';
+ import { BookingProvider, useBooking } from './context/BookingContext';
+ import { Salon } from './types';
+@@ -9,27 +10,31 @@ import { Navbar } from './components/layout/Navbar';
+ import { BottomNavBar } from './components/layout/BottomNavBar';
+ import { Footer } from './components/layout/Footer';
+ import { HomeExploreView } from './components/home/HomeExploreView';
+-import { InteractiveSalonMap } from './components/map/InteractiveSalonMap';
++const InteractiveSalonMap = lazy(() => import('./components/map/InteractiveSalonMap').then(m => ({ default: m.InteractiveSalonMap })));
+ import { SalonDetailView } from './components/salons/SalonDetailView';
+ import { MyBookingsView } from './components/bookings/MyBookingsView';
+-import { SalonDashboardView } from './components/salon-dashboard/SalonDashboardView';
+-import { AdminPanelView } from './components/admin/AdminPanelView';
+-import { AdminSystemView } from './components/admin/AdminSystemView';
+-import { VerificationRequestsView } from './components/admin/VerificationRequestsView';
+-import { ReportsPageView } from './components/admin/ReportsPageView';
++const SalonDashboardView = lazy(() => import('./components/salon-dashboard/SalonDashboardView').then(m => ({ default: m.SalonDashboardView })));
++const AdminPanelView = lazy(() => import('./components/admin/AdminPanelView').then(m => ({ default: m.AdminPanelView })));
++const AdminSystemView = lazy(() => import('./components/admin/AdminSystemView').then(m => ({ default: m.AdminSystemView })));
++const ReportsPageView = lazy(() => import('./components/admin/ReportsPageView').then(m => ({ default: m.ReportsPageView })));
++const VerificationRequestsView = lazy(() => import('./components/admin/VerificationRequestsView').then(m => ({ default: m.VerificationRequestsView })));
+ import { SalonRegistrationView } from './components/salons/SalonRegistrationView';
+-import { UserProfileView } from './components/profile/UserProfileView';
+-import { PublicUserProfileView } from './components/profile/PublicUserProfileView';
++const UserProfileView = lazy(() => import('./components/profile/UserProfileView').then(m => ({ default: m.UserProfileView })));
++const PublicUserProfileView = lazy(() => import('./components/profile/PublicUserProfileView').then(m => ({ default: m.PublicUserProfileView })));
++const PostsView = lazy(() => import('./components/posts/PostsView').then(m => ({ default: m.PostsView })));
++const ReelsView = lazy(() => import('./components/posts/ReelsView').then(m => ({ default: m.ReelsView })));
+ import { TermsPrivacyView } from './components/legal/TermsPrivacyView';
+ import { BookingWizardModal } from './components/booking/BookingWizardModal';
+ import { AuthModal } from './components/auth/AuthModal';
+-import { SearchView } from './components/search/SearchView';
+-import { PostsView } from './components/posts/PostsView';
+-import { ReelsView } from './components/posts/ReelsView';
+-import { PostDetailView } from './components/posts/PostDetailView';
++const SearchView = lazy(() => import('./components/search/SearchView').then(m => ({ default: m.SearchView })));
++const SearchNearView = lazy(() => import('./components/search/SearchNearView').then(m => ({ default: m.SearchNearView })));
++const PostDetailView = lazy(() => import('./components/posts/PostDetailView').then(m => ({ default: m.PostDetailView })));
+ import { MessagesView } from './components/messaging/MessagesView';
+-import { DiscoverView } from './components/discover/DiscoverView';
++const DiscoverView = lazy(() => import('./components/discover/DiscoverView').then(m => ({ default: m.DiscoverView })));
+ import SupportCenterView from './components/support/SupportCenterView';
++import { useNetworkStatus } from './hooks/useNetworkStatus';
++import { getCache, setCache } from './utils/simpleCache';
++import { App as CapacitorApp } from '@capacitor/app';
+ import {
+   initPushNotifications,
+   setPushNavigator,
+@@ -40,6 +45,7 @@ import {
+ function AppContent() {
+   const { isRtl } = useLanguage();
+   const { user, role, mySalon } = useAuth();
++  const online = useNetworkStatus();
+   const [currentView, setCurrentView] = useState<string>('explore');
+ 
+   // Retap-to-refresh: bumping a view's tick remounts that section so it
+@@ -158,8 +164,15 @@ function AppContent() {
+   // Loads the customer-facing salon list (Neon already excludes banned
+   // salons). Re-callable so we can refresh after an admin ban/unban.
+   const loadSalons = useCallback(async () => {
+-    const data = await api.getSalons({});
+-    setAllSalons(data);
++    const cached = getCache('salons');
++    if (cached) setAllSalons(cached);
++    try {
++      const data = await api.getSalons({});
++      setAllSalons(data);
++      setCache('salons', data);
++    } catch {
++      // keep cached data on failure
++    }
+   }, []);
+ 
+   useEffect(() => {
+@@ -274,6 +287,23 @@ function AppContent() {
+     window.scrollTo({ top: 0, behavior: 'smooth' });
+   };
+ 
++  // Android back button: navigate back to explore or allow exit at root
++  useEffect(() => {
++    let listener: any;
++    (async () => {
++      listener = await CapacitorApp.addListener('backButton', () => {
++        if (currentView !== 'explore') {
++          handleNavigate('explore');
++        } else {
++          // At root: allow default Android exit by not calling preventDefault
++        }
++      });
++    })();
++    return () => {
++      if (listener && listener.remove) listener.remove();
++    };
++  }, [currentView, handleNavigate]);
++
+   return (
+     <div ref={swipeRootRef} className="min-h-screen bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black">
+       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
+@@ -286,10 +316,21 @@ function AppContent() {
+         />
+       )}
+ 
++      {!online && (
++        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-900/90 text-amber-100 text-xs text-center py-1">Poor network — showing cached content</div>
++      )}
+       {/* Main Body Content with Bento Spacing */}
+-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-20">
++      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-24">
++        {currentView === 'search_near' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
++          <SearchNearView onNavigate={handleNavigate} onSelectSalon={handleSelectSalon} />
++          </Suspense>
++        )}
++
+         {currentView === 'search' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <SearchView onNavigate={handleNavigate} />
++          </Suspense>
+         )}
+ 
+         {currentView === 'explore' && (
+@@ -303,6 +344,7 @@ function AppContent() {
+         )}
+ 
+         {currentView === 'posts' && (
++        <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+         <PostsView
+           key={`posts-${refreshTick.posts ?? 0}`}
+           salons={allSalons}
+@@ -310,9 +352,11 @@ function AppContent() {
+           onSelectSalon={handleSelectSalon}
+           onNavigate={handleNavigate}
+         />
+-      )}
++        </Suspense>
++        )}
+ 
+         {currentView === 'photos' && (
++        <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+         <PostsView
+           key={`photos-${refreshTick.posts ?? 0}`}
+           salons={allSalons}
+@@ -320,13 +364,16 @@ function AppContent() {
+           onSelectSalon={handleSelectSalon}
+           onNavigate={handleNavigate}
+         />
++        </Suspense>
+       )}
+ 
+         {currentView === 'reels' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <ReelsView
+             onBack={() => handleNavigate('posts')}
+             onNavigate={handleNavigate}
+           />
++          </Suspense>
+         )}
+ 
+       {currentView === 'map' && (
+@@ -348,11 +395,13 @@ function AppContent() {
+               </button>
+             </div>
+ 
++            <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+             <InteractiveSalonMap
+               salons={allSalons}
+               onSelectSalon={handleSelectSalon}
+               selectedCity="all"
+             />
++            </Suspense>
+           </div>
+         )}
+ 
+@@ -368,21 +417,33 @@ function AppContent() {
+         )}
+ 
+         {currentView === 'salon_dashboard' && mySalon?.status === 'approved' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <SalonDashboardView key={`salon_dashboard-${refreshTick.salon_dashboard ?? 0}`} />
++          </Suspense>
+         )}
+ 
+-        {currentView === 'admin' && role === 'admin' && <AdminPanelView onNavigate={handleNavigate} />}
++        {currentView === 'admin' && role === 'admin' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
++          <AdminPanelView onNavigate={handleNavigate} />
++          </Suspense>
++        )}
+ 
+         {currentView === 'admin_system' && role === 'admin' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <AdminSystemView onNavigate={handleNavigate} />
++          </Suspense>
+         )}
+ 
+         {currentView === 'admin_verification' && role === 'admin' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <VerificationRequestsView onBack={() => handleNavigate('admin_system')} />
++          </Suspense>
+         )}
+ 
+         {currentView === 'admin_reports' && role === 'admin' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <ReportsPageView onBack={() => handleNavigate('admin_system')} />
++          </Suspense>
+         )}
+ 
+         {currentView === 'register_salon' && (
+@@ -408,6 +469,7 @@ function AppContent() {
+         )}
+ 
+         {currentView === 'user_profile' && selectedUserId && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           user && selectedUserId === user.id ? (
+             <UserProfileView
+               onNavigate={handleNavigate}
+@@ -427,6 +489,7 @@ function AppContent() {
+               onNavigate={handleNavigate}
+             />
+           )
++          </Suspense>
+         )}
+ 
+         {currentView === 'profile' && (
+@@ -449,7 +512,9 @@ function AppContent() {
+         )}
+ 
+         {currentView === 'discover' && (
++          <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center text-slate-400">Loading...</div>}>
+           <DiscoverView onNavigate={handleNavigate} />
++          </Suspense>
+         )}
+ 
+         {currentView === 'support' && (
+@@ -483,14 +548,16 @@ function AppContent() {
+ 
+ export default function App() {
+   return (
+-    <AuthProvider>
+-      <LanguageProvider>
+-        <NotificationsProvider>
+-          <BookingProvider>
+-            <AppContent />
+-          </BookingProvider>
+-        </NotificationsProvider>
+-      </LanguageProvider>
+-    </AuthProvider>
++    <MobileErrorBoundary>
++      <AuthProvider>
++        <LanguageProvider>
++          <NotificationsProvider>
++            <BookingProvider>
++              <AppContent />
++            </BookingProvider>
++          </NotificationsProvider>
++        </LanguageProvider>
++      </AuthProvider>
++    </MobileErrorBoundary>
+   );
+ }

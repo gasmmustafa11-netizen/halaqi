@@ -1,4 +1,4 @@
-// Native Function Calling declarations for Gemini AI layer.
+// Native Function Calling declarations for Gemini AI layer — Read-Only only
 export const aiSalonToolDeclarations = [
   {
     name: 'search_salons',
@@ -45,21 +45,6 @@ export const aiSalonToolDeclarations = [
     },
   },
   {
-    name: 'create_booking',
-    description: 'Create a real booking only after the user has explicitly confirmed the exact salon, service, date, and time. The server derives the authenticated customer identity; never accept customerId from the model.',
-    parameters: {
-      type: 'object',
-      properties: {
-        salonId: { type: 'string', description: 'Exact salon id' },
-        serviceId: { type: 'string', description: 'Exact service id' },
-        date: { type: 'string', description: 'Booking date YYYY-MM-DD' },
-        timeSlot: { type: 'string', description: 'Booking time HH:MM' },
-        confirmed: { type: 'boolean', description: 'Must be true only when the user explicitly confirmed this exact booking' },
-      },
-      required: ['salonId', 'serviceId', 'date', 'timeSlot', 'confirmed'],
-    },
-  },
-  {
     name: 'get_availability',
     description: 'Retrieve salon working hours and occupied/booked slots for a date. Read-only. Does not invent availability.',
     parameters: {
@@ -79,11 +64,7 @@ export async function executeTool(
   name: string,
   params: any,
   dbModule: any,
-  sqlImport?: any,
-  context?: {
-    user?: any;
-    allowBooking?: boolean;
-  }
+  sqlImport?: any
 ): Promise<any> {
   const db = (dbModule as any)?.default || (dbModule as any)?.db;
   try {
@@ -163,141 +144,9 @@ export async function executeTool(
       const sid = params.salonId || null;
       if (!sid) return { error: 'salonId required' };
       const { sql } = sqlImport ? await sqlImport() : await import('./lib/pg-compliant');
-      const rows = await sql`SELECT id, name, price, duration_minutes FROM services WHERE salon_id = ${sid} LIMIT 8`;
-      return {
-        services: (rows || []).map((r: any) => ({
-          id: r.id || '',
-          salonId: sid,
-          name: r.name || '',
-          price: r.price ? String(r.price) : null,
-          durationMinutes: r.duration_minutes ?? null,
-        })),
-      };
+      const rows = await sql`SELECT name, price FROM services WHERE salon_id = ${sid} LIMIT 8`;
+      return { services: (rows || []).map((r: any) => ({ name: r.name || '', price: r.price ? String(r.price) : null })) };
     }
-    if (name === 'create_booking') {
-      if (!context?.user?.id) {
-        return { error: 'يجب تسجيل الدخول أولاً لإتمام الحجز.', code: 'UNAUTHORIZED' };
-      }
-
-      if (!context.allowBooking || params.confirmed !== true) {
-        return {
-          error: 'لم يتم تأكيد الحجز بشكل صريح من المستخدم.',
-          code: 'BOOKING_CONFIRMATION_REQUIRED',
-        };
-      }
-
-      const salonId = String(params.salonId || '').trim();
-      const serviceId = String(params.serviceId || '').trim();
-      const date = String(params.date || '').trim();
-      const timeSlot = String(params.timeSlot || '').trim();
-
-      if (!salonId || !serviceId || !date || !timeSlot) {
-        return { error: 'بيانات الحجز غير مكتملة.', code: 'INCOMPLETE_BOOKING' };
-      }
-
-      // Sync authoritative salon/service data before booking.
-      let salon = db?.getState?.()?.salons?.find((x: any) => x.id === salonId);
-      if (!salon && typeof db?.getSalonByIdFromNeon === 'function') {
-        salon = await db.getSalonByIdFromNeon(salonId);
-        if (salon) db.getState().salons.push(salon);
-      }
-      if (!salon) return { error: 'الصالون المحدد غير موجود.', code: 'SALON_NOT_FOUND' };
-
-      let service = db?.getState?.()?.services?.find(
-        (x: any) => x.id === serviceId && x.salonId === salonId
-      );
-      if (!service && typeof db?.getServiceByIdFromNeon === 'function') {
-        service = await db.getServiceByIdFromNeon(serviceId);
-        if (service) db.getState().services.push(service);
-      }
-      if (!service || service.salonId !== salonId) {
-        return { error: 'الخدمة المطلوبة لا تنتمي إلى هذا الصالون.', code: 'SERVICE_NOT_FOUND' };
-      }
-
-      const customer = context.user;
-      const securePayload = {
-        salonId,
-        serviceId,
-        date,
-        timeSlot,
-        customerId: customer.id,
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        customerEmail: customer.email,
-        barberId: undefined,
-        barberName: undefined,
-      };
-
-      const result = await db.createBookingAtomic(
-        securePayload,
-        undefined,
-        undefined
-      );
-
-      if (!result?.success || !result?.booking) {
-        return {
-          error: result?.error || 'تعذر إتمام الحجز.',
-          code: 'BOOKING_FAILED',
-        };
-      }
-
-      // Canonical notifications: customer + salon owner + admins.
-      try {
-        const recipients = new Map<string, any>();
-
-        if (salon.ownerId) {
-          const owner =
-            db.getUserById(salon.ownerId) ||
-            await db.getUserByIdFromNeon(salon.ownerId);
-          if (owner) recipients.set(owner.id, owner);
-        }
-
-        const admins = db.getAdminUsers?.() || [];
-        for (const admin of admins) recipients.set(admin.id, admin);
-
-        const notificationPayload = {
-          title: 'حجز جديد 🎉',
-          titleEn: 'New Booking 🎉',
-          message: `لديك حجز جديد من ${result.booking.customerName} يوم ${result.booking.date} الساعة ${result.booking.timeSlot}. الخدمة: ${result.booking.serviceName}، المبلغ: ${result.booking.finalPrice.toLocaleString()} د.ع.`,
-          messageEn: `You have a new booking from ${result.booking.customerName} on ${result.booking.date} at ${result.booking.timeSlot}. Service: ${result.booking.serviceName}. Amount: ${result.booking.finalPrice.toLocaleString()} IQD.`,
-          type: 'booking_created' as const,
-          link: '/bookings',
-          salonId: result.booking.salonId,
-        };
-
-        for (const recipient of recipients.values()) {
-          await db.createNotification({
-            userId: recipient.id,
-            ...notificationPayload,
-          });
-        }
-
-        // Customer confirmation is created centrally by createBookingAtomic().
-        // Do not create a second booking_confirmed notification here.
-      } catch (notificationError: any) {
-        console.error(
-          '[AI BOOKING NOTIFICATION] Failed:',
-          notificationError?.message || notificationError
-        );
-      }
-
-      return {
-        success: true,
-        booking: {
-          id: result.booking.id,
-          bookingNumber: result.booking.bookingNumber,
-          salonId: result.booking.salonId,
-          salonName: result.booking.salonName,
-          serviceId: result.booking.serviceId,
-          serviceName: result.booking.serviceName,
-          date: result.booking.date,
-          timeSlot: result.booking.timeSlot,
-          finalPrice: result.booking.finalPrice,
-          status: result.booking.status,
-        },
-      };
-    }
-
     if (name === 'get_availability') {
       const sid = params.salonId || null;
       const date = params.date || '';
@@ -317,8 +166,8 @@ export async function executeTool(
           occupiedSlots = db.getOccupiedSlots(params.barberId, date);
         } else if (sqlImport) {
           const { sql } = await sqlImport();
-          const rows = await sql`SELECT time_slot FROM bookings WHERE salon_id = ${sid} AND date = ${date} AND status = 'confirmed' LIMIT 20`;
-          occupiedSlots = (rows || []).map((r: any) => r.time_slot);
+          const rows = await sql`SELECT timeSlot FROM bookings WHERE salon_id = ${sid} AND date = ${date} AND status = 'confirmed' LIMIT 20`;
+          occupiedSlots = (rows || []).map((r: any) => r.timeSlot);
         }
       } catch (e) { /* ignore */ }
       return {

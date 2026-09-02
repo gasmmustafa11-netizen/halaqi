@@ -3823,15 +3823,15 @@ class DatabaseStore {
   }
 
   // Strict Double-booking check & atomic booking creation
-  createBookingAtomic(
+  async createBookingAtomic(
     bookingData: Omit<Booking, 'id' | 'bookingNumber' | 'createdAt' | 'commissionAmount' | 'salonPayout'>,
     couponCode?: string,
     ip?: string
-  ): {
+  ): Promise<{
     success: boolean;
     booking?: Booking;
     error?: string;
-  } {
+  }> {
     // 1. Validate Customer
     const customer = this.state.users.find((u) => u.id === bookingData.customerId);
     if (!customer) {
@@ -3960,11 +3960,10 @@ class DatabaseStore {
       createdAt: new Date().toISOString(),
     };
 
-    this.state.bookings.unshift(newBooking);
-
-    // Persist booking to Neon.
+    // Persist to Neon before marking the booking as created in memory.
     // barber_id/barber_name are intentionally NULL when no barber is assigned.
-    void sql`
+    try {
+      await sql`
       INSERT INTO bookings (
         id,
         booking_number,
@@ -4070,9 +4069,17 @@ class DatabaseStore {
         payment_status = EXCLUDED.payment_status,
         rated = EXCLUDED.rated,
         cancellation_reason = EXCLUDED.cancellation_reason
-    `.catch((error: any) => {
+    `;
+    } catch (error: any) {
       console.error('[BOOKING] Failed to persist booking to Neon:', error?.message || error);
-    });
+      return {
+        success: false,
+        error: 'تعذر حفظ الحجز في قاعدة البيانات. لم يتم إنشاء الحجز.',
+      };
+    }
+
+    // Neon persistence succeeded; now publish the booking to in-memory state.
+    this.state.bookings.unshift(newBooking);
 
     // Create automated customer notification
     this.state.notifications.unshift({
