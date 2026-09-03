@@ -6992,6 +6992,19 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 entities = parsed.entities || entities;
                 cardsRequested =
                   parsed.cardsRequested || false;
+
+                // MERGE ENTITIES INTO resolvedState IMMEDIATELY so that
+                // downstream fallback / completeness checks see the latest data.
+                if (entities && typeof entities === 'object') {
+                  const e = entities as any;
+                  if (typeof e.salonId === 'string' && e.salonId.trim()) resolvedState.salonId = e.salonId.trim();
+                  if (typeof e.salonName === 'string' && e.salonName.trim()) resolvedState.salonName = e.salonName.trim();
+                  if (typeof e.serviceId === 'string' && e.serviceId.trim()) resolvedState.serviceId = e.serviceId.trim();
+                  if (typeof e.serviceName === 'string' && e.serviceName.trim()) resolvedState.serviceName = e.serviceName.trim();
+                  if (typeof e.date === 'string' && e.date.trim()) resolvedState.date = e.date.trim();
+                  if (typeof e.time === 'string' && e.time.trim()) resolvedState.time = e.time.trim();
+                  if (typeof e.location === 'string' && e.location.trim()) resolvedState.location = e.location.trim();
+                }
               } catch (e) {
                 console.error(
                   '[AI Salon] Turn 2 returned invalid JSON:',
@@ -7015,13 +7028,42 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           break;
         }
 
+        // POST-LOOP: merge any entities captured via tool results into resolvedState
+        // (In case the loop ended via tool calls, not JSON parse.)
+        if (entities && typeof entities === 'object') {
+          const e = entities as any;
+          if (typeof e.salonId === 'string' && e.salonId.trim()) resolvedState.salonId = e.salonId.trim();
+          if (typeof e.salonName === 'string' && e.salonName.trim()) resolvedState.salonName = e.salonName.trim();
+          if (typeof e.serviceId === 'string' && e.serviceId.trim()) resolvedState.serviceId = e.serviceId.trim();
+          if (typeof e.serviceName === 'string' && e.serviceName.trim()) resolvedState.serviceName = e.serviceName.trim();
+          if (typeof e.date === 'string' && e.date.trim()) resolvedState.date = e.date.trim();
+          if (typeof e.time === 'string' && e.time.trim()) resolvedState.time = e.time.trim();
+          if (typeof e.location === 'string' && e.location.trim()) resolvedState.location = e.location.trim();
+        }
+
+        // DETECT: did the user's message contain actual booking details?
+        // If so, the fallback should NOT fire — the user provided info that Gemini should have parsed.
+        const userHasInlineBookingDetails =
+          /\d{1,2}[\/\-]\d{1,2}/.test(userText) ||
+          /\d{1,2}:\d{2}/.test(userText) ||
+          /صبغ|حلاقة|تشذيب|تسريح|_fwd|فيس|เดด\s*سكرب|ماسك|كيراتين|حواجب| eyelash| pedicure| manicure/i.test(userText);
+
+        // CHECK COMPLETENESS: all booking fields present → auto-confirmation
+        const bookingComplete =
+          resolvedState.salonId &&
+          (resolvedState.serviceId || resolvedState.serviceName) &&
+          resolvedState.date &&
+          resolvedState.time;
+
         // If we ended due to loop limit with no final reply, build safe reply
         if (!reply && turn >= 2) {
           if (cards.length) {
             reply = 'وجدت نتائج قريبة لك من Halaqi.';
-          } else if (resolvedState.salonId) {
-            // FALLBACK: user has an active salon in state — ask for missing booking params
-            // instead of returning the generic "لم أجد نتائج" which breaks booking flow.
+          } else if (bookingComplete) {
+            // ALL PARAMS PRESENT → route to booking confirmation
+            reply = `تمام، ملخص الحجز:\n- الصالون: ${resolvedState.salonName || resolvedState.salonId}\n- الخدمة: ${resolvedState.serviceName || resolvedState.serviceId}\n- التاريخ: ${resolvedState.date}\n- الوقت: ${resolvedState.time}\n\nهل تريد تأكيد الحجز؟`;
+          } else if (resolvedState.salonId && !userHasInlineBookingDetails) {
+            // FALLBACK: salon active + user did NOT provide inline details → ask for missing params
             const missing: string[] = [];
             if (!resolvedState.serviceName && !resolvedState.serviceId) missing.push('الخدمة');
             if (!resolvedState.date) missing.push('التاريخ');
@@ -7031,6 +7073,9 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
             } else {
               reply = `الصالون "${resolvedState.salonName || 'المحدد'}" جاهز. هل تريد تأكيد الحجز؟`;
             }
+          } else if (resolvedState.salonId && userHasInlineBookingDetails) {
+            // User provided details but Gemini didn't extract them → retry extraction
+            reply = 'لم أتمكن من استخراج البيانات. يرجى كتابة التاريخ والوقت والخدمة بشكل واضح، مثال: "صبغ 9/5 الساعة 10:00".';
           } else {
             reply = 'لم أجد نتائج موثوقة حالياً. حاول تحديد المنطقة أو اسم الصالون.';
           }
