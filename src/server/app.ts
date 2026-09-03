@@ -6355,6 +6355,9 @@ async function tryGroqFallback(args: {
   systemInstruction: string;
   dbModule: any;
   cards?: any[];
+  user?: any;
+  conversationState?: any;
+  explicitBookingConfirm?: boolean;
 }): Promise<{ reply: string; cards: any[]; toolCalls?: any[]; reason?: string }> {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey || typeof groqKey !== 'string' || groqKey.length < 8) {
@@ -6438,6 +6441,24 @@ async function tryGroqFallback(args: {
           },
         },
       },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'create_booking',
+          description: 'Create a real booking only after the user has explicitly confirmed the exact salon, service, date, and time. The server derives the authenticated customer identity; never accept customerId from the model.',
+          parameters: {
+            type: 'object',
+            properties: {
+              salonId: { type: 'string', description: 'Exact salon id' },
+              serviceId: { type: 'string', description: 'Exact service id' },
+              date: { type: 'string', description: 'Booking date YYYY-MM-DD' },
+              timeSlot: { type: 'string', description: 'Booking time HH:MM' },
+              confirmed: { type: 'boolean', description: 'Must be true only when the user explicitly confirmed this exact booking' },
+            },
+            required: ['salonId', 'serviceId', 'date', 'timeSlot', 'confirmed'],
+          },
+        },
+      },
     ];
 
     console.log('[AI Salon] GROQ_TOOLS_SCHEMA:', JSON.stringify(openAITools, null, 2));
@@ -6468,7 +6489,30 @@ async function tryGroqFallback(args: {
         const argsParsed = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
         toolCallNames.push(name);
         const sqlImport = async () => await import('./lib/pg-compliant');
-        const resTool = await executeTool(name, argsParsed, args.dbModule, sqlImport);
+        // ROOT FIX: pass the authenticated user + booking permission + conversation state
+        // so GROQ's create_booking actually executes (previously context was omitted and
+        // every booking attempt returned UNAUTHORIZED).
+        const state = args.conversationState || {};
+        const allowBooking =
+          !!args.user &&
+          !!args.explicitBookingConfirm &&
+          name === 'create_booking' &&
+          !!argsParsed.salonId &&
+          !!argsParsed.serviceId &&
+          !!argsParsed.date &&
+          !!argsParsed.timeSlot &&
+          argsParsed.confirmed === true;
+        const resTool = await executeTool(
+          name,
+          argsParsed,
+          args.dbModule,
+          sqlImport,
+          {
+            user: args.user,
+            allowBooking,
+            conversationState: state,
+          }
+        );
         toolResults.push({ name, response: resTool });
         if (resTool.salons && resTool.salons.length > 0) {
           cards = resTool.salons.map((c: any) => ({
@@ -6889,6 +6933,17 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                   String(args.timeSlot);
               }
 
+              // ROOT FIX: persistently capture booking details passed by Gemini
+              // into resolvedState so that later confirmation turns can satisfy
+              // bookingMatchesConfirmedState even when the service date/time came
+              // only from the create_booking arguments (not a single-service result).
+              if (args?.serviceId) {
+                resolvedState.serviceId = String(args.serviceId).trim();
+              }
+              if (args?.serviceName) {
+                resolvedState.serviceName = String(args.serviceName).trim();
+              }
+
               responses.push({
                 id: callId,
                 name,
@@ -7100,7 +7155,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         const isQuota = gemMsg.includes('429') || gemMsg.includes('quota') || gemMsg.includes('rate limit') || gemMsg.includes('ratelimit') || gemMsg.includes('too many requests') || gemMsg.includes('rate');
         if (process.env.GROQ_API_KEY) {
           console.log('[AI Salon] GEMINI_PRIMARY failed. Activating GROQ_FALLBACK. Reason:', gemErr?.message || gemErr);
-          const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
+          const groqConfirm = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز)/iu.test(userText.trim()) && !/\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) && !/\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
+          const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards, user: req.user, conversationState: resolvedState, explicitBookingConfirm: groqConfirm });
           reply = groqRes.reply;
           if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
           console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
@@ -7111,7 +7167,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
     } else {
       if (process.env.GROQ_API_KEY) {
         console.log('[AI Salon] GEMINI_PRIMARY skipped (no API key). Activating GROQ_FALLBACK. Reason: missing GEMINI_API_KEY');
-        const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards });
+        const groqConfirm = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز)/iu.test(userText.trim()) && !/\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) && !/\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
+        const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards, user: req.user, conversationState: resolvedState, explicitBookingConfirm: groqConfirm });
         reply = groqRes.reply;
         if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
         console.log('[AI Salon] GROQ_FALLBACK tool calls:', (groqRes.toolCalls || []).map((t: any) => t.name).join(',') || 'none');
