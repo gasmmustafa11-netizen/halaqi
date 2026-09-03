@@ -1,0 +1,112 @@
+===== src/server/app.ts =====
+2423: const slots = db.getOccupiedSlots(barberId as string, date as string);
+2553: const result = await db.createBookingAtomic(
+2891: let conversationStateReady: Promise<void> | null = null;
+2894: if (!conversationStateReady) {
+2895: conversationStateReady = (async () => {
+2918: })().catch((e) => { conversationStateReady = null; throw e; });
+2920: await conversationStateReady;
+6366: const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
+6427: name: 'get_availability',
+6470: const resTool = await executeTool(name, argsParsed, args.dbModule, sqlImport);
+6506: const { message, regionConsent, conversationHistory, conversationState } = req.body || {};
+6508: const history = Array.isArray(conversationHistory) ? conversationHistory.slice(-6) : [];
+6517: if (conversationState && typeof conversationState === 'object') {
+6518: if (conversationState.salonId) ctxParts.push(`الصالون المختار (معرف): ${conversationState.salonId}${conversationState.salonName ? ' (' + conversationState.salonName + ')' : ''}`);
+6519: else if (conversationState.salonName) ctxParts.push(`الصالون المختار: ${conversationState.salonName}`);
+6521: if (conversationState.serviceName) ctxParts.push(`الخدمة: ${conversationState.serviceName}`);
+6522: if (conversationState.date) ctxParts.push(`التاريخ: ${conversationState.date}`);
+6523: if (conversationState.time) ctxParts.push(`الساعة: ${conversationState.time}`);
+6524: if (conversationState.intent) ctxParts.push(`نية سابقة: ${conversationState.intent}`);
+6525: if (conversationState.pendingQuestion) ctxParts.push(`سؤال مفتوح: ${conversationState.pendingQuestion}`);
+6526: if (conversationState.lastResolvedContext) ctxParts.push(`سياق سابق: ${conversationState.lastResolvedContext}`);
+6539: ...(conversationState &&
+6540: typeof conversationState === 'object'
+6541: ? conversationState
+6585: 4. إذا كانت الخدمة والتاريخ متوفرين، استخدم get_availability للتحقق من المواعيد الحقيقية.
+6588: 7. لا تستدعِ create_booking إلا بعد تأكيد المستخدم الصريح لنفس الصالون والخدمة والتاريخ والوقت.
+6601: const { aiSalonToolDeclarations, executeTool } = await import('../services/aiSalonTools');
+6759: const explicitBookingConfirm =
+6762: const previousState = conversationState || {};
+6765: name === 'create_booking' &&
+6771: const res = await executeTool(
+6778: allowBooking:
+6780: explicitBookingConfirm &&
+6983: // If user asked about availability and we have workingHours/occupiedSlots in functionResults
+6984: const availRes = functionResults.find((r: any) => r.name === 'get_availability');
+7021: conversationState: {
+===== src/server/db.ts =====
+495: blockedTimes: BlockedTime[];
+646: workingHours: defaultWorkingHours,
+679: workingHours: defaultWorkingHours,
+711: workingHours: defaultWorkingHours,
+743: workingHours: defaultWorkingHours,
+774: workingHours: defaultWorkingHours,
+805: workingHours: defaultWorkingHours,
+836: workingHours: defaultWorkingHours,
+867: workingHours: defaultWorkingHours,
+995: durationMinutes: 30,
+1008: durationMinutes: 20,
+1021: durationMinutes: 60,
+1034: durationMinutes: 45,
+1046: durationMinutes: 40,
+1060: durationMinutes: 45,
+1073: durationMinutes: 60,
+1086: durationMinutes: 120,
+1099: durationMinutes: 50,
+1111: durationMinutes: 240,
+1125: durationMinutes: 40,
+1149: durationMinutes: 60,
+1178: durationMinutes: 30,
+1338: blockedTimes: [],
+1389: workingHours: s.working_hours || defaultWorkingHours,
+1412: durationMinutes: Number(sv.duration_minutes || 0),
+1445: ${service.durationMinutes ?? 0},
+1465: durationMinutes: Number(s.duration_minutes || 0),
+1500: duration_minutes = ${next.durationMinutes ?? 0},
+1520: durationMinutes: Number(sv.duration_minutes || 0),
+1573: durationMinutes: Number(sv.duration_minutes || 0),
+1616: workingHours: s.working_hours || defaultWorkingHours,
+1654: workingHours: s.working_hours || defaultWorkingHours,
+1698: workingHours: s.working_hours || defaultWorkingHours,
+1742: workingHours: s.working_hours || defaultWorkingHours,
+1802: ${JSON.stringify(salon.workingHours || defaultWorkingHours)}::jsonb,
+1837: workingHours: s.working_hours || defaultWorkingHours,
+1883: workingHours: s.working_hours || defaultWorkingHours,
+3724: durationMinutes: Number(b.duration_minutes || 0),
+3802: durationMinutes: Number(b.duration_minutes || 0),
+3826: async createBookingAtomic(
+3903: const isBlocked = this.state.blockedTimes.some(
+3956: durationMinutes: service.durationMinutes,
+4027: ${newBooking.durationMinutes},
+4425: getOccupiedSlots(barberId: string, date: string): string[] {
+7367: blockedTimes,
+7417: workingHours: s.working_hours || defaultWorkingHours,
+7451: durationMinutes: Number(s.duration_minutes || 0),
+7480: durationMinutes: Number(b.duration_minutes || 0),
+7571: if (blockedTimes.length) {
+7572: db.getState().blockedTimes = blockedTimes.map((b: any) => ({
+===== src/services/aiSalonTools.ts =====
+48: name: 'create_booking',
+63: name: 'get_availability',
+78: export async function executeTool(
+85: allowBooking?: boolean;
+158: workingHours: salon.working_hours || null,
+173: durationMinutes: r.duration_minutes ?? null,
+177: if (name === 'create_booking') {
+182: if (!context.allowBooking || params.confirmed !== true) {
+231: const result = await db.createBookingAtomic(
+275: // Customer confirmation is created centrally by createBookingAtomic().
+301: if (name === 'get_availability') {
+306: let workingHours = null;
+310: if (salon) workingHours = salon.working_hours || salon.workingHours || null;
+316: if (typeof db?.getOccupiedSlots === 'function' && params.barberId && date) {
+317: occupiedSlots = db.getOccupiedSlots(params.barberId, date);
+327: workingHours,
+===== src/components/your-salon/YourSalonView.tsx =====
+23: const [conversationState, setConversationState] = useState<{
+74: const occ = await api.getOccupiedSlots(fields.salonId, fields.date);
+135: conversationHistory: history,
+136: conversationState,
+140: if (data.conversationState && typeof data.conversationState === 'object') {
+144: Object.entries(data.conversationState).filter(

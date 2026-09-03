@@ -6535,13 +6535,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
     let cardsRequested = false;
     let firstTurnModelContent: any = null;
 
-    const resolvedState: any = {
-      ...(conversationState &&
-      typeof conversationState === 'object'
-        ? conversationState
-        : {}),
-    };
-
     const structuredSchema = {
       type: 'object',
       properties: {
@@ -6605,31 +6598,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           createPartFromFunctionResponse = (genaiMod as any).createPartFromFunctionResponse || (genaiMod as any).GoogleGenAI?.createPartFromFunctionResponse;
         } catch (e) { /* SDK import optional for part creation */ }
 
-        const priorContents: any[] = history
-          .map((h: any) => {
-            const text = String(
-              h?.text ??
-              h?.message ??
-              ''
-            ).trim();
-
-            if (!text) return null;
-
-            return {
-              role:
-                h?.role === 'ai' ||
-                h?.role === 'assistant'
-                  ? 'model'
-                  : 'user',
-
-              parts: [
-                {
-                  text
-                }
-              ]
-            };
-          })
-          .filter(Boolean);
+        const buildHistoryText = () => historyText || 'لا تاريخ';
 
         // First turn
         let turn = 1;
@@ -6650,11 +6619,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // Preserve the exact first-turn model content, including thoughtSignature.
         let firstTurnModelContent: any = null;
 
-        for (
-          turn = 1;
-          turn <= MAX_TOOL_TURNS;
-          turn++
-        ) {
+        for (turn = 1; turn <= 3; turn++) {
           const config: any = turn === 1
             ? { systemInstruction }
             : {
@@ -6666,10 +6631,8 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           let contents: any;
 
           if (turn === 1) {
-            contents = [
-              ...priorContents.slice(0, -1),
-              initialUserContent
-            ];
+            // Turn 1: original user message + tools.
+            contents = [initialUserContent];
           } else {
             // Preserve the exact Gemini conversation sequence across tool turns.
             contents = [
@@ -6791,56 +6754,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 '[AI DEBUG] TOOL RESULT:',
                 JSON.stringify(res, null, 2).slice(0, 20000)
               );
-
-              // Preserve authoritative IDs/details returned
-              // by Halaqi tools.
-              if (res?.salons?.length === 1) {
-                const s = res.salons[0];
-
-                resolvedState.salonId =
-                  s.id ||
-                  resolvedState.salonId;
-
-                resolvedState.salonName =
-                  s.name ||
-                  resolvedState.salonName;
-              }
-
-              if (res?.salon?.id) {
-                resolvedState.salonId =
-                  res.salon.id;
-
-                resolvedState.salonName =
-                  res.salon.name ||
-                  resolvedState.salonName;
-              }
-
-              if (res?.services?.length === 1) {
-                const svc = res.services[0];
-
-                resolvedState.serviceId =
-                  svc.id ||
-                  resolvedState.serviceId;
-
-                resolvedState.serviceName =
-                  svc.name ||
-                  resolvedState.serviceName;
-              }
-
-              if (res?.date) {
-                resolvedState.date =
-                  String(res.date);
-              }
-
-              if (args?.date) {
-                resolvedState.date =
-                  String(args.date);
-              }
-
-              if (args?.timeSlot) {
-                resolvedState.time =
-                  String(args.timeSlot);
-              }
 
               responses.push({
                 id: callId,
@@ -7019,62 +6932,19 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       entities,
       needsClarification,
       conversationState: {
-        ...resolvedState,
-
-        intent:
-          intent ||
-          resolvedState.intent,
-
-        location:
-          entities?.location ||
-          resolvedState.location,
-
-        salonId:
-          entities?.salonId ||
-          resolvedState.salonId,
-
-        salonName:
-          entities?.salonName ||
-          resolvedState.salonName,
-
-        serviceId:
-          entities?.serviceId ||
-          resolvedState.serviceId,
-
-        serviceName:
-          entities?.serviceName ||
-          resolvedState.serviceName,
-
-        date:
-          entities?.date ||
-          resolvedState.date,
-
-        time:
-          entities?.time ||
-          resolvedState.time,
-
-        pendingQuestion:
-          needsClarification
-            ? reply
-            : undefined,
-
+        intent,
+        location: entities?.location,
+        salonId: entities?.salonId,
+        salonName: entities?.salonName,
+        serviceId: entities?.serviceId,
+        serviceName: entities?.serviceName,
+        date: entities?.date,
+        time: entities?.time,
+        pendingQuestion: needsClarification ? reply : undefined,
         lastResolvedContext:
-          (
-            entities?.salonName ||
-            entities?.serviceName ||
-            resolvedState.salonName ||
-            resolvedState.serviceName
-          )
-            ? `السياق الحالي: ${
-                entities?.salonName ||
-                resolvedState.salonName ||
-                ''
-              } ${
-                entities?.serviceName ||
-                resolvedState.serviceName ||
-                ''
-              }`.trim()
-            : resolvedState.lastResolvedContext,
+          entities?.salonName || entities?.serviceName
+            ? `السياق الحالي: ${entities?.salonName || ''} ${entities?.serviceName || ''}`.trim()
+            : undefined,
       },
     });
   } catch (err: any) {

@@ -135,21 +135,6 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
         conversationHistory: history,
         conversationState,
       });
-      
-      // Keep the server-authoritative booking state across turns.
-      if (data?.conversationState) {
-        setConversationState(prev => ({
-          ...prev,
-          ...Object.fromEntries(
-            Object.entries(data.conversationState).filter(
-              ([, value]) =>
-                value !== undefined &&
-                value !== null &&
-                value !== ''
-            )
-          )
-        }));
-      }
       const aiMsg: Msg = { id: Date.now() + 1, role: 'ai', text: data.reply || 'لا توجد نتائج حالياً.', cards: data.cards || [], time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) };
       setMsgs((prev) => [...prev, aiMsg]);
       if (data.conversationState && typeof data.conversationState === 'object') {
@@ -202,13 +187,7 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
               {m.cards && m.cards.length > 0 && (
                 <div className="mt-3 space-y-3">
                   {m.cards.map((card: any, idx: number) => (
-                    <button type="button" key={idx} className="w-full text-right block rounded-xl bg-[#16121A] border border-white/10 p-3 hover:border-[#D4AF37]/60 transition" onClick={() => { if (card.id) onSelectSalonId(card.id);
- setSelectedSalonId(card.id);
- setConversationState(prev => ({
-   ...prev,
-   salonId: card.id,
-   salonName: card.name || prev.salonName
- })); }}>
+                    <button type="button" key={idx} className="w-full text-right block rounded-xl bg-[#16121A] border border-white/10 p-3 hover:border-[#D4AF37]/60 transition" onClick={() => { if (card.id) onSelectSalonId(card.id); }}>
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="font-bold text-[#D4AF37]">{card.name}</h3>
                         <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full text-gray-300">{card.type}</span>

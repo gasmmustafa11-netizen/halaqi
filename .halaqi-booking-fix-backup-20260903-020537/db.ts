@@ -3875,28 +3875,23 @@ class DatabaseStore {
       };
     }
 
-    // 5. Check conflicts at the same resource level.
-    const conflict = this.state.bookings.find(
-      (b) =>
-        b.salonId === bookingData.salonId &&
-        b.date === bookingData.date &&
-        b.timeSlot === bookingData.timeSlot &&
-        b.status !== 'cancelled' &&
-        (
-          bookingData.barberId
-            ? b.barberId === bookingData.barberId
-            : !b.barberId
-        )
-    );
+    // 5. Check double booking only when a specific barber exists.
+    // A salon-level booking without a barber must not be blocked by barber slots.
+    if (bookingData.barberId) {
+      const conflict = this.state.bookings.find(
+        (b) =>
+          b.barberId === bookingData.barberId &&
+          b.date === bookingData.date &&
+          b.timeSlot === bookingData.timeSlot &&
+          b.status !== 'cancelled'
+      );
 
-    if (conflict) {
-      return {
-        success: false,
-
-        error: bookingData.barberId
-          ? 'الموعد المحدد محجوز بالفعل لهذا الحلاق. يرجى اختيار موعد أو حلاق آخر.'
-          : 'الموعد المحدد محجوز بالفعل لهذا الصالون. يرجى اختيار موعد آخر.',
-      };
+      if (conflict) {
+        return {
+          success: false,
+          error: 'الموعد المحدد محجوز بالفعل لهذا الحلاق. يرجى اختيار موعد أو حلاق آخر.',
+        };
+      }
     }
 
     // 6. Check if time is blocked by salon owner
