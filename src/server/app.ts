@@ -6762,8 +6762,18 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 
               const previousState = resolvedState || {};
 
+              // Resolve final booking arguments: merge Gemini args with validated conversation state.
+              // The conversationState is the authoritative source for salon/service/date/time.
+              const resolvedBookingArgs = {
+                salonId: String(args.salonId || previousState.salonId || '').trim(),
+                serviceId: String(args.serviceId || previousState.serviceId || '').trim(),
+                date: String(args.date || previousState.date || '').trim(),
+                timeSlot: String(args.timeSlot || previousState.time || '').trim(),
+                confirmed: args.confirmed === true ? true : false,
+              };
+
               // If salon changed, reset dependent booking fields in resolvedState to prevent stale cross-salon data.
-              const incomingSalonId = String(args.salonId || previousState.salonId || '').trim();
+              const incomingSalonId = String(resolvedBookingArgs.salonId || previousState.salonId || '').trim();
               const previousSalonId = String(previousState.salonId || '').trim();
               if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
                 previousState.serviceId = undefined;
@@ -6774,10 +6784,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 
               const bookingMatchesConfirmedState =
                 name === 'create_booking' &&
-                String(args.salonId || '').trim() === String(previousState.salonId || '').trim() &&
-                String(args.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
-                String(args.date || '').trim() === String(previousState.date || '').trim() &&
-                String(args.timeSlot || '').trim() === String(previousState.time || '').trim();
+                String(resolvedBookingArgs.salonId || '').trim() === String(previousState.salonId || '').trim() &&
+                String(resolvedBookingArgs.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
+                String(resolvedBookingArgs.date || '').trim() === String(previousState.date || '').trim() &&
+                String(resolvedBookingArgs.timeSlot || '').trim() === String(previousState.time || '').trim();
 
               // Also reset resolvedState itself so the response reflects cleared dependent fields when salon changes.
               if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
@@ -6789,7 +6799,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 
               const res = await executeTool(
                 name,
-                args,
+                { ...args, ...resolvedBookingArgs },
                 dbModule,
                 async () => await import('./lib/pg-compliant'),
                 {

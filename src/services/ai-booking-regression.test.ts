@@ -55,7 +55,7 @@ function assertFalse(value: boolean, label: string) {
   const currentSalon = 'mayar';
   const searchResultSalon = 'najma';
   // If server updates salonId from search_salons, current salon changes incorrectly.
-  assertEqual(currentSalon !== searchResultSalon, true, 'Search result salon is different');
+  assertTrue((currentSalon as string) !== (searchResultSalon as string), 'Search result salon is different');
 }
 
 // C) bookingMatchesConfirmedState must reject mismatched args.
