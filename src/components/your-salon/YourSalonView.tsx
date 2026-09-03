@@ -33,6 +33,31 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
     lastResolvedContext?: string;
   }>({});
 
+  const handleSelectCard = (card: any) => {
+    if (card.id) onSelectSalonId(card.id);
+    setSelectedSalonId(card.id);
+    setConversationState((prev) => {
+      const newSalonId = card.id;
+      const isSalonChange = prev.salonId && prev.salonId !== newSalonId;
+      if (isSalonChange) {
+        return {
+          ...prev,
+          salonId: newSalonId,
+          salonName: card.name || prev.salonName,
+          serviceId: undefined,
+          serviceName: undefined,
+          date: undefined,
+          time: undefined,
+        };
+      }
+      return {
+        ...prev,
+        salonId: newSalonId,
+        salonName: card.name || prev.salonName,
+      };
+    });
+  };
+
   const prevMsgsLength = useRef(msgs.length);
   useEffect(() => {
     const el = scrollRef.current;
@@ -137,18 +162,37 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
       });
       
       // Keep the server-authoritative booking state across turns.
+      // Only update fields that are explicitly set; never erase fields unless a salon change was explicitly handled above.
       if (data?.conversationState) {
-        setConversationState(prev => ({
-          ...prev,
-          ...Object.fromEntries(
-            Object.entries(data.conversationState).filter(
-              ([, value]) =>
-                value !== undefined &&
-                value !== null &&
-                value !== ''
-            )
-          )
-        }));
+        const incoming = data.conversationState;
+        setConversationState(prev => {
+          // If salon changed, clear dependent fields unless incoming explicitly sets them
+          const incomingSalonId = incoming.salonId !== undefined ? String(incoming.salonId || '').trim() || undefined : prev.salonId;
+          const prevSalonId = prev.salonId ? String(prev.salonId).trim() : '';
+          const isSalonChange = incomingSalonId && prevSalonId && incomingSalonId !== prevSalonId;
+          if (isSalonChange) {
+            return {
+              ...prev,
+              ...Object.fromEntries(
+                Object.entries(incoming).filter(
+                  ([, value]) => value !== null && value !== ''
+                )
+              ),
+              serviceId: incoming.serviceId !== undefined ? incoming.serviceId : undefined,
+              serviceName: incoming.serviceName !== undefined ? incoming.serviceName : undefined,
+              date: incoming.date !== undefined ? incoming.date : undefined,
+              time: incoming.time !== undefined ? incoming.time : undefined,
+            };
+          }
+          return {
+            ...prev,
+            ...Object.fromEntries(
+              Object.entries(incoming).filter(
+                ([, value]) => value !== null && value !== ''
+              )
+            ),
+          };
+        });
       }
       const aiMsg: Msg = { id: Date.now() + 1, role: 'ai', text: data.reply || 'لا توجد نتائج حالياً.', cards: data.cards || [], time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) };
       setMsgs((prev) => [...prev, aiMsg]);
@@ -189,13 +233,7 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
               {m.cards && m.cards.length > 0 && (
                 <div className="mt-3 space-y-3">
                   {m.cards.map((card: any, idx: number) => (
-                    <button type="button" key={idx} className="w-full text-right block rounded-xl bg-[#16121A] border border-white/10 p-3 hover:border-[#D4AF37]/60 transition" onClick={() => { if (card.id) onSelectSalonId(card.id);
- setSelectedSalonId(card.id);
- setConversationState(prev => ({
-   ...prev,
-   salonId: card.id,
-   salonName: card.name || prev.salonName
- })); }}>
+                    <button type="button" key={idx} className="w-full text-right block rounded-xl bg-[#16121A] border border-white/10 p-3 hover:border-[#D4AF37]/60 transition" onClick={() => handleSelectCard(card)}>
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="font-bold text-[#D4AF37]">{card.name}</h3>
                         <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full text-gray-300">{card.type}</span>

@@ -6756,10 +6756,21 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               console.log('[AI DEBUG] TOOL NAME:', name);
               console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
 
-              const explicitBookingConfirm =
-                /^(اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)([!.،؟ ]*)$/iu.test(userText.trim());
+              const hasConfirmation = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)/iu.test(userText.trim());
+              const negativeNearBooking = /\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) || /\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
+              const explicitBookingConfirm = hasConfirmation && !negativeNearBooking;
 
               const previousState = resolvedState || {};
+
+              // If salon changed, reset dependent booking fields in resolvedState to prevent stale cross-salon data.
+              const incomingSalonId = String(args.salonId || previousState.salonId || '').trim();
+              const previousSalonId = String(previousState.salonId || '').trim();
+              if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
+                previousState.serviceId = undefined;
+                previousState.serviceName = undefined;
+                previousState.date = undefined;
+                previousState.time = undefined;
+              }
 
               const bookingMatchesConfirmedState =
                 name === 'create_booking' &&
@@ -6767,6 +6778,14 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 String(args.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
                 String(args.date || '').trim() === String(previousState.date || '').trim() &&
                 String(args.timeSlot || '').trim() === String(previousState.time || '').trim();
+
+              // Also reset resolvedState itself so the response reflects cleared dependent fields when salon changes.
+              if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
+                resolvedState.serviceId = undefined;
+                resolvedState.serviceName = undefined;
+                resolvedState.date = undefined;
+                resolvedState.time = undefined;
+              }
 
               const res = await executeTool(
                 name,
@@ -6792,39 +6811,26 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 JSON.stringify(res, null, 2).slice(0, 20000)
               );
 
-              // Preserve authoritative IDs/details returned
-              // by Halaqi tools.
-              if (res?.salons?.length === 1) {
-                const s = res.salons[0];
-
-                resolvedState.salonId =
-                  s.id ||
-                  resolvedState.salonId;
-
-                resolvedState.salonName =
-                  s.name ||
-                  resolvedState.salonName;
+              // Preserve authoritative IDs/details returned by Halaqi tools.
+              // Only update salon from get_salon (explicit user request), not from search_salons.
+              if (name === 'get_salon' && res?.salon?.id) {
+                resolvedState.salonId = res.salon.id;
+                resolvedState.salonName = res.salon.name || resolvedState.salonName;
               }
 
-              if (res?.salon?.id) {
-                resolvedState.salonId =
-                  res.salon.id;
-
-                resolvedState.salonName =
-                  res.salon.name ||
-                  resolvedState.salonName;
+              if (res?.salons && res.salons.length > 0 && name === 'search_salons') {
+                // Search results must NOT silently redefine the selected salon.
+                // Only update cards; do not change resolvedState.salonId.
               }
 
-              if (res?.services?.length === 1) {
+              if ((name === 'get_salon_services' || name === 'search_services') && res?.services?.length === 1) {
                 const svc = res.services[0];
-
-                resolvedState.serviceId =
-                  svc.id ||
-                  resolvedState.serviceId;
-
-                resolvedState.serviceName =
-                  svc.name ||
-                  resolvedState.serviceName;
+                // Only accept service if it belongs to the current authoritative salon or an explicitly requested salon.
+                const currentSalon = previousState.salonId ? String(previousState.salonId).trim() : (args.salonId ? String(args.salonId).trim() : null);
+                if (currentSalon && svc.salonId && String(svc.salonId).trim() === currentSalon) {
+                  resolvedState.serviceId = svc.id || resolvedState.serviceId;
+                  resolvedState.serviceName = svc.name || resolvedState.serviceName;
+                }
               }
 
               if (res?.date) {

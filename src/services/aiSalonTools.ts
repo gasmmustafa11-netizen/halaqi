@@ -108,9 +108,9 @@ export async function executeTool(
 
       // Remove generic search words so "صالون النجمة" can match DB name "النجمه".
       const kw = rawKeyword
-        .replace(/\\bصالون\\b/g, ' ')
-        .replace(/\\bصالونات\\b/g, ' ')
-        .replace(/\\s+/g, ' ')
+        .replace(/\bصالون\b/g, ' ')
+        .replace(/\bصالونات\b/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim();
 
       const filtered = source.filter((s: any) => {
