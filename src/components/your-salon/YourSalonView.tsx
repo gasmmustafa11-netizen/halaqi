@@ -152,19 +152,6 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
       }
       const aiMsg: Msg = { id: Date.now() + 1, role: 'ai', text: data.reply || 'لا توجد نتائج حالياً.', cards: data.cards || [], time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) };
       setMsgs((prev) => [...prev, aiMsg]);
-      if (data.conversationState && typeof data.conversationState === 'object') {
-        setConversationState((prev) => ({
-          ...prev,
-          ...Object.fromEntries(
-            Object.entries(data.conversationState).filter(
-              ([, value]) =>
-                value !== undefined &&
-                value !== null &&
-                value !== ''
-            )
-          ),
-        }));
-      }
       // Detect booking request from AI or user context
       const textLower = (data.reply || '').toLowerCase();
       if (textLower.includes('حجز') || textLower.includes('احجز') || textLower.includes('موعد') || textLower.includes('كتاب')) {

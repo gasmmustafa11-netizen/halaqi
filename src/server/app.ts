@@ -6759,7 +6759,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               const explicitBookingConfirm =
                 /^(اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)([!.،؟ ]*)$/iu.test(userText.trim());
 
-              const previousState = conversationState || {};
+              const previousState = resolvedState || {};
 
               const bookingMatchesConfirmedState =
                 name === 'create_booking' &&
@@ -7056,7 +7056,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         pendingQuestion:
           needsClarification
             ? reply
-            : undefined,
+            : null,
 
         lastResolvedContext:
           (
