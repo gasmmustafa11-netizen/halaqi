@@ -83,6 +83,7 @@ export async function executeTool(
   context?: {
     user?: any;
     allowBooking?: boolean;
+    conversationState?: any;
   }
 ): Promise<any> {
   const db = (dbModule as any)?.default || (dbModule as any)?.db;
@@ -186,10 +187,12 @@ export async function executeTool(
         };
       }
 
-      const salonId = String(params.salonId || '').trim();
-      const serviceId = String(params.serviceId || '').trim();
-      const date = String(params.date || '').trim();
-      const timeSlot = String(params.timeSlot || '').trim();
+      // Resolve booking arguments: prefer explicit args, fall back to validated conversation state.
+      const state = context?.conversationState || {};
+      const salonId = String(params.salonId || state.salonId || '').trim();
+      const serviceId = String(params.serviceId || state.serviceId || '').trim();
+      const date = String(params.date || state.date || '').trim();
+      const timeSlot = String(params.timeSlot || state.time || '').trim();
 
       if (!salonId || !serviceId || !date || !timeSlot) {
         return { error: 'بيانات الحجز غير مكتملة.', code: 'INCOMPLETE_BOOKING' };

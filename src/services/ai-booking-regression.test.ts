@@ -153,3 +153,66 @@ function assertFalse(value: boolean, label: string) {
 }
 
 console.log('=== All regression tests completed ===');
+
+// I) Exact conversation reproduction from user: booking must NOT trigger on request alone.
+{
+  console.log('--- Test I: Request phrase does not trigger booking ---');
+  const regex = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)/iu;
+  assertFalse(regex.test('أريد الحجز في صالون الميار'), 'Request phrase does not confirm');
+}
+
+// I) Exact failing conversation: "اي نعم احجز" must resolve from validated state and reach createBookingAtomic.
+{
+  console.log('--- Test I: Exact confirmation flow reaches booking atomic ---');
+  // Import executeTool to verify the real logic path.
+  const { executeTool } = await import('../services/aiSalonTools');
+
+  // Mock database module with minimal state and a tracking atomic method.
+  let atomicCalled = false;
+  let atomicPayload: any = null;
+  const mockDbModule = {
+    default: {
+      getState: () => ({
+        salons: [{ id: 'mayar', name: 'المايار', ownerId: 'owner1', status: 'approved', commissionRate: 10, working_hours: null }],
+        services: [{ id: 'svc-1', salonId: 'mayar', name: 'قص', price: 15000, durationMinutes: 30 }],
+        users: [{ id: 'user-1', name: 'علي', phone: '077', email: 'ali@test.com', isBanned: false, isActive: true, role: 'customer' }],
+        bookings: [],
+        blockedTimes: [],
+        settings: { commissionRate: 10 },
+      }),
+      getSalonByIdFromNeon: async (id: string) => ({ id: 'mayar', name: 'المايار', ownerId: 'owner1', status: 'approved', working_hours: null }),
+      getServiceByIdFromNeon: async (id: string) => ({ id: 'svc-1', salonId: 'mayar', name: 'قص', price: 15000, durationMinutes: 30 }),
+      getUserById: (id: string) => ({ id: 'user-1', name: 'علي', phone: '077', email: 'ali@test.com', isBanned: false, isActive: true }),
+      getAdminUsers: () => [],
+      createNotification: async () => {},
+      createBookingAtomic: async (payload: any) => {
+        atomicCalled = true;
+        atomicPayload = payload;
+        return { success: true, booking: { id: 'bk_1', salonId: payload.salonId, serviceId: payload.serviceId, date: payload.date, timeSlot: payload.timeSlot, finalPrice: 15000, status: 'confirmed', salonName: 'المايار', serviceName: 'قص', bookingNumber: 'HLQ-2026-1000', customerName: 'علي' } };
+      },
+    }
+  };
+
+  const user = { id: 'user-1', name: 'علي', phone: '077', email: 'ali@test.com', role: 'customer', isBanned: false, isActive: true };
+
+  // Simulate exact failing conversation: user confirms after details set.
+  const conversationState = { salonId: 'mayar', salonName: 'المايار', serviceId: 'svc-1', serviceName: 'قص', date: '2026-09-09', time: '10:00', intent: 'book', pendingQuestion: null, lastResolvedContext: '' };
+
+  // Gemini might send incomplete args (missing date/time) but confirmation is true.
+  const args = { salonId: 'mayar', serviceId: 'svc-1', confirmed: true };
+
+  const result = await executeTool('create_booking', args, mockDbModule, async () => (await import('../services/lib/pg-compliant')), {
+    user: user,
+    allowBooking: true,
+    conversationState: conversationState,
+  });
+
+  assertTrue(atomicCalled, 'Booking reaches createBookingAtomic');
+  assertTrue(atomicPayload !== null, 'Payload provided');
+  assertEqual(atomicPayload.salonId, 'mayar', 'Payload salon correct');
+  assertEqual(atomicPayload.serviceId, 'svc-1', 'Payload service correct');
+  assertEqual(atomicPayload.date, '2026-09-09', 'Payload date resolved from state');
+  assertEqual(atomicPayload.timeSlot, '10:00', 'Payload time resolved from state');
+  assertEqual(atomicPayload.customerId, 'user-1', 'Payload customer from auth');
+  assertTrue(result?.success === true, 'Booking succeeds');
+}

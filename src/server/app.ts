@@ -6802,6 +6802,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                     !!previousState.serviceId &&
                     !!previousState.date &&
                     !!previousState.time,
+                  conversationState: previousState,
                 }
               );
 
