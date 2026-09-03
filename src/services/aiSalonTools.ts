@@ -89,6 +89,13 @@ export async function executeTool(
   const db = (dbModule as any)?.default || (dbModule as any)?.db;
   try {
     if (name === 'search_salons') {
+      // STRICT: Prevent search_salons from re-triggering when salon context is already active.
+      // If salonId exists in state, the user has already selected a salon.
+      // Do NOT return new salon results — force the model to retain the active salon context.
+      const pendingState = context?.conversationState || {};
+      if (pendingState.salonId) {
+        return { salons: [], blocked: true, reason: 'salon_already_selected' };
+      }
       const all = (typeof db?.getApprovedSalonsFromNeon === 'function') ? await db.getApprovedSalonsFromNeon() : [];
       const source = (all || []).slice(0, 50);
       const normalizeArabic = (value: unknown) =>

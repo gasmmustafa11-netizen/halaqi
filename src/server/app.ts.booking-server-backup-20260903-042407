@@ -2902,7 +2902,6 @@ async function ensureConversationStateTable(): Promise<void> {
           pinned BOOLEAN NOT NULL DEFAULT FALSE,
           deleted BOOLEAN NOT NULL DEFAULT FALSE,
           pin_hash TEXT,
-          state_json TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           UNIQUE(user_id, other_id)
         )
@@ -6542,34 +6541,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         ? conversationState
         : {}),
     };
-    // Load authoritative conversation state from DB session (if user authenticated)
-    // to prevent context loss between stateless requests.
-    let dbStateLoaded = false;
-    try {
-      const me = (req as any).user?.id;
-      if (me && typeof sql === 'function') {
-        const rows = await sql`SELECT state_json FROM conversation_states WHERE user_id = ${me} AND other_id = 'halaqi_ai' LIMIT 1`;
-        if (rows && rows[0] && rows[0].state_json) {
-          try {
-            const parsed = JSON.parse(String(rows[0].state_json));
-            if (parsed && typeof parsed === 'object') {
-              // Merge DB authoritative state over client-provided state for persistence
-              resolvedState.salonId = parsed.salonId !== undefined ? parsed.salonId : resolvedState.salonId;
-              resolvedState.salonName = parsed.salonName !== undefined ? parsed.salonName : resolvedState.salonName;
-              resolvedState.serviceId = parsed.serviceId !== undefined ? parsed.serviceId : resolvedState.serviceId;
-              resolvedState.serviceName = parsed.serviceName !== undefined ? parsed.serviceName : resolvedState.serviceName;
-              resolvedState.date = parsed.date !== undefined ? parsed.date : resolvedState.date;
-              resolvedState.time = parsed.time !== undefined ? parsed.time : resolvedState.time;
-              resolvedState.intent = parsed.intent !== undefined ? parsed.intent : resolvedState.intent;
-              resolvedState.pendingQuestion = parsed.pendingQuestion !== undefined ? parsed.pendingQuestion : resolvedState.pendingQuestion;
-              resolvedState.lastResolvedContext = parsed.lastResolvedContext !== undefined ? parsed.lastResolvedContext : resolvedState.lastResolvedContext;
-              dbStateLoaded = true;
-            }
-          } catch (e) { /* ignore parse errors */ }
-        }
-      }
-    } catch (e) { /* ignore DB read errors */ }
-
 
     const structuredSchema = {
       type: 'object',
@@ -6617,7 +6588,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
   7. لا تستدعِ create_booking إلا بعد تأكيد المستخدم الصريح لنفس الصالون والخدمة والتاريخ والوقت.
   8. لا تعتبر مجرد قول المستخدم "أريد أن أحجز" تأكيداً نهائياً للحجز.
   9. لا تخترع أي خدمة أو موعد أو سعر أو توفر.
-- قاعدة صارمة (مهم جداً): إذا كان السياق يحتوي على صالون محدد (salonId موجود) والمستخدم يرسل كلمات تأكيد أو حجز مثل "الحجز"، "احجز"، "تأكيد"، "نعم"، أو يذكر اسم خدمة مثل "صبغ"،禁止 استدعاء search_salons مطلقاً. بدلاً من ذلك، احتفظ بالصالون النشط واسأل المستخدم فقط عن البيانات الناقصة (التاريخ والوقت والخدمة) مباشرة.
 - إذا كان الطلب مجرد تحية أو كلام عام ولا يحتاج بيانات Halaqi، يمكنك الرد مباشرة بدون أداة.
 - الرسالة الحالية أعلى أولوية من السياق السابق.
 - إذا كان المعنى غير واضح فعلاً ولا يمكن البحث بشكل موثوق، اسأل سؤالاً قصيراً بالعراقية.
@@ -6786,50 +6756,21 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               console.log('[AI DEBUG] TOOL NAME:', name);
               console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
 
-              const hasConfirmation = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)/iu.test(userText.trim());
-              const negativeNearBooking = /\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) || /\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
-              const explicitBookingConfirm = hasConfirmation && !negativeNearBooking;
+              const explicitBookingConfirm =
+                /^(اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)([!.،؟ ]*)$/iu.test(userText.trim());
 
-              const previousState = resolvedState || {};
-
-              // Resolve final booking arguments: merge Gemini args with validated conversation state.
-              // The conversationState is the authoritative source for salon/service/date/time.
-              const resolvedBookingArgs = {
-                salonId: String(args.salonId || previousState.salonId || '').trim(),
-                serviceId: String(args.serviceId || previousState.serviceId || '').trim(),
-                date: String(args.date || previousState.date || '').trim(),
-                timeSlot: String(args.timeSlot || previousState.time || '').trim(),
-                confirmed: args.confirmed === true ? true : false,
-              };
-
-              // If salon changed, reset dependent booking fields in resolvedState to prevent stale cross-salon data.
-              const incomingSalonId = String(resolvedBookingArgs.salonId || previousState.salonId || '').trim();
-              const previousSalonId = String(previousState.salonId || '').trim();
-              if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
-                previousState.serviceId = undefined;
-                previousState.serviceName = undefined;
-                previousState.date = undefined;
-                previousState.time = undefined;
-              }
+              const previousState = conversationState || {};
 
               const bookingMatchesConfirmedState =
                 name === 'create_booking' &&
-                String(resolvedBookingArgs.salonId || '').trim() === String(previousState.salonId || '').trim() &&
-                String(resolvedBookingArgs.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
-                String(resolvedBookingArgs.date || '').trim() === String(previousState.date || '').trim() &&
-                String(resolvedBookingArgs.timeSlot || '').trim() === String(previousState.time || '').trim();
-
-              // Also reset resolvedState itself so the response reflects cleared dependent fields when salon changes.
-              if (incomingSalonId && previousSalonId && incomingSalonId !== previousSalonId) {
-                resolvedState.serviceId = undefined;
-                resolvedState.serviceName = undefined;
-                resolvedState.date = undefined;
-                resolvedState.time = undefined;
-              }
+                String(args.salonId || '').trim() === String(previousState.salonId || '').trim() &&
+                String(args.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
+                String(args.date || '').trim() === String(previousState.date || '').trim() &&
+                String(args.timeSlot || '').trim() === String(previousState.time || '').trim();
 
               const res = await executeTool(
                 name,
-                { ...args, ...resolvedBookingArgs },
+                args,
                 dbModule,
                 async () => await import('./lib/pg-compliant'),
                 {
@@ -6838,11 +6779,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                     !!req.user &&
                     explicitBookingConfirm &&
                     bookingMatchesConfirmedState &&
-                    !!resolvedBookingArgs.salonId &&
-                    !!resolvedBookingArgs.serviceId &&
-                    !!resolvedBookingArgs.date &&
-                    !!resolvedBookingArgs.timeSlot,
-                  conversationState: previousState,
+                    !!previousState.salonId &&
+                    !!previousState.serviceId &&
+                    !!previousState.date &&
+                    !!previousState.time,
                 }
               );
 
@@ -6852,26 +6792,39 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 JSON.stringify(res, null, 2).slice(0, 20000)
               );
 
-              // Preserve authoritative IDs/details returned by Halaqi tools.
-              // Only update salon from get_salon (explicit user request), not from search_salons.
-              if (name === 'get_salon' && res?.salon?.id) {
-                resolvedState.salonId = res.salon.id;
-                resolvedState.salonName = res.salon.name || resolvedState.salonName;
+              // Preserve authoritative IDs/details returned
+              // by Halaqi tools.
+              if (res?.salons?.length === 1) {
+                const s = res.salons[0];
+
+                resolvedState.salonId =
+                  s.id ||
+                  resolvedState.salonId;
+
+                resolvedState.salonName =
+                  s.name ||
+                  resolvedState.salonName;
               }
 
-              if (res?.salons && res.salons.length > 0 && name === 'search_salons') {
-                // Search results must NOT silently redefine the selected salon.
-                // Only update cards; do not change resolvedState.salonId.
+              if (res?.salon?.id) {
+                resolvedState.salonId =
+                  res.salon.id;
+
+                resolvedState.salonName =
+                  res.salon.name ||
+                  resolvedState.salonName;
               }
 
-              if ((name === 'get_salon_services' || name === 'search_services') && res?.services?.length === 1) {
+              if (res?.services?.length === 1) {
                 const svc = res.services[0];
-                // Only accept service if it belongs to the current authoritative salon or an explicitly requested salon.
-                const currentSalon = previousState.salonId ? String(previousState.salonId).trim() : (args.salonId ? String(args.salonId).trim() : null);
-                if (currentSalon && svc.salonId && String(svc.salonId).trim() === currentSalon) {
-                  resolvedState.serviceId = svc.id || resolvedState.serviceId;
-                  resolvedState.serviceName = svc.name || resolvedState.serviceName;
-                }
+
+                resolvedState.serviceId =
+                  svc.id ||
+                  resolvedState.serviceId;
+
+                resolvedState.serviceName =
+                  svc.name ||
+                  resolvedState.serviceName;
               }
 
               if (res?.date) {
@@ -7017,23 +6970,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 
         // If we ended due to loop limit with no final reply, build safe reply
         if (!reply && turn >= 2) {
-          if (cards.length) {
-            reply = 'وجدت نتائج قريبة لك من Halaqi.';
-          } else if (resolvedState.salonId) {
-            // FALLBACK: user has an active salon in state — ask for missing booking params
-            // instead of returning the generic "لم أجد نتائج" which breaks booking flow.
-            const missing: string[] = [];
-            if (!resolvedState.serviceName && !resolvedState.serviceId) missing.push('الخدمة');
-            if (!resolvedState.date) missing.push('التاريخ');
-            if (!resolvedState.time) missing.push('الوقت');
-            if (missing.length > 0) {
-              reply = `تمام، الصالون "${resolvedState.salonName || 'المحدد'}" محفوظ. يرجى تحديد ${missing.join(' و')} لاستكمال الحجز.`;
-            } else {
-              reply = `الصالون "${resolvedState.salonName || 'المحدد'}" جاهز. هل تريد تأكيد الحجز؟`;
-            }
-          } else {
-            reply = 'لم أجد نتائج موثوقة حالياً. حاول تحديد المنطقة أو اسم الصالون.';
-          }
+          reply = (cards.length ? 'وجدت نتائج قريبة لك من Halaqi.' : 'لم أجد نتائج موثوقة حالياً. حاول تحديد المنطقة أو اسم الصالون.');
         }
 
         // Clarification override
@@ -7075,19 +7012,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       }
     }
 
-    // Persist authoritative conversation state to DB so it survives across turns.
-    try {
-      const me = (req as any).user?.id || 'anonymous';
-      await sql`
-        INSERT INTO conversation_states (user_id, other_id, hidden, pinned, deleted, state_json)
-        VALUES (${me}, 'halaqi_ai', FALSE, FALSE, FALSE, ${JSON.stringify({ salonId: resolvedState.salonId || null, salonName: resolvedState.salonName || null, serviceId: resolvedState.serviceId || null, serviceName: resolvedState.serviceName || null, date: resolvedState.date || null, time: resolvedState.time || null, intent: resolvedState.intent || null, pendingQuestion: resolvedState.pendingQuestion || null, lastResolvedContext: resolvedState.lastResolvedContext || null })})
-        ON CONFLICT (user_id, other_id)
-        DO UPDATE SET state_json = EXCLUDED.state_json, hidden = FALSE, pinned = FALSE, deleted = FALSE, created_at = NOW()
-      `;
-    } catch (e) {
-      console.error('[PERSIST CONVERSATION STATE]', e?.message || e);
-    }
-
     return res.json({
       reply: reply || 'عذراً، حدث خطأ.',
       cards,
@@ -7105,42 +7029,34 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           entities?.location ||
           resolvedState.location,
 
-        // STATE MERGING: never overwrite a valid value with undefined/null/empty.
-        // Only override when the incoming value is a non-empty string.
         salonId:
-          (typeof entities?.salonId === 'string' && entities.salonId.trim())
-            ? entities.salonId.trim()
-            : resolvedState.salonId || undefined,
+          entities?.salonId ||
+          resolvedState.salonId,
 
         salonName:
-          (typeof entities?.salonName === 'string' && entities.salonName.trim())
-            ? entities.salonName.trim()
-            : resolvedState.salonName || undefined,
+          entities?.salonName ||
+          resolvedState.salonName,
 
         serviceId:
-          (typeof entities?.serviceId === 'string' && entities.serviceId.trim())
-            ? entities.serviceId.trim()
-            : resolvedState.serviceId || undefined,
+          entities?.serviceId ||
+          resolvedState.serviceId,
 
         serviceName:
-          (typeof entities?.serviceName === 'string' && entities.serviceName.trim())
-            ? entities.serviceName.trim()
-            : resolvedState.serviceName || undefined,
+          entities?.serviceName ||
+          resolvedState.serviceName,
 
         date:
-          (typeof entities?.date === 'string' && entities.date.trim())
-            ? entities.date.trim()
-            : resolvedState.date || undefined,
+          entities?.date ||
+          resolvedState.date,
 
         time:
-          (typeof entities?.time === 'string' && entities.time.trim())
-            ? entities.time.trim()
-            : resolvedState.time || undefined,
+          entities?.time ||
+          resolvedState.time,
 
         pendingQuestion:
           needsClarification
             ? reply
-            : null,
+            : undefined,
 
         lastResolvedContext:
           (
