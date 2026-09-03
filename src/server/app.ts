@@ -7096,6 +7096,68 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           if (typeof e.location === 'string' && e.location.trim()) resolvedState.location = e.location.trim();
         }
 
+        // ============================================================
+        // SERVER-SIDE BOOKING DETAIL EXTRACTOR
+        // Parses service name, date (incl. "9/5" slash formats -> ISO
+        // YYYY-MM-DD using current year, interpreted as MM/DD), and time
+        // (e.g. "10:00" or "10" -> "10:00") directly from the raw user
+        // text. This ensures the booking flow advances to confirmation
+        // instead of returning "لم أتمكن من استخراج البيانات".
+        // ============================================================
+        {
+          if (userText && typeof userText === 'string') {
+            // Strip conversational noise words.
+            const cleaned = userText
+              .replace(/خدمة|الخدمة|التاريخ|بالتاريخ|الساعة|يوم|اليوم|بوقت|الوقت|حجز\s*|احجز\s*|تأكيد/gi, ' ')
+              .replace(/[،,.،]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+            // ---- SERVICE NAME: known service keywords ----
+            if (!resolvedState.serviceName && !resolvedState.serviceId) {
+              const svcMatch = cleaned.match(/صبغ|حلاقة|تشذيب|تسريح|قصة|قص شهري|فيس|ماسك|كيراتين|حواجب|بدكير|مانيكير|بيديكير/i);
+              if (svcMatch) resolvedState.serviceName = svcMatch[0];
+            }
+
+            // ---- DATE: "9/5", "09/05", "9-5", "09-05" -> YYYY-MM-DD (MM/DD) ----
+            if (!resolvedState.date) {
+              const dateMatch = cleaned.match(/(?:^|\s)(\d{1,2})[\/\-](\d{1,2})(?:\s|$)/);
+              if (dateMatch) {
+                const month = parseInt(dateMatch[1], 10);
+                const day = parseInt(dateMatch[2], 10);
+                if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                  const year = new Date().getFullYear();
+                  resolvedState.date =
+                    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                }
+              }
+            }
+
+            // ---- TIME: "10:00", "10:00:00", or bare "10" (hour) -> "HH:MM" ----
+            // Only treat a bare number as a time when a date is already known
+            // (avoid confusing the date numbers with a time).
+            if (!resolvedState.time) {
+              const colonTime = cleaned.match(/(?:^|\s)(\d{1,2}):(\d{2})(?::\d{1,2})?(?:\s|$)/);
+              if (colonTime) {
+                const hh = parseInt(colonTime[1], 10);
+                const mm = parseInt(colonTime[2], 10);
+                if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+                  resolvedState.time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                }
+              } else if (resolvedState.date) {
+                // Bare hour like "10" -> 10:00, only when a date is present.
+                const bareTime = cleaned.match(/(?:^|\s)(\d{1,2})(?:\s|$)/);
+                if (bareTime) {
+                  const hh = parseInt(bareTime[1], 10);
+                  if (hh >= 0 && hh <= 23) {
+                    resolvedState.time = `${String(hh).padStart(2, '0')}:00`;
+                  }
+                }
+              }
+            }
+          }
+        }
+
         // DETECT: did the user's message contain actual booking details?
         // If so, the fallback should NOT fire — the user provided info that Gemini should have parsed.
         const userHasInlineBookingDetails =
