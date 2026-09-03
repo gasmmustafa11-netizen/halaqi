@@ -197,12 +197,17 @@ export async function executeTool(
       // Resolve booking arguments: prefer explicit args, fall back to validated conversation state.
       const state = context?.conversationState || {};
       const salonId = String(params.salonId || state.salonId || '').trim();
-      const serviceId = String(params.serviceId || state.serviceId || '').trim();
+      let serviceId = String(params.serviceId || state.serviceId || '').trim();
+      const serviceNameHint = String(params.serviceName || state.serviceName || '').trim();
       const date = String(params.date || state.date || '').trim();
       const timeSlot = String(params.timeSlot || state.time || '').trim();
 
       if (!salonId || !serviceId || !date || !timeSlot) {
-        return { error: 'بيانات الحجز غير مكتملة.', code: 'INCOMPLETE_BOOKING' };
+        // Allow proceeding when we only have a service NAME (no id); the id is
+        // resolved below from the DB for the target salon.
+        if (!serviceId && !serviceNameHint) {
+          return { error: 'بيانات الحجز غير مكتملة.', code: 'INCOMPLETE_BOOKING' };
+        }
       }
 
       // Sync authoritative salon/service data before booking.
@@ -213,16 +218,76 @@ export async function executeTool(
       }
       if (!salon) return { error: 'الصالون المحدد غير موجود.', code: 'SALON_NOT_FOUND' };
 
-      let service = db?.getState?.()?.services?.find(
-        (x: any) => x.id === serviceId && x.salonId === salonId
-      );
-      if (!service && typeof db?.getServiceByIdFromNeon === 'function') {
+      // Resolve the actual service id. The model may pass:
+      //   - a real id like "srv_1_1"
+      //   - a raw/human string like "صبغ" (service name)
+      //   - a mock id like "service_67890"
+      // Try id lookup first, then fall back to matching by name for THIS salon.
+      let service = serviceId
+        ? db?.getState?.()?.services?.find(
+            (x: any) => x.id === serviceId && x.salonId === salonId
+          )
+        : undefined;
+      if (!service && serviceId && typeof db?.getServiceByIdFromNeon === 'function') {
         service = await db.getServiceByIdFromNeon(serviceId);
-        if (service) db.getState().services.push(service);
+        if (service && service.salonId === salonId) {
+          db.getState().services.push(service);
+        } else if (service && service.salonId !== salonId) {
+          service = undefined;
+        }
       }
+
+      // Fallback: resolve by NAME for this salon (id unknown/mock/name-as-id).
+      if (!service) {
+        const normalizedName = serviceNameHint || serviceId;
+        const norm = (v: unknown) =>
+          String(v || '')
+            .toLowerCase()
+            .normalize('NFKC')
+            .replace(/[أإآ]/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const target = norm(normalizedName);
+        service = (db?.getState?.()?.services || []).find(
+          (x: any) => x.salonId === salonId && (norm(x.name) === target || norm(x.name).includes(target))
+        );
+        // If not found in memory, query Neon directly for this salon.
+        if (!service && typeof sqlImport === 'function') {
+          try {
+            const { sql } = await sqlImport();
+            const rows = await sql`
+              SELECT id, name, price, duration_minutes
+              FROM services
+              WHERE salon_id = ${salonId}
+                AND (LOWER(name) LIKE ${'%' + String(normalizedName).toLowerCase() + '%'} OR id = ${serviceId})
+              LIMIT 1
+            `;
+            if (rows && rows[0]) {
+              service = {
+                id: rows[0].id,
+                salonId,
+                name: rows[0].name,
+                price: rows[0].price ? String(rows[0].price) : null,
+                durationMinutes: rows[0].duration_minutes ?? null,
+              } as any;
+              db.getState().services.push(service);
+            }
+          } catch (e: any) {
+            // Ignore DB lookup errors — fail gracefully below, never throw
+            // uncaught type errors that would reset the conversation state.
+            console.error('[AI BOOKING] service name lookup failed:', e?.message || e);
+          }
+        }
+      }
+
       if (!service || service.salonId !== salonId) {
         return { error: 'الخدمة المطلوبة لا تنتمي إلى هذا الصالون.', code: 'SERVICE_NOT_FOUND' };
       }
+
+      // Use the authoritative real service id for the booking.
+      serviceId = String(service.id);
 
       const customer = context.user;
       const securePayload = {

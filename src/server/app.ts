@@ -6838,13 +6838,54 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 
               // Resolve final booking arguments: merge Gemini args with validated conversation state.
               // The conversationState is the authoritative source for salon/service/date/time.
+              let resolvedServiceId = String(args.serviceId || previousState.serviceId || '').trim();
+              let resolvedServiceName = String(args.serviceName || previousState.serviceName || '').trim();
               const resolvedBookingArgs = {
                 salonId: String(args.salonId || previousState.salonId || '').trim(),
-                serviceId: String(args.serviceId || previousState.serviceId || '').trim(),
+                serviceId: resolvedServiceId,
+                serviceName: resolvedServiceName,
                 date: String(args.date || previousState.date || '').trim(),
                 timeSlot: String(args.timeSlot || previousState.time || '').trim(),
                 confirmed: args.confirmed === true ? true : false,
               };
+
+              // SERVICE ID RESOLUTION: the model may pass a raw id, a name like
+              // "صبغ", or a mock id. Resolve the real service id for THIS salon.
+              // Only run the async lookup for create_booking (or whenever we have
+              // a service reference) to avoid unnecessary DB work on other tools.
+              if ((resolvedServiceId || resolvedServiceName) ) {
+                try {
+                  const localService = (db?.getState?.()?.services || []).find(
+                    (x: any) =>
+                      x.salonId === resolvedBookingArgs.salonId &&
+                      (x.id === resolvedServiceId || String(x.name || '').trim() === resolvedServiceName)
+                  );
+                  if (localService) {
+                    resolvedServiceId = String(localService.id);
+                  } else if (typeof db?.getServiceByIdFromNeon === 'function' && resolvedServiceId) {
+                    const svc = await db.getServiceByIdFromNeon(resolvedServiceId);
+                    if (svc && svc.salonId === resolvedBookingArgs.salonId) {
+                      resolvedServiceId = String(svc.id);
+                      resolvedServiceName = resolvedServiceName || svc.name || '';
+                    } else if (resolvedServiceName && typeof sql === 'function') {
+                      const rows = await sql`
+                        SELECT id, name FROM services
+                        WHERE salon_id = ${resolvedBookingArgs.salonId}
+                          AND LOWER(name) LIKE ${'%' + resolvedServiceName.toLowerCase() + '%'}
+                        LIMIT 1
+                      `;
+                      if (rows && rows[0]) {
+                        resolvedServiceId = String(rows[0].id);
+                        resolvedServiceName = rows[0].name || resolvedServiceName;
+                      }
+                    }
+                  }
+                } catch (e: any) {
+                  console.error('[AI Salon] service id resolution error:', e?.message || e);
+                }
+                resolvedBookingArgs.serviceId = resolvedServiceId;
+                if (resolvedServiceName) resolvedBookingArgs.serviceName = resolvedServiceName;
+              }
 
               // If salon changed, reset dependent booking fields in resolvedState to prevent stale cross-salon data.
               const incomingSalonId = String(resolvedBookingArgs.salonId || previousState.salonId || '').trim();
@@ -6859,7 +6900,15 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               const bookingMatchesConfirmedState =
                 name === 'create_booking' &&
                 String(resolvedBookingArgs.salonId || '').trim() === String(previousState.salonId || '').trim() &&
-                String(resolvedBookingArgs.serviceId || '').trim() === String(previousState.serviceId || '').trim() &&
+                // Compare services by resolved id AND by name to avoid failures
+                // when switching between string names and generated ids.
+                (
+                  (!!resolvedBookingArgs.serviceId && !!previousState.serviceId &&
+                    String(resolvedBookingArgs.serviceId).trim() === String(previousState.serviceId).trim())
+                  ||
+                  (!!resolvedBookingArgs.serviceName && !!previousState.serviceName &&
+                    String(resolvedBookingArgs.serviceName).trim() === String(previousState.serviceName).trim())
+                ) &&
                 String(resolvedBookingArgs.date || '').trim() === String(previousState.date || '').trim() &&
                 String(resolvedBookingArgs.timeSlot || '').trim() === String(previousState.time || '').trim();
 
@@ -6937,11 +6986,12 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               // into resolvedState so that later confirmation turns can satisfy
               // bookingMatchesConfirmedState even when the service date/time came
               // only from the create_booking arguments (not a single-service result).
-              if (args?.serviceId) {
-                resolvedState.serviceId = String(args.serviceId).trim();
+              // Use the RESOLVED real service id/name (never a mock/name-as-id).
+              if (resolvedBookingArgs?.serviceId) {
+                resolvedState.serviceId = String(resolvedBookingArgs.serviceId).trim();
               }
-              if (args?.serviceName) {
-                resolvedState.serviceName = String(args.serviceName).trim();
+              if (resolvedBookingArgs?.serviceName) {
+                resolvedState.serviceName = String(resolvedBookingArgs.serviceName).trim();
               }
 
               responses.push({
