@@ -2902,6 +2902,7 @@ async function ensureConversationStateTable(): Promise<void> {
           pinned BOOLEAN NOT NULL DEFAULT FALSE,
           deleted BOOLEAN NOT NULL DEFAULT FALSE,
           pin_hash TEXT,
+          state_json TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           UNIQUE(user_id, other_id)
         )
@@ -6541,6 +6542,34 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         ? conversationState
         : {}),
     };
+    // Load authoritative conversation state from DB session (if user authenticated)
+    // to prevent context loss between stateless requests.
+    let dbStateLoaded = false;
+    try {
+      const me = (req as any).user?.id;
+      if (me && typeof sql === 'function') {
+        const rows = await sql`SELECT state_json FROM conversation_states WHERE user_id = ${me} AND other_id = 'halaqi_ai' LIMIT 1`;
+        if (rows && rows[0] && rows[0].state_json) {
+          try {
+            const parsed = JSON.parse(String(rows[0].state_json));
+            if (parsed && typeof parsed === 'object') {
+              // Merge DB authoritative state over client-provided state for persistence
+              resolvedState.salonId = parsed.salonId !== undefined ? parsed.salonId : resolvedState.salonId;
+              resolvedState.salonName = parsed.salonName !== undefined ? parsed.salonName : resolvedState.salonName;
+              resolvedState.serviceId = parsed.serviceId !== undefined ? parsed.serviceId : resolvedState.serviceId;
+              resolvedState.serviceName = parsed.serviceName !== undefined ? parsed.serviceName : resolvedState.serviceName;
+              resolvedState.date = parsed.date !== undefined ? parsed.date : resolvedState.date;
+              resolvedState.time = parsed.time !== undefined ? parsed.time : resolvedState.time;
+              resolvedState.intent = parsed.intent !== undefined ? parsed.intent : resolvedState.intent;
+              resolvedState.pendingQuestion = parsed.pendingQuestion !== undefined ? parsed.pendingQuestion : resolvedState.pendingQuestion;
+              resolvedState.lastResolvedContext = parsed.lastResolvedContext !== undefined ? parsed.lastResolvedContext : resolvedState.lastResolvedContext;
+              dbStateLoaded = true;
+            }
+          } catch (e) { /* ignore parse errors */ }
+        }
+      }
+    } catch (e) { /* ignore DB read errors */ }
+
 
     const structuredSchema = {
       type: 'object',
@@ -6808,10 +6837,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                     !!req.user &&
                     explicitBookingConfirm &&
                     bookingMatchesConfirmedState &&
-                    !!previousState.salonId &&
-                    !!previousState.serviceId &&
-                    !!previousState.date &&
-                    !!previousState.time,
+                    !!resolvedBookingArgs.salonId &&
+                    !!resolvedBookingArgs.serviceId &&
+                    !!resolvedBookingArgs.date &&
+                    !!resolvedBookingArgs.timeSlot,
                   conversationState: previousState,
                 }
               );
@@ -7027,6 +7056,19 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       } else {
         reply = (!userText || userText.length < 3) ? 'هلا بيك! كيف أقدر أساعدك اليوم؟ مثال: "أريد صالون قريب يفصل فايد".' : (cards.length ? 'وجدت نتائج قريبة لك.' : 'لم أجد نتائج حالياً. حاول تحديد المنطقة أو اسم الصالون.');
       }
+    }
+
+    // Persist authoritative conversation state to DB so it survives across turns.
+    try {
+      const me = (req as any).user?.id || 'anonymous';
+      await sql`
+        INSERT INTO conversation_states (user_id, other_id, hidden, pinned, deleted, state_json)
+        VALUES (${me}, 'halaqi_ai', FALSE, FALSE, FALSE, ${JSON.stringify({ salonId: resolvedState.salonId || null, salonName: resolvedState.salonName || null, serviceId: resolvedState.serviceId || null, serviceName: resolvedState.serviceName || null, date: resolvedState.date || null, time: resolvedState.time || null, intent: resolvedState.intent || null, pendingQuestion: resolvedState.pendingQuestion || null, lastResolvedContext: resolvedState.lastResolvedContext || null })})
+        ON CONFLICT (user_id, other_id)
+        DO UPDATE SET state_json = EXCLUDED.state_json, hidden = FALSE, pinned = FALSE, deleted = FALSE, created_at = NOW()
+      `;
+    } catch (e) {
+      console.error('[PERSIST CONVERSATION STATE]', e?.message || e);
     }
 
     return res.json({
