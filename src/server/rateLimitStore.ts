@@ -63,19 +63,24 @@ export class NeonRateLimitStore {
   }
 
   async increment(key: string): Promise<NeonIncrementResult> {
-    if (!this.skipInit) await ensureRateLimitsTable();
-    const rows: any[] = await this.query`
-      INSERT INTO rate_limits (key, hits, reset_at)
-      VALUES (${this.fullKey(key)}, 1, NOW() + (${this.windowMs} * INTERVAL '1 millisecond'))
-      ON CONFLICT (key) DO UPDATE SET
-        hits = CASE WHEN rate_limits.reset_at <= NOW() THEN 1 ELSE rate_limits.hits + 1 END,
-        reset_at = CASE WHEN rate_limits.reset_at <= NOW()
-          THEN NOW() + (${this.windowMs} * INTERVAL '1 millisecond')
-          ELSE rate_limits.reset_at END
-      RETURNING hits, reset_at
-    `;
-    const row = rows[0];
-    return { totalHits: Number(row.hits), resetTime: new Date(row.reset_at) };
+    try {
+      if (!this.skipInit) await ensureRateLimitsTable();
+      const rows: any[] = await this.query`
+        INSERT INTO rate_limits (key, hits, reset_at)
+        VALUES (${this.fullKey(key)}, 1, NOW() + (${this.windowMs} * INTERVAL '1 millisecond'))
+        ON CONFLICT (key) DO UPDATE SET
+          hits = CASE WHEN rate_limits.reset_at <= NOW() THEN 1 ELSE rate_limits.hits + 1 END,
+          reset_at = CASE WHEN rate_limits.reset_at <= NOW()
+            THEN NOW() + (${this.windowMs} * INTERVAL '1 millisecond')
+            ELSE rate_limits.reset_at END
+        RETURNING hits, reset_at
+      `;
+      const row = rows[0];
+      return { totalHits: Number(row.hits), resetTime: new Date(row.reset_at) };
+    } catch (e: any) {
+      console.error('[RATE-LIMIT] increment failed (fail-closed):', e?.message || e);
+      return { totalHits: Infinity, resetTime: new Date(Date.now() + this.windowMs) };
+    }
   }
 
   async decrement(key: string): Promise<void> {
@@ -205,4 +210,39 @@ export const verifyOtpRateLimiter = rateLimit({
   },
   validate: sharedValidate,
   message: { success: false, error: 'محاولات تحقق كثيرة. حاول بعد قليل.' },
+});
+
+/* ---- Post-creation rate limiters (keyed by userId, requireAuth first) ---- */
+
+export const imageUploadRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 10,                 // 10 image uploads per hour per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('imgupload:'),
+  keyGenerator: (req: any) => `u:${req.user?.id || 'anon'}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'تم تجاوز حد رفع الصور. حاول بعد قليل.' },
+});
+
+export const videoUploadRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 5,                  // 5 video uploads per hour per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('vidupload:'),
+  keyGenerator: (req: any) => `u:${req.user?.id || 'anon'}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'تم تجاوز حد رفع الفيديوهات. حاول بعد قليل.' },
+});
+
+export const userPostRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 20,                 // 20 posts per hour per user
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('userpost:'),
+  keyGenerator: (req: any) => `u:${req.user?.id || 'anon'}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'تم تجاوز حد النشر. حاول بعد قليل.' },
 });

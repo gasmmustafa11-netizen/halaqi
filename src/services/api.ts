@@ -550,20 +550,25 @@ export const api = {
     caption?: string;
     mediaType?: 'image' | 'video';
     duration?: number;
+    idempotencyKey?: string;
   }): Promise<{
     success: boolean;
     post?: any;
     error?: string;
   }> {
     try {
+      const key = data.idempotencyKey || crypto.randomUUID();
+      const body = JSON.stringify({
+        imageUrl: data.imageUrl,
+        caption: data.caption || '',
+        mediaType: data.mediaType || 'image',
+        duration: typeof data.duration === 'number' ? data.duration : undefined,
+      });
+
       const res = await fetchWithAuth('/api/user-posts', {
         method: 'POST',
-        body: JSON.stringify({
-          imageUrl: data.imageUrl,
-          caption: data.caption || '',
-          mediaType: data.mediaType || 'image',
-          duration: typeof data.duration === 'number' ? data.duration : undefined,
-        }),
+        headers: { 'Idempotency-Key': key },
+        body,
       });
 
       const result = await res.json().catch(() => ({}));

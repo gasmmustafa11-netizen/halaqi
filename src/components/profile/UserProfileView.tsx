@@ -103,6 +103,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerFile, setComposerFile] = useState<File | null>(null);
   const [composerPreview, setComposerPreview] = useState<string | null>(null);
+  const [composerIdempotencyKey, setComposerIdempotencyKey] = useState<string>('');
   const [caption, setCaption] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
@@ -226,6 +227,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
     if (!file) return;
 
     setComposerFile(file);
+    setComposerIdempotencyKey(crypto.randomUUID());
     const reader = new FileReader();
     reader.onload = () => {
       setComposerPreview(
@@ -255,6 +257,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       const result = await api.createUserPost({
         imageUrl: upload.imageUrl,
         caption,
+        idempotencyKey: composerIdempotencyKey,
       });
 
       if (!result.success) {
@@ -266,6 +269,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       setComposerOpen(false);
       setComposerFile(null);
       setComposerPreview(null);
+      setComposerIdempotencyKey('');
       setCaption('');
       setShowPreview(false);
       setMentionQuery('');

@@ -26,6 +26,9 @@ import {
   checkUsernameRateLimiter,
   forgotOtpRateLimiter,
   verifyOtpRateLimiter,
+  imageUploadRateLimiter,
+  videoUploadRateLimiter,
+  userPostRateLimiter,
 } from './rateLimitStore.js';
 
 
@@ -1251,6 +1254,119 @@ app.get('/api/salons/:id/posts', async (req: Request, res: Response) => {
   }
 });
 
+/* ---- Salon Posts: Create ---- */
+app.post(
+  '/api/salon-posts',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { salonId, imageUrl, caption } = req.body || {};
+
+      if (!salonId || typeof salonId !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'معرف الصالون مطلوب.',
+        });
+      }
+      if (!imageUrl || typeof imageUrl !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'صورة المنشور مطلوبة.',
+        });
+      }
+
+      const result = await db.createSalonPost(
+        {
+          salonId,
+          imageUrl,
+          caption: typeof caption === 'string' ? caption : '',
+        },
+        req.user!
+      );
+
+      if (result.blocked) {
+        return res.status(400).json({
+          success: false,
+          blocked: true,
+          error: result.error,
+        });
+      }
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error || 'تعذر نشر المنشور.',
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        post: result.post,
+      });
+    } catch (error) {
+      console.error('[CREATE SALON POST ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر نشر المنشور.',
+      });
+    }
+  }
+);
+
+/* ---- Salon Posts: Delete ---- */
+app.delete(
+  '/api/salon-posts/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const post = await db.getSalonPostById(req.params.id);
+
+      if (!post) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'المنشور غير موجود.' });
+      }
+
+      const isAdmin = req.user!.role === 'admin';
+      const isOwner =
+        req.user!.role === 'salon_owner' &&
+        post.ownerId === req.user!.id;
+      if (!isAdmin && !isOwner) {
+        return res.status(403).json({
+          success: false,
+          error: 'غير مسموح لك بحذف هذا المنشور.',
+        });
+      }
+
+      if (post.imageUrl) {
+        const storageResult = await deleteStoredMedia(post.imageUrl);
+        if (!storageResult.ok) {
+          return res.status(502).json({
+            success: false,
+            error: storageResult.error || 'تعذر حذف الصورة من التخزين.',
+          });
+        }
+      }
+
+      const result = await db.deleteSalonPost(req.params.id, req.user!);
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error || 'تعذر حذف المنشور.',
+        });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('[DELETE SALON POST ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        error: 'تعذر حذف المنشور.',
+      });
+    }
+  }
+);
+
 /* =========================================================
    UNIFIED POSTS FEED
 ========================================================= */
@@ -1940,6 +2056,7 @@ function contentTypeFromExt(ext: string): string {
 app.post(
   '/api/uploads/image',
   requireAuth,
+  imageUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2047,6 +2164,7 @@ app.delete(
 app.post(
   '/api/uploads/video',
   requireAuth,
+  videoUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2370,6 +2488,7 @@ app.post(
 app.post(
   '/api/user-posts',
   requireAuth,
+  userPostRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
@@ -2402,6 +2521,23 @@ app.post(
         }
       }
 
+      // ── Idempotency-Key validation ──
+      let idempotencyKey: string | undefined;
+      let payloadHash: string | undefined;
+      const rawKey = req.headers['idempotency-key'];
+      if (rawKey && typeof rawKey === 'string') {
+        // Validate UUID v4 format.
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawKey)) {
+          idempotencyKey = rawKey;
+          payloadHash = crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: ' Idempotency-Key غير صالح. يجب أن يكون UUID v4.',
+          });
+        }
+      }
+
       const result = await db.createUserPost(
         {
           imageUrl,
@@ -2409,8 +2545,24 @@ app.post(
           mediaType: mediaType === 'video' ? 'video' : 'image',
           duration: typeof duration === 'number' ? duration : undefined,
         },
-        req.user!
+        req.user!,
+        idempotencyKey,
+        payloadHash
       );
+
+      if (result.serviceUnavailable) {
+        return res.status(503).json({
+          success: false,
+          error: result.error || 'الخدمة غير متاحة حالياً.',
+        });
+      }
+
+      if ((result as any).conflict) {
+        return res.status(409).json({
+          success: false,
+          error: result.error || 'تعارض في بيانات النشر.',
+        });
+      }
 
       if (result.blocked) {
         return res.status(400).json({
@@ -2427,7 +2579,7 @@ app.post(
         });
       }
 
-      return res.status(201).json({
+      return res.status(result.cached ? 200 : 201).json({
         success: true,
         post: result.post,
       });

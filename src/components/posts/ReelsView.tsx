@@ -271,6 +271,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const [createPreview, setCreatePreview] = useState<string | null>(null);
   const [createCaption, setCreateCaption] = useState('');
   const [createDuration, setCreateDuration] = useState(0);
+  const [createIdempotencyKey, setCreateIdempotencyKey] = useState('');
   const [createUploading, setCreateUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -410,6 +411,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
       setCreatePreview(dataUrl);
       setCreateDuration(Math.round(duration));
       setCreateCaption('');
+      setCreateIdempotencyKey(crypto.randomUUID());
       setCreateOpen(true);
     };
     reader.onerror = () => {
@@ -436,6 +438,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
         caption: createCaption.trim(),
         mediaType: 'video',
         duration: createDuration,
+        idempotencyKey: createIdempotencyKey,
       });
       if (create.success) {
         notify(isRtl ? 'تم نشر الريل.' : 'Reel published.', 'success');
@@ -443,6 +446,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
         setCreatePreview(null);
         setCreateCaption('');
         setCreateDuration(0);
+        setCreateIdempotencyKey('');
         loadReels();
       } else {
         notify(create.error || (isRtl ? 'تعذر نشر الريل.' : 'Could not publish Reel.'), 'error');

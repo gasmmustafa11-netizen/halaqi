@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { sql } from "./lib/pg-compliant";
+import { sql, pool } from "./lib/pg-compliant";
 import { moderateContent } from "./moderation";
 import { sendOtpEmail } from "./email";
 
@@ -678,6 +678,37 @@ export function ensurePasswordResetsTable(): Promise<void> {
   }
   return passwordResetsReady;
 }
+
+/* ---- Idempotency keys table (for duplicate-post prevention) ---- */
+let idempotencyKeysReady: Promise<void> | null = null;
+
+export function ensureIdempotencyKeysTable(): Promise<void> {
+  if (!idempotencyKeysReady) {
+    idempotencyKeysReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS idempotency_keys (
+          key TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          post_id TEXT NOT NULL,
+          response_status INT NOT NULL,
+          response_body JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_idempotency_keys_user ON idempotency_keys (user_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_idempotency_keys_expires ON idempotency_keys (expires_at)`;
+    })().catch((e: any) => {
+      idempotencyKeysReady = null;
+      throw e;
+    });
+  }
+  return idempotencyKeysReady;
+}
+
+export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 export const OTP_MAX_ATTEMPTS = 5;
@@ -5070,6 +5101,33 @@ class DatabaseStore {
     }
   }
 
+  async getSalonPostById(postId: string): Promise<SalonPost | null> {
+    try {
+      const rows = await sql`
+        SELECT * FROM salon_posts WHERE id = ${postId} LIMIT 1
+      `;
+      if (!rows.length) return null;
+      const p = rows[0];
+      return {
+        id: p.id,
+        salonId: p.salon_id,
+        ownerId: p.owner_id,
+        salonName: p.salon_name,
+        imageUrl: p.image_url,
+        caption: p.caption || '',
+        createdAt: new Date(p.created_at).toISOString(),
+        updatedAt: p.updated_at
+          ? new Date(p.updated_at).toISOString()
+          : undefined,
+        likeCount: Number(p.like_count || 0),
+        commentCount: Number(p.comment_count || 0),
+      };
+    } catch (error: any) {
+      console.error('فشل جلب منشور الصالون من Neon:', error.message);
+      return null;
+    }
+  }
+
   async getUserSalonPosts(userId: string): Promise<SalonPost[]> {
     try {
       const rows = await sql`
@@ -5654,8 +5712,10 @@ class DatabaseStore {
       mediaType?: 'image' | 'video';
       duration?: number;
     },
-    requestingUser: User
-  ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
+    requestingUser: User,
+    idempotencyKey?: string,
+    payloadHash?: string
+  ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string; cached?: boolean; serviceUnavailable?: boolean; conflict?: boolean }> {
     try {
       // Respect AI/Admin restriction (non-blocking check; safe if column missing).
       try {
@@ -5697,6 +5757,147 @@ class DatabaseStore {
         duration: mediaType === 'video' ? Number(data.duration || 0) : undefined,
       };
 
+      // ── Idempotency: use a real PostgreSQL transaction when a key is provided ──
+      if (idempotencyKey && payloadHash) {
+        let client: any;
+        try {
+          client = await pool.connect();
+        } catch (connectErr: any) {
+          console.error('[createUserPost] Neon connection failed (503):', connectErr?.message);
+          return { success: false, error: 'الخدمة غير متاحة حالياً. حاول لاحقاً.', serviceUnavailable: true };
+        }
+
+        try {
+          await client.query('BEGIN');
+
+          // Check for existing idempotency key.
+          const existing = await client.query(
+            `SELECT post_id, response_status, response_body
+             FROM idempotency_keys
+             WHERE key = $1 AND user_id = $2 AND expires_at > NOW()`,
+            [idempotencyKey, requestingUser.id]
+          );
+
+          if (existing.rows.length > 0) {
+            const row = existing.rows[0];
+            // Same key but different payload = client bug → 409.
+            if (row.payload_hash !== payloadHash) {
+              await client.query('ROLLBACK').catch(() => {});
+              return { success: false, error: 'تعارض في بيانات النشر. استخدم مفتاح جديد.', conflict: true } as any;
+            }
+            // Fetch the actual post to return fresh data.
+            const postRow = await client.query(
+              `SELECT * FROM user_posts WHERE id = $1`,
+              [row.post_id]
+            );
+            await client.query('COMMIT');
+            if (postRow.rows.length > 0) {
+              const p = postRow.rows[0];
+              return {
+                success: true,
+                cached: true,
+                post: {
+                  id: p.id,
+                  userId: p.user_id,
+                  userName: p.user_name || requestingUser.name || 'مستخدم',
+                  userAvatar: p.user_avatar || undefined,
+                  imageUrl: p.image_url || undefined,
+                  caption: p.caption || '',
+                  createdAt: new Date(p.created_at).toISOString(),
+                  likeCount: Number(p.like_count || 0),
+                  commentCount: Number(p.comment_count || 0),
+                  mediaType: p.media_type || 'image',
+                  duration: p.duration != null ? Number(p.duration) : undefined,
+                } as UserPost,
+              };
+            }
+            // Post deleted between insert and now — treat as new.
+          }
+
+          // Insert the post within the transaction.
+          await client.query(
+            `INSERT INTO user_posts
+             (id, user_id, image_url, caption, media_type, duration, created_at, updated_at, like_count, comment_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0)`,
+            [
+              post.id,
+              post.userId,
+              post.imageUrl ?? null,
+              post.caption,
+              post.mediaType,
+              post.duration ?? null,
+              post.createdAt,
+              post.createdAt,
+            ]
+          );
+
+          // Store the idempotency key in the same transaction.
+          await client.query(
+            `INSERT INTO idempotency_keys
+             (key, user_id, endpoint, payload_hash, post_id, response_status, response_body, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + INTERVAL '24 hours')`,
+            [
+              idempotencyKey,
+              requestingUser.id,
+              '/api/user-posts',
+              payloadHash,
+              post.id,
+              201,
+              JSON.stringify({ success: true, post }),
+            ]
+          );
+
+          await client.query('COMMIT');
+          return { success: true, post };
+        } catch (txErr: any) {
+          await client.query('ROLLBACK').catch(() => {});
+
+          // Unique violation on idempotency key = concurrent duplicate won the race.
+          if (txErr?.code === '23505') {
+            const retry = await sql`
+              SELECT post_id, payload_hash, response_body
+              FROM idempotency_keys
+              WHERE key = ${idempotencyKey} AND user_id = ${requestingUser.id}
+            `;
+            if (retry.length) {
+              // Same key but different payload → 409.
+              if (retry[0].payload_hash !== payloadHash) {
+                return { success: false, error: 'تعارض في بيانات النشر. استخدم مفتاح جديد.', conflict: true } as any;
+              }
+              const postId = retry[0].post_id;
+              const postRow = await sql`SELECT * FROM user_posts WHERE id = ${postId}`;
+              if (postRow.length) {
+                const p = postRow[0];
+                return {
+                  success: true,
+                  cached: true,
+                  post: {
+                    id: p.id,
+                    userId: p.user_id,
+                    userName: p.user_name || requestingUser.name || 'مستخدم',
+                    userAvatar: p.user_avatar || undefined,
+                    imageUrl: p.image_url || undefined,
+                    caption: p.caption || '',
+                    createdAt: new Date(p.created_at).toISOString(),
+                    likeCount: Number(p.like_count || 0),
+                    commentCount: Number(p.comment_count || 0),
+                    mediaType: p.media_type || 'image',
+                    duration: p.duration != null ? Number(p.duration) : undefined,
+                  } as UserPost,
+                };
+              }
+            }
+            return { success: false, error: 'تعذر نشر المنشور.' };
+          }
+
+          console.error('[createUserPost] transaction error:', txErr?.message || txErr);
+          return { success: false, error: 'تعذر حفظ المنشور في قاعدة البيانات.' };
+        } finally {
+          client.release();
+        }
+      }
+
+      // ── No idempotency key: standard non-transactional path (backwards compatible) ──
       await sql`
         INSERT INTO user_posts
         (
