@@ -1,4 +1,3 @@
-import globeImage from '../../assets/globe.png';
 import React, { useState, useEffect } from 'react';
 import { Salon } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -33,13 +32,6 @@ interface HomeExploreViewProps {
   searchQuery?: string;
   onSearchChange?: (q: string) => void;
 }
-
-const globeSpinStyle = `
-@keyframes globeSpin {
-  from { transform: rotate(0deg) scale(1); }
-  to { transform: rotate(360deg) scale(1.035); }
-}
-`;
 
 export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
   onSelectSalon,
@@ -110,9 +102,7 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
   const featuredSalons = salons.filter((s) => s.isFeatured);
 
   return (
-    <>
-      <style>{globeSpinStyle}</style>
-      <div className="space-y-6 pb-20 animate-in fade-in duration-300">
+    <div className="space-y-6 pb-20 animate-in fade-in duration-300">
       {/* Bento Grid Top Showcase Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Main Bento Spotlight Tile (col-span-8) */}
@@ -168,23 +158,60 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
           </div>
         </div>
 
-        {/* Globe — replaces the two salon cards */}
-        <div className="lg:col-span-4 self-stretch flex items-center justify-center overflow-hidden">
-          <button
-            type="button"
-            onClick={onOpenMap}
-            aria-label="فتح الخريطة"
-            className="group relative w-full h-full flex items-center justify-center cursor-pointer focus:outline-none"
+        {/* Side Bento Tiles (col-span-4) */}
+        <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+          {/* Tile 1: Men's Salons */}
+          <div
+            onClick={() => setSelectedType(selectedType === 'men' ? 'all' : 'men')}
+            className={`rounded-2xl p-6 flex flex-col justify-between cursor-pointer transition-all ${
+              selectedType === 'men'
+                ? 'bg-[#1c1c1c] border-2 border-[#D4AF37] shadow-[0_0_15px_rgba(212,175,55,0.2)]'
+                : 'bg-[#141414] border border-[#262626] hover:border-[#D4AF37]'
+            }`}
           >
-            <img
-              src={globeImage}
-              alt="Halaqi Globe"
-              className="w-[min(85vw,420px)] lg:w-[min(30vw,420px)] max-w-full max-h-full object-contain select-none transition-transform duration-700 ease-out animate-[globeSpin_90s_linear_infinite] group-hover:scale-[1.025] group-active:scale-[1.05]"
-              draggable="false"
-            />
-          </button>
-        </div>
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 bg-gray-800 rounded-xl flex items-center justify-center border border-[#333]">
+                <Scissors className="w-6 h-6 text-[#D4AF37]" />
+              </div>
+              <span className="text-[10px] bg-[#D4AF37]/20 text-[#D4AF37] px-2.5 py-1 rounded-md font-bold uppercase tracking-tighter">
+                Premium Selection
+              </span>
+            </div>
 
+            <div>
+              <h3 className="text-xl font-extrabold text-white mb-1">صالونات رجالية</h3>
+              <p className="text-gray-400 text-xs leading-relaxed">
+                حلاقة ذقن، العناية بالبشرة، تدريج VIP، وستايل حديث
+              </p>
+            </div>
+          </div>
+
+          {/* Tile 2: Women's Luxury Centers */}
+          <div
+            onClick={() => setSelectedType(selectedType === 'women' ? 'all' : 'women')}
+            className={`bento-gold rounded-2xl p-6 flex flex-col justify-between cursor-pointer transition-all ${
+              selectedType === 'women'
+                ? 'ring-2 ring-white shadow-2xl scale-[1.01]'
+                : 'opacity-95 hover:opacity-100'
+            }`}
+          >
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 bg-black text-[#D4AF37] rounded-xl flex items-center justify-center shadow-lg">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] bg-black/10 text-black px-2.5 py-1 rounded-md font-extrabold uppercase tracking-tighter">
+                Luxury Care
+              </span>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-extrabold text-black mb-1">صالونات نسائية</h3>
+              <p className="text-black/80 text-xs leading-relaxed font-medium">
+                ميك اب، باقات عرائس، عناية بالشعر والأظافر، وهيدرافيشل
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filter and City Selector Toolbar */}
@@ -379,6 +406,5 @@ export const HomeExploreView: React.FC<HomeExploreViewProps> = ({
         </button>
       </div>
     </div>
-    </>
   );
 };
