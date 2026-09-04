@@ -6,7 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
-import { db, normalizePhone } from './db.js';
+import { db, normalizePhone, ensureIdempotencyKeysTable } from './db.js';
 import { analyzeContent } from './aiModeration';
 import { startAllBots, stopAllBots, initBotEngine, runCronTick } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
@@ -1827,7 +1827,7 @@ db.ensureReelsTables().catch((e: any) =>
 );
 
 // Ensure idempotency_keys table exists before post creation requests.
-db.ensureIdempotencyKeysTable().catch((e: any) =>
+ensureIdempotencyKeysTable().catch((e: any) =>
   console.error('[IDEMPOTENCY MIGRATION]', e?.message || e)
 );
 
