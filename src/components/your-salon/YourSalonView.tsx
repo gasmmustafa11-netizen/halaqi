@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Send, MapPin, Star, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Send, MapPin, Star, Clock } from 'lucide-react';
 import { aiSalonChat } from '../../services/aiSalon';
-import { api } from '../../services/api';
 
 interface Msg { id: number; role: 'user' | 'ai'; text: string; cards?: any[]; time: string; }
 
@@ -13,13 +12,7 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Booking integration states
-  const [bookingMode, setBookingMode] = useState(false);
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(null);
-  const [bookingFields, setBookingFields] = useState<{ salonId?: string; serviceId?: string; serviceName?: string; date?: string; timeSlot?: string; price?: number }>({});
-  const [bookingConfirmMsg, setBookingConfirmMsg] = useState('');
-  const [bookingError, setBookingError] = useState('');
-  const [bookingServices, setBookingServices] = useState<any[]>([]);
   const [conversationState, setConversationState] = useState<{
     intent?: string;
     location?: string;
@@ -73,70 +66,6 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
     }
   }, [msgs, loading]);
 
-  const tryProcessBooking = async () => {
-    // Deprecated: booking is now executed only by the authenticated AI
-    // booking tool after explicit confirmation.
-    return;
-  };
-
-  const submitBooking = async (fields: { salonId: string; serviceId: string; date: string; timeSlot: string }) => {
-    setLoading(true);
-    setBookingError('');
-    try {
-      // Verify salon exists via API or use current cards
-      const salon = (msgs.map(m => m.cards).flat() || []).find((c: any) => c.id === fields.salonId);
-      const service = bookingServices.find((s: any) => s.id === fields.serviceId);
-      const price = service?.price ?? 0;
-      const payload = {
-        salonId: fields.salonId,
-        serviceId: fields.serviceId,
-        date: fields.date,
-        timeSlot: fields.timeSlot,
-        // customer details from auth server-side via requireAuth
-      };
-      // Check availability via occupied slots endpoint first (optional quick check)
-      try {
-        const occ = await api.getOccupiedSlots(fields.salonId, fields.date);
-        // We don't enforce here; server booking endpoint validates fully
-      } catch(e){}
-      const res = await api.createBooking(payload);
-      if (res.success && res.booking) {
-        const b = res.booking as any;
-        setBookingConfirmMsg('');
-        setBookingFields({});
-        setBookingMode(false);
-        setBookingError('');
-        // Send confirmation AI message with real booking data
-        const confirmText = `تم الحجز بنجاح ✅\nالصالون: ${b.salonName || fields.salonId}\nالتاريخ: ${b.date || fields.date}\nالساعة: ${b.timeSlot || fields.timeSlot}\nالخدمة: ${b.serviceName || fields.serviceId}\nالصالون بانتظارك بالموعد المحدد.\n\nعند وصولك للصالون، أظهر رمز QR الخاص بالحجز للحلاق لإتمام الخدمة.`;
-        setMsgs(prev => [...prev, { id: Date.now(), role: 'ai', text: confirmText, time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) }]);
-        setBookingConfirmMsg('');
-        // Note: notifications already handled by server; we do not send extra notifications here.
-      } else {
-        const errMsg = res.error || 'تعذر الحجز';
-        let errorText = '';
-        if (errMsg.includes('401') || errMsg.includes('login') || errMsg.includes('تسجيل')) {
-          errorText = 'يرجى تسجيل الدخول أولاً لإتمام الحجز.';
-        } else if (errMsg.includes('400') || errMsg.includes('ناقص') || errMsg.includes('بيانات')) {
-          errorText = 'البيانات ناقصة أو غير صحيحة، يرجى التأكد من الصالون والخدمة والتاريخ والساعة.';
-        } else if (errMsg.includes('409') || errMsg.includes('غير متاح')) {
-          errorText = 'الموعد غير متاح، يرجى اختيار وقت آخر.';
-        } else if (errMsg.includes('500') || errMsg.includes('خطأ')) {
-          errorText = 'حدث خطأ في الخادم، حاول لاحقاً.';
-        } else {
-          errorText = errMsg;
-        }
-        setBookingError(errorText);
-        setMsgs(prev => [...prev, { id: Date.now(), role: 'ai', text: errorText, time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) }]);
-      }
-    } catch (e: any) {
-      const msg = (e.message || '').includes('401') || (e.message || '').includes('login') ? 'يرجى تسجيل الدخول أولاً لإتمام الحجز.' : 'حدث خطأ في الحجز، يرجى المحاولة مرة أخرى.';
-      setBookingError(msg);
-      setMsgs(prev => [...prev, { id: Date.now(), role: 'ai', text: msg, time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const send = async () => {
     const text = input.trim();
     if (!text || loading) return;
@@ -144,10 +73,6 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
     setMsgs((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
-    if (bookingMode) {
-      // Try extracting from previous context; will process after AI response
-      setTimeout(() => tryProcessBooking(), 400);
-    }
     try {
       const history = [
         ...msgs.map((m) => ({ role: m.role, text: m.text })),
@@ -161,12 +86,9 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
         conversationState,
       });
       
-      // Keep the server-authoritative booking state across turns.
-      // Only update fields that are explicitly set; never erase fields unless a salon change was explicitly handled above.
       if (data?.conversationState) {
         const incoming = data.conversationState;
         setConversationState(prev => {
-          // If salon changed, clear dependent fields unless incoming explicitly sets them
           const incomingSalonId = incoming.salonId !== undefined ? String(incoming.salonId || '').trim() || undefined : prev.salonId;
           const prevSalonId = prev.salonId ? String(prev.salonId).trim() : '';
           const isSalonChange = incomingSalonId && prevSalonId && incomingSalonId !== prevSalonId;
@@ -196,14 +118,6 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
       }
       const aiMsg: Msg = { id: Date.now() + 1, role: 'ai', text: data.reply || 'لا توجد نتائج حالياً.', cards: data.cards || [], time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) };
       setMsgs((prev) => [...prev, aiMsg]);
-      // Detect booking request from AI or user context
-      const textLower = (data.reply || '').toLowerCase();
-      if (textLower.includes('حجز') || textLower.includes('احجز') || textLower.includes('موعد') || textLower.includes('كتاب')) {
-        setBookingMode(true);
-      }
-      if (bookingMode) {
-        setTimeout(() => tryProcessBooking(), 300);
-      }
     } catch (e) {
       setMsgs((prev) => [...prev, { id: Date.now() + 2, role: 'ai', text: 'حدث خطأ، حاول مرة أخرى.', time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) }]);
     } finally {

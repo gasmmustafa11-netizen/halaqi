@@ -98,23 +98,14 @@ export async function executeTool(
       if (pendingState.pendingQuestion) {
         return { salons: [], blocked: true, reason: 'booking_confirmation_in_progress' };
       }
-      // Prefer live approved data from Neon so newly-added approved salons
-      // (e.g. registered through the app after deploy) are always visible to
-      // the AI, even when the in-memory state hasn't refreshed (on serverless
-      // platforms like Vercel loadAllFromNeon is never run). Fall back to the
-      // in-memory state only if the live query returns nothing or fails. Only
-      // approved salons are returned — pending/banned salons must never surface.
-      let all: any[] = [];
-      if (typeof db?.getApprovedSalonsFromNeon === 'function') {
-        try {
-          const live = await db.getApprovedSalonsFromNeon();
-          if (Array.isArray(live) && live.length > 0) all = live;
-        } catch (e) {
-          all = [];
-        }
-      }
-      if (all.length === 0 && typeof db?.getState === 'function' && db.getState().salons?.length > 0) {
-        all = db.getState().salons;
+      // Use in-memory state first (faster, always available after startup),
+      // fall back to Neon query if memory is empty. Only approved salons are
+      // returned — pending/banned salons must never surface to customers.
+      let all = ((typeof db?.getState === 'function' && db.getState().salons?.length > 0)
+        ? db.getState().salons
+        : []) as any[];
+      if (all.length === 0 && typeof db?.getApprovedSalonsFromNeon === 'function') {
+        all = await db.getApprovedSalonsFromNeon();
       }
       all = (all || []).filter(
         (s: any) => (s.status || 'approved') === 'approved'
@@ -161,12 +152,9 @@ export async function executeTool(
       const citySet = new Set(locCityMatches.map((c) => c.toLowerCase()));
 
       // Remove generic search words so "صالون النجمة" can match DB name "النجمه".
-      // NOTE: \b (word boundaries) is NOT used here because it does not work
-      // with Arabic script in JavaScript regex; "صالونات" must be removed before
-      // "صالون" (the latter is a substring of the former).
       const kw = rawKeyword
-        .replace(/صالونات/g, ' ')
-        .replace(/صالون/g, ' ')
+        .replace(/\bصالون\b/g, ' ')
+        .replace(/\bصالونات\b/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 

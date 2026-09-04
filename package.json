@@ -22,6 +22,7 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/push-notifications": "^8.1.2",
     "@google/genai": "^2.4.0",
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.112.3",
     "@tailwindcss/vite": "^4.1.14",
     "@vis.gl/react-google-maps": "^1.9.0",

@@ -7456,7 +7456,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         // is not a search.
         const isSalonLookup =
           /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|لق[يي]|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(searchTerm) ||
-          /صالون/.test(searchTerm) ||
+          /\bصالون\b/.test(searchTerm) ||
           (!isBookingConfirm && !hasInlineBookingDetail && !isGreeting && searchTerm.split(/\s+/).filter(Boolean).length <= 4) ||
           /رويال|الميار|النجم|لاونج|بيوتي|باربر|اكبر|تاج|قائد|mİyar|miyar/i.test(searchTerm);
 
@@ -7469,7 +7469,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           isSalonLookup
         ) {
           try {
-            const kw = searchTerm.replace(/(ابغى|اريد|أريد|عايز|دور|بس|لي|أعطيني|اعطيني|وين|شنو عندك|ابحث|ادور|وريد|ابغي|ابي|لقا|يلقى|شوف|عن)/g, ' ').trim();
+            const kw = searchTerm.replace(/\b(ابغى|اريد|أريد|عايز|دور|بس|لي|أعطيني|اعطيني|وين|شنو عندك|ابحث|ادور|وريد|ابغي|ابي|لقا|يلقى|شوف|عن)\b/g, ' ').trim();
             const sr = await executeTool('search_salons', { keyword: kw, location: '' }, dbModule, sqlImport, {
               user: req.user,
               // Deliberately omit salonId so search_salons is NOT blocked by the
