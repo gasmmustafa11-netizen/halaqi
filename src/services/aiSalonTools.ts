@@ -2,7 +2,7 @@
 export const aiSalonToolDeclarations = [
   {
     name: 'search_salons',
-    description: 'Search approved salons by keyword, area, city, or service name. Read-only. Call this when the user asks to find/switch to a salon (e.g. says a salon name, city, or asks for a different/another salon). If a salon is already selected but the user wants a DIFFERENT one, call search_salons anyway rather than staying on the old salon. When a salon is already selected and the user is NOT asking to change it, prefer get_salon, search_services, or get_availability instead.',
+    description: 'Search approved salons by keyword, area, city, or service name. Read-only. Use ONLY when the user explicitly wants to FIND a new salon or SWITCH to a different one (e.g. "ابحثلي عن صالون", "اريد صالون قريب", "اريد صالون ثاني", "غير الصالون", or a city/area name with no booking intent). Do NOT call this just because the sentence contains the word "صالون" — booking sentences like "احجز لي في صالون الميار" or "اريد احجز خدمة صبغ في صالون حلاقة الميار" are bookings WITHIN a known salon, not new searches. If a salon is already selected (salonId present) and the user is booking or adding booking details, use get_salon, get_salon_services, search_services, or get_availability instead. If a salon is selected but the user wants a DIFFERENT one, call search_salons.',
     parameters: {
       type: 'object',
       properties: {

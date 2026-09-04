@@ -6376,7 +6376,7 @@ async function tryGroqFallback(args: {
         type: 'function' as const,
         function: {
           name: 'search_salons',
-          description: 'Search approved salons by keyword, area, city, or service name.',
+          description: 'Search approved salons by keyword, area, city, or service name. Use ONLY when the user wants to FIND a new salon or SWITCH to a different one. Do NOT call it just because the sentence contains "صالون" inside a booking request (e.g. "احجز لي في صالون الميار") — that is a booking within a known salon; use get_salon_services / search_services / get_availability instead.',
           parameters: {
             type: 'object',
             properties: {
@@ -6481,9 +6481,28 @@ async function tryGroqFallback(args: {
     // do NOT leak the previous salon/booking context into the model — otherwise the
     // model keeps "locked" onto the old salon (e.g. always رويال) and can't switch.
     const rawU = String(args.userText || '').trim();
+    // Real search intent = user explicitly asks to FIND or CHANGE a salon.
+    // A bare occurrence of "صالون" inside a booking sentence ("احجز لي في
+    // صالون الميار") is NOT a search — it is a booking within a known salon,
+    // so we must KEEP injecting the current salon context then.
+    const bookingIntentGr =
+      /(احجز|حجز|اريد\s+احجز|أريد\s+أحجز|احجزلي|احجز\s+لي|اريد\s+الحجز|أريد\s+الحجز|موعد)/iu.test(rawU);
+    // Changing to a different salon is a new search too — we must NOT leak the
+    // old salon context then, otherwise the model stays locked on it.
+    const changeSalonGr =
+      /غير\s*(الصالون|صالون)/iu.test(rawU) ||
+      /صالون\s*(ثاني|تاني|آخر|اخر|ابدي|بديل)/iu.test(rawU) ||
+      /(ثاني|تاني|آخر|اخر|ابدي)\s*صالون/iu.test(rawU) ||
+      /(بدل|بدّل|غيّر|غير|تبديل|تغيير|تغيّر)\s*صالون/iu.test(rawU) ||
+      /(غير|ثاني|تاني|آخر|اخر|ابدي)\s*(الصالون|صالون)/iu.test(rawU) ||
+      /مو\s*(هذا|هذاك|هاي|ذي)\s*الصالون/iu.test(rawU);
     const looksLikeNewSearch =
-      /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(rawU) ||
-      /صالون/.test(rawU);
+      !bookingIntentGr &&
+      (
+        changeSalonGr ||
+        /(ابحث|ادور|دور|وريد|ابغي|ابي|شوف|وين)\s*(لي)?\s*(عن)?\s*(صالون|سالون)/iu.test(rawU) ||
+        /(اريد|أريد|ابي|ابغي|وريد|عايز)\s+(صالون|سالون)/iu.test(rawU)
+      );
     const isGenericChat =
       /^\s*(سلام|هلا|اهلا|شلون|صباح|مساء|السلام|هذة|شخبار|شلونكم|اوكي|حسنا|تمام|uhok|هاي|يا\s*للاه)\s*$/i.test(rawU) ||
       rawU.length < 4;
@@ -6850,13 +6869,15 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - الرسالة الحالية أعلى أولوية من السياق السابق.
 
 قواعد البحث:
-- إذا ذكر المستخدم اسم صالون أو خدمة أو مدينة أو منطقة، استدعِ أداة البحث المناسبة (search_salons أو get_salon) قبل الرد.
+- استدعِ search_salons فقط عندما يريد المستخدم صراحةً البحث عن صالون جديد أو تغيير الصالون (مثل: "ابحثلي عن صالون"، "اريد صالون قريب"، "اريد صالون ثاني"، "غير الصالون"، أو اسم منطقة/مدينة بدون نية حجز).
+- إذا كان الصالون معروفاً (salonId موجود في حالة السياق أعلاه) والمستخدم يحجز أو يضيف بيانات حجز (خدمة/تاريخ/وقت) أو يؤكد، لا تستدعِ search_salons إطلاقاً. استخدم get_salon_services أو search_services (داخل الصالون المحدد) أو get_availability.
+- لا تعتبر مجرد ورود كلمة "صالون" داخل جملة الحجز (مثل: "احجز لي في صالون الميار" أو "اريد احجز خدمة صبغ في صالون حلاقة الميار") طلب بحث. إنها حجز داخل صالون محدد.
 - لا تخترع صالونات أو خدمات أو أسعار أو تقييمات أو مواعيد متاحة.
 
 مسار الحجز (متعدد الخطوات):
-1. حدّد الصالون الحقيقي باستخدام search_salons أو get_salon.
-2. احصل على الخدمات الحقيقية باستخدام get_salon_services.
-3. إذا كانت الخدمة غير محددة، اطلب من المستخدم اختيارها.
+1. إن ذكر المستخدم صالوناً بالاسم أو اختاره مسبقاً، ثبّت هذا الصالون (salonId) من حالة السياق أو عبر get_salon، ولا تبحث عنه من جديد.
+2. احصل على الخدمات الحقيقية داخل هذا الصالون فقط باستخدام get_salon_services أو search_services (مع تمرير salonId).
+3. إذا كانت الخدمة غير محددة، اطلب من المستخدم اختيارها أو اعرض خدمات الصالون الحقيقية.
 4. احصل على المواعيد المتاحة باستخدام get_availability.
 5. اعرض على المستخدم ملخص الحجز (الصالون + الخدمة + التاريخ + الوقت).
 6. بعد التأكيد الصريح من المستخدم، استدعِ create_booking.
@@ -6866,6 +6887,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - لا يعتبر قول المستخدم "أريد أن أحجز" تأكيداً كافياً. يجب أن يؤكد الصالون والخدمة والتاريخ والوقت محدداً.
 - لا تخترع مواعيد أو توفر. اعتمد فقط على نتائج get_availability.
 - إذا كان السياق يحتوي على صالون محدد (salonId موجود) والمستخدم يرسل كلمات تأكيد، لا تستدعِ search_salons. احتفظ بالصالون النشط واسأل فقط عن البيانات الناقصة.
+- عند اختيار خدمة بعد تحديد الصالون، احصر البحث في خدمات هذا الصالون عبر search_services أو get_salon_services بالـ salonId، ولا تبحث عن الخدمة في كل الصالونات.
 
 حالة السياق الحالية المعتمدة من الخادم (هذه هي الحقيقة الوحيدة الموثوقة عن الصالون/الخدمة المختارة، ويجب أن تتجاوز أي ذكر قديم في سجل المحادثة): ${
         resolvedState.salonId ? 'الصالون المختار: ' + (resolvedState.salonName || resolvedState.salonId) + '. ' : 'لا يوجد صالون مختار حالياً. '
@@ -7514,18 +7536,27 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           wantsServices ||
           /الخدمات|شو عندك|شنو عندك/.test(searchTerm);
         const isGreeting = /^\s*(مرحبا|هلا|اهلا|سلام|السلام|صباح|مساء)/i.test(searchTerm);
-        // A clear request to look up a salon: explicit search verb / "صالون" +
-        // name, or just a bare salon/place name. Generic short chat like "أوكي"
-        // is not a search.
+        // Real booking intent: the user wants to MAKE a booking or add booking
+        // details (service/date/time). Presence of booking intent must PREVENT a
+        // salon re-search, even though the sentence may contain the word "صالون".
+        const bookingIntent =
+          /(احجز|حجز|احجزي|حجزي|اريد\s+احجز|أريد\s+أحجز|اريد\s+الحجز|أريد\s+الحجز|ابي\s+احجز|ابغي\s+احجز|موعد|حجز\s+موعد|اريد\s+موعد|خل\s+احجز|يلا\s+احجز|احجزلي|احجز\s+لي)/iu.test(searchTerm) ||
+          /احجز|حجز|موعد/i.test(searchTerm);
+        // A clear request to look up / switch a salon: an explicit search or
+        // change verbs, or a bare salon/place name with no booking intent.
+        // NOTE: the word "صالون" ALONE is NOT treated as a search — it commonly
+        // appears inside booking sentences like "احجز لي في صالون الميار".
         const isSalonLookup =
-          /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|لق[يي]|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(searchTerm) ||
-          /صالون/.test(searchTerm) ||
-          (!isBookingConfirm && !hasInlineBookingDetail && !isGreeting && searchTerm.split(/\s+/).filter(Boolean).length <= 4) ||
+          (changeSalonRequested) ||
+          /(ابحث|ادور|دور|وريد|ابغي|ابي|عايز|لق[يي]|شوف|وين)\s*(لي)?\s*(عن)?\s*(صالون|سالون)/i.test(searchTerm) ||
+          /(اريد|أريد|ابي|ابغي|وريد|عايز)\s+(صالون|سالون)/i.test(searchTerm) ||
+          (!bookingIntent && !isBookingConfirm && !hasInlineBookingDetail && !isGreeting && searchTerm.split(/\s+/).filter(Boolean).length <= 4) ||
           /رويال|الميار|النجم|لاونج|بيوتي|باربر|اكبر|تاج|قائد|mİyar|miyar/i.test(searchTerm);
 
         if (
           userText &&
           !modelCalledSearch &&
+          !bookingIntent &&
           (changeSalonRequested || !isBookingConfirm) &&
           !hasInlineBookingDetail &&
           !isGreeting &&
