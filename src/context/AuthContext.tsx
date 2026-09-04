@@ -14,6 +14,9 @@ interface AuthContextType {
   register: (data: { name: string; phone: string; email?: string; password?: string; role?: UserRole; city?: string; username?: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   switchRoleDemo: (role: UserRole) => Promise<void>;
+  forgotPassword: (email: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  verifyOtp: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (email: string, otp: string, newPassword: string, confirmPassword: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   openAuthModal: () => void;
   closeAuthModal: () => void;
   refreshUser: () => Promise<void>;
@@ -265,6 +268,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const forgotPassword = async (email: string): Promise<{ success: boolean; message?: string; error?: string }> => {
+    setAuthError(null);
+    try {
+      const res = await api.forgotPassword(email);
+      if (!res.success) {
+        setAuthError(res.error || 'تعذر إرسال رمز التحقق');
+        return { success: false, error: res.error };
+      }
+      return res;
+    } catch (err) {
+      const msg = 'حدث خطأ أثناء الاتصال بالخادم';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const verifyOtp = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+    setAuthError(null);
+    try {
+      const res = await api.verifyOtp(email, otp);
+      if (!res.success) {
+        setAuthError(res.error || 'رمز التحقق غير صحيح');
+        return { success: false, error: res.error };
+      }
+      return res;
+    } catch (err) {
+      const msg = 'حدث خطأ أثناء الاتصال بالخادم';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const resetPassword = async (
+    email: string,
+    otp: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    setAuthError(null);
+    try {
+      const res = await api.resetPassword(email, otp, newPassword, confirmPassword);
+      if (!res.success) {
+        setAuthError(res.error || 'تعذر إعادة تعيين كلمة المرور');
+        return { success: false, error: res.error };
+      }
+      return res;
+    } catch (err) {
+      const msg = 'حدث خطأ أثناء الاتصال بالخادم';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
   const logout = () => {
     setUser(null);
     setAuthToken(null);
@@ -272,15 +328,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchRoleDemo = async (newRole: UserRole) => {
-    setIsLoading(true);
-    if (newRole === 'salon_owner') {
-      await login('wissam@royalbarber.iq', 'salon_owner', 'Owner@Royal2026!');
-    } else if (newRole === 'admin') {
-      await login('admin@halaqi.iq', 'admin', 'Admin@Halaqi2026!');
-    } else {
-      await login('ahmed@halaqi.iq', 'customer', 'Customer@2026!');
+    // Demo quick-login is only available in development builds. Vite
+    // statically replaces `import.meta.env.DEV` with `false` in production,
+    // so this block (and its credentials) is removed from the shipped bundle.
+    if (import.meta.env.DEV) {
+      setIsLoading(true);
+      if (newRole === 'salon_owner') {
+        await login('wissam@royalbarber.iq', 'salon_owner', 'Owner@Royal2026!');
+      } else if (newRole === 'admin') {
+        await login('admin@halaqi.iq', 'admin', 'Admin@Halaqi2026!');
+      } else {
+        await login('ahmed@halaqi.iq', 'customer', 'Customer@2026!');
+      }
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
@@ -297,6 +358,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         switchRoleDemo,
+        forgotPassword,
+        verifyOtp,
+        resetPassword,
         openAuthModal: () => {
           setAuthError(null);
           setIsAuthModalOpen(true);

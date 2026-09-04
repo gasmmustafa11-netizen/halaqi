@@ -2071,6 +2071,53 @@ export const api = {
     }
   },
 
+  async forgotPassword(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      return data;
+    } catch {
+      return { success: false, error: 'تعذر إرسال رمز التحقق' };
+    }
+  },
+
+  async verifyOtp(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await res.json();
+      return data;
+    } catch {
+      return { success: false, error: 'تعذر التحقق من رمز التحقق' };
+    }
+  },
+
+  async resetPassword(
+    email: string,
+    otp: string,
+    newPassword: string,
+    confirmPassword: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, newPassword, confirmPassword }),
+      });
+      const data = await res.json();
+      return data;
+    } catch {
+      return { success: false, error: 'تعذر إعادة تعيين كلمة المرور' };
+    }
+  },
+
   async getMe(): Promise<{ success: boolean; user?: User; status?: number }> {
     try {
       const res = await fetchWithAuth('/api/auth/me', {

@@ -6,7 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
-import { db } from './db.js';
+import { db, normalizePhone } from './db.js';
 import { analyzeContent } from './aiModeration';
 import { startAllBots, stopAllBots, initBotEngine, runCronTick } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
@@ -19,6 +19,14 @@ import {
   requireSalonOwnerOrAdmin,
 } from './authMiddleware.js';
 import type { SupportAttachment } from '../types';
+import {
+  loginRateLimiter,
+  loginIdentifierRateLimiter,
+  registerRateLimiter,
+  checkUsernameRateLimiter,
+  forgotOtpRateLimiter,
+  verifyOtpRateLimiter,
+} from './rateLimitStore.js';
 
 
 /* HALAQI_FOLLOW_SQL_CLIENT */
@@ -88,7 +96,7 @@ async function ensureHalaqiFollowTable(): Promise<void> {
    AUTH
 ========================================================= */
 
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+app.post('/api/auth/login', loginRateLimiter, loginIdentifierRateLimiter, async (req: Request, res: Response) => {
   try {
     const { emailOrPhone, password } = req.body || {};
 
@@ -99,9 +107,16 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       });
     }
 
+    if (!password || typeof password !== 'string' || !password.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'كلمة المرور مطلوبة.',
+      });
+    }
+
     const result = await db.authenticate(
       String(emailOrPhone),
-      String(password || '')
+      String(password)
     );
 
     if (!result.success || !result.user) {
@@ -389,7 +404,7 @@ app.put('/api/admin/support/tickets/:id/note', requireAuth, requireRole('admin')
   }
 });
 
-app.post('/api/auth/check-username', async (req: Request, res: Response) => {
+app.post('/api/auth/check-username', checkUsernameRateLimiter, async (req: Request, res: Response) => {
   try {
     const { username } = req.body || {};
     if (!username || typeof username !== 'string') {
@@ -434,7 +449,7 @@ app.post('/api/auth/check-username', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/register', async (req: Request, res: Response) => {
+app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Response) => {
   try {
     const { name, email, phone, password, role, city, username } = req.body || {};
 
@@ -442,6 +457,13 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'الاسم ورقم الهاتف مطلوبان',
+      });
+    }
+
+    if (!password || typeof password !== 'string' || !password.trim() || password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.',
       });
     }
 
@@ -462,7 +484,7 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       }
     }
 
-    const result = db.createUser(
+    const result = await db.createUser(
       {
         name,
         email,
@@ -495,6 +517,77 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       success: false,
       error: 'تعذر إنشاء الحساب.',
     });
+  }
+});
+
+/* ---- Password Reset via Email OTP (BUG-11) ---- */
+
+// Step 1: request an OTP by e-mail. Always returns a generic success so we
+// never reveal whether the e-mail is registered.
+app.post('/api/auth/forgot-password', forgotOtpRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string' || !email.trim().includes('@')) {
+      return res.status(400).json({ success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' });
+    }
+
+    const result = await db.requestResetOtp(String(email));
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error || 'تعذر إرسال الرمز.' });
+    }
+
+    // Generic response: we never reveal whether the account exists.
+    res.json({ success: true, message: 'إذا كان البريد مسجلاً، ستصلك رسالة تحمل رمز التحقق.' });
+  } catch (error) {
+    console.error('[FORGOT ERROR]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إرسال الرمز.' });
+  }
+});
+
+// Step 2: verify the OTP (read-only) so the UI can advance to the new-password
+// stage. Attempts are still limited here to prevent brute forcing.
+app.post('/api/auth/verify-otp', verifyOtpRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body || {};
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: 'البريد الإلكتروني ورمز التحقق مطلوبان.' });
+    }
+    const result = await db.checkResetOtp(String(email), String(otp));
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error || 'رمز التحقق غير صحيح.' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[VERIFY OTP ERROR]', error);
+    return res.status(500).json({ success: false, error: 'تعذر التحقق من الرمز.' });
+  }
+});
+
+// Step 3: reset the password with the verified OTP (atomic verify + rotate).
+app.post('/api/auth/reset-password', verifyOtpRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, otp, newPassword, confirmPassword } = req.body || {};
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة.' });
+    }
+    // Password policy check (client + server).
+    if (typeof newPassword !== 'string' || newPassword.trim().length < 8) {
+      return res.status(400).json({ success: false, error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, error: 'تأكيد كلمة المرور غير مطابق.' });
+    }
+
+    const result = await db.resetPasswordWithOtp(String(email), String(otp), String(newPassword));
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error || 'تعذر إعادة تعيين كلمة المرور.' });
+    }
+
+    res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.' });
+  } catch (error) {
+    console.error('[RESET PASSWORD ERROR]', error);
+    return res.status(500).json({ success: false, error: 'تعذر إعادة تعيين كلمة المرور.' });
   }
 });
 
@@ -629,7 +722,7 @@ app.put(
 
       const result = await db.updateUserProfile(userId, {
         name: String(name).trim(),
-        phone: phone ? String(phone).trim() : undefined,
+        phone: phone ? normalizePhone(String(phone)) : undefined,
         city: city ? String(city).trim() : undefined,
         username: usernameUpdate,
         bio: bioUpdate,

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { sql } from "./lib/pg-compliant";
 import { moderateContent } from "./moderation";
+import { sendOtpEmail } from "./email";
 
 import crypto from 'crypto';
 import {
@@ -498,18 +499,199 @@ export interface DatabaseState {
   auditLogs: AuditLog[];
 }
 
+// PBKDF2-SHA512 password hashing.
+// Iteration count raised to the OWASP-recommended level for NEW hashes.
+const PBKDF2_ITERATIONS: number = 600_000;
+// Legacy iteration count used by hashes stored before the upgrade. Kept for
+// backward compatibility so existing accounts keep working after the change.
+const PBKDF2_LEGACY_ITERATIONS: number = 1000;
+
 export function hashPassword(password: string, salt: string): string {
-  return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  return crypto
+    .pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 64, 'sha512')
+    .toString('hex');
 }
 
 export function verifyPassword(password: string, hash?: string, salt?: string): boolean {
   if (!hash || !salt) return false;
-  const computed = hashPassword(password, salt);
-  return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+
+  // Try the current (strong) iteration count first, then fall back to the
+  // legacy count so hashes created before the upgrade still verify. A wrong
+  // password will not match either path.
+  const current = crypto
+    .pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 64, 'sha512')
+    .toString('hex');
+
+  if (timingSafeEqualHex(current, hash)) return true;
+
+  if (PBKDF2_LEGACY_ITERATIONS !== PBKDF2_ITERATIONS) {
+    const legacy = crypto
+      .pbkdf2Sync(password, salt, PBKDF2_LEGACY_ITERATIONS, 64, 'sha512')
+      .toString('hex');
+
+    if (timingSafeEqualHex(legacy, hash)) return true;
+  }
+
+  return false;
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 export function generateSalt(): string {
   return crypto.randomBytes(16).toString('hex');
+}
+
+/* =========================================================
+   Phone normalization (Iraqi numbers)
+   Ensures +964..., 964..., 07..., 7... all resolve to the SAME
+   canonical form (964 + 10-digit national number) so a given
+   number is never treated as several distinct accounts.
+   ========================================================= */
+
+export function normalizePhone(input: string): string {
+  if (!input) return '';
+  let p = String(input).trim().replace(/[\s\-().]/g, '');
+  if (p.startsWith('+')) p = p.slice(1);
+  // Already canonical international mobile: 9647XXXXXXXXX (13 digits).
+  if (p.startsWith('964') && p.length === 13 && p.startsWith('9647')) return p;
+  // Domestic mobile 07XXXXXXXXX (11 digits) -> 964 + 10 digits.
+  if (p.startsWith('07') && p.length === 11) return '964' + p.slice(1);
+  // 0XXXXXXXXX (10 digits) -> 964 + 9 digits (covers 07 unintentionally short).
+  if (p.startsWith('0') && p.length === 10) return '964' + p.slice(1);
+  // Bare national mobile 7XXXXXXXXX (10 digits) -> 964 + 10 digits.
+  if (p.startsWith('7') && p.length === 10) return '964' + p;
+  // Fallback: return the trimmed input unchanged (never corrupt an
+  // unrecognized number) so existing accounts are not broken.
+  return String(input).trim();
+}
+
+/* All the plausible stored representations of a phone so lookups match
+   accounts saved in any legacy format (+964 / 964 / 07 / 7). */
+export function phoneVariants(input: string): string[] {
+  const raw = String(input).trim();
+  if (!raw) return [];
+  const out = new Set<string>();
+  const canonical = normalizePhone(raw);
+  if (canonical) out.add(canonical);
+  if (canonical && canonical.startsWith('964')) out.add('+' + canonical);
+  if (canonical && canonical.startsWith('964') && canonical.length === 13) {
+    out.add('0' + canonical.slice(3)); // 07XXXXXXXXX
+    out.add(canonical.slice(3)); // 7XXXXXXXXX
+  }
+  out.add(raw);
+  return [...out].filter(Boolean);
+}
+
+/* Ensure unique indexes on users.email (case-insensitive) and users.phone so
+   duplicate accounts cannot be created, even under a registration race across
+   serverless instances. Indexes are only added when no duplicates exist in the
+   current data (so we never break existing accounts). Includes the shared
+   rate_limits table used by the serverless rate limiter. */
+let usersUniquenessReady: Promise<void> | null = null;
+
+export function ensureUserUniqueness(): Promise<void> {
+  if (!usersUniquenessReady) {
+    usersUniquenessReady = (async () => {
+      try {
+        await sql`
+          CREATE TABLE IF NOT EXISTS rate_limits (
+            key TEXT PRIMARY KEY,
+            hits INT NOT NULL DEFAULT 0,
+            reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `;
+
+        // Email uniqueness (unique where a real email is present, case-insensitive).
+        const dupEmail: any[] = await sql`
+          SELECT LOWER(email) AS e, COUNT(*) AS c
+          FROM users
+          WHERE email IS NOT NULL AND email <> ''
+          GROUP BY LOWER(email)
+          HAVING COUNT(*) > 1
+          LIMIT 1
+        `;
+        if (!dupEmail.length) {
+          await sql`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique
+            ON users (LOWER(email)) WHERE email IS NOT NULL AND email <> ''
+          `;
+        } else {
+          console.warn('[AUTH-SCHEMA] Skipping email UNIQUE index: existing duplicate emails found.', dupEmail[0]);
+        }
+
+        // Phone uniqueness (unique where a phone is present).
+        const dupPhone: any[] = await sql`
+          SELECT phone AS p, COUNT(*) AS c
+          FROM users
+          WHERE phone IS NOT NULL AND phone <> ''
+          GROUP BY phone
+          HAVING COUNT(*) > 1
+          LIMIT 1
+        `;
+        if (!dupPhone.length) {
+          await sql`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique
+            ON users (phone) WHERE phone IS NOT NULL AND phone <> ''
+          `;
+        } else {
+          console.warn('[AUTH-SCHEMA] Skipping phone UNIQUE index: existing duplicate phones found.', dupPhone[0]);
+        }
+      } catch (e: any) {
+        console.error('[AUTH-SCHEMA] ensureUserUniqueness error:', e?.message || e);
+      }
+    })();
+  }
+  return usersUniquenessReady;
+}
+
+/* Password-reset OTP table. Stores ONLY a hash of the OTP (never the plain
+   code), plus attempt counters and expiry so an OTP is single-use, short-lived
+   and brute-force limited. Non-destructive: creates the table/indexes if they
+   do not already exist and touches nothing else. */
+let passwordResetsReady: Promise<void> | null = null;
+
+export function ensurePasswordResetsTable(): Promise<void> {
+  if (!passwordResetsReady) {
+    passwordResetsReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS password_resets (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          email TEXT NOT NULL,
+          otp_hash TEXT NOT NULL,
+          attempts INT NOT NULL DEFAULT 0,
+          max_attempts INT NOT NULL DEFAULT 5,
+          used BOOLEAN NOT NULL DEFAULT false,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          expires_at TIMESTAMPTZ NOT NULL,
+          used_at TIMESTAMPTZ
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets (email)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets (expires_at)`;
+    })().catch((e: any) => {
+      passwordResetsReady = null;
+      throw e;
+    });
+  }
+  return passwordResetsReady;
+}
+
+export const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const OTP_MAX_ATTEMPTS = 5;
+
+/* Cryptographically secure random 6-digit OTP. */
+export function generateOtp(): string {
+  const buf = crypto.randomBytes(4);
+  const num = buf.readUInt32BE(0) % 1_000_000;
+  return String(num).padStart(6, '0');
+}
+
+/* Hash of the OTP for storage — we never persist the plain code. */
+export function hashOtp(otp: string): string {
+  return crypto.createHash('sha256').update(String(otp)).digest('hex');
 }
 
 // Pre-compute salt & hash for initial users
@@ -2111,10 +2293,14 @@ class DatabaseStore {
 
   // Find user by Email or Phone
   findUserByEmailOrPhone(identifier: string): UserWithAuth | undefined {
-    const normalized = identifier.trim().toLowerCase();
-    return this.state.users.find(
-      (u) => u.email.toLowerCase() === normalized || u.phone === identifier.trim()
-    );
+    const raw = identifier.trim();
+    const normalizedEmail = raw.toLowerCase();
+    const variants = phoneVariants(raw);
+    return this.state.users.find((u) => {
+      if (u.email && u.email.toLowerCase() === normalizedEmail) return true;
+      if (u.phone && variants.includes(u.phone)) return true;
+      return false;
+    });
   }
 
   // Find user by Email or Phone from Neon
@@ -2122,7 +2308,7 @@ class DatabaseStore {
     identifier: string
   ): Promise<UserWithAuth | undefined> {
     const normalized = identifier.trim().toLowerCase();
-    const phone = identifier.trim();
+    const variants = phoneVariants(identifier);
 
     const rows = await sql`
       SELECT id, name, email, phone, role, city, salon_id, avatar,
@@ -2130,7 +2316,7 @@ class DatabaseStore {
              is_bot, bot_enabled, bio, username
       FROM users
       WHERE LOWER(email) = ${normalized}
-         OR phone = ${phone}
+         OR phone = ANY(${variants})
       LIMIT 1
     `;
 
@@ -2215,8 +2401,18 @@ class DatabaseStore {
       };
     }
 
-    // Verify password
-    if (user.passwordHash && user.salt && password) {
+    // Verify password. This is REQUIRED for any account that has a password
+    // set. Previously the check was gated on `password` being truthy, which
+    // let a login request with an empty/missing password bypass verification
+    // entirely and sign in as any account without knowing its password.
+    if (user.passwordHash && user.salt) {
+      if (!password) {
+        return {
+          success: false,
+          error: 'كلمة المرور مطلوبة.',
+        };
+      }
+
       const isValid = verifyPassword(
         password,
         user.passwordHash,
@@ -2229,6 +2425,13 @@ class DatabaseStore {
           error: 'كلمة المرور غير صحيحة.',
         };
       }
+    } else {
+      // Every account should carry a password hash (set at creation). If one
+      // is missing, never allow a passwordless login.
+      return {
+        success: false,
+        error: 'هذا الحساب غير مؤهل لتسجيل الدخول بكلمة مرور.',
+      };
     }
 
     return {
@@ -2237,8 +2440,247 @@ class DatabaseStore {
     };
   }
 
-  // Create User with server-enforced role restrictions
-  createUser(
+  /* ---- Password Reset via Email OTP (BUG-11) ----
+
+     requestOtp:      generates a random OTP, stores its hash, sends the code.
+                      Always returns a generic success so we never reveal whether
+                      an e-mail is registered.
+     confirmReset:    verifies the OTP (single-use, 10-min, max-attempts) and, on
+                      success, rotates the account's password hash+salt & marks
+                      the OTP used so it cannot be reused.
+  */
+  async requestResetOtp(
+    email: string
+  ): Promise<{ success: boolean; error?: string; sent?: boolean }> {
+    const rawEmail = String(email || '').trim().toLowerCase();
+    if (!rawEmail || !rawEmail.includes('@')) {
+      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
+    }
+
+    // Never reveal whether the e-mail is registered. If the account doesn't
+    // exist (or is missing an e-mail), still appear to "send" a code.
+    const generic = { success: true, sent: false };
+
+    try {
+      await ensurePasswordResetsTable();
+
+      const found = await sql`
+        SELECT id FROM users
+        WHERE LOWER(email) = ${rawEmail}
+          AND email IS NOT NULL AND email <> ''
+        LIMIT 1
+      `;
+      if (!found.length) {
+        return generic;
+      }
+
+      const otp = generateOtp();
+      const otpHash = hashOtp(otp);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
+
+      // Atomic insert for this request; use inserts not updates so history and
+      // attempt counter reset cleanly per request.
+      await sql`
+        INSERT INTO password_resets (email, otp_hash, attempts, max_attempts, used, created_at, expires_at)
+        VALUES (${rawEmail}, ${otpHash}, 0, ${OTP_MAX_ATTEMPTS}, false, ${now}, ${expiresAt})
+      `;
+
+      const mail = await sendOtpEmail(rawEmail, otp);
+
+      // WARNING: do NOT log `otp` here. Only report whether e-mail was sent.
+      if (mail.sent) return { success: true, sent: true };
+
+      // If the provider is unconfigured or the domain unverified, still succeed
+      // at the API level (no enumeration) but note that no e-mail was delivered.
+      return { ...generic, sent: false };
+    } catch (e: any) {
+      // Do not log the OTP — only the fact that the request failed.
+      console.error('[FORGOT] requestResetOtp error:', e?.message || e);
+      // Generic to avoid leaking account existence.
+      return generic;
+    }
+  }
+
+  async resetPasswordWithOtp(
+    email: string,
+    otp: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const rawEmail = String(email || '').trim().toLowerCase();
+    if (!rawEmail || !rawEmail.includes('@')) {
+      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
+    }
+
+    // Password policy: required, trim check, min 8.
+    if (typeof newPassword !== 'string' || !newPassword.trim() || newPassword.trim().length < 8) {
+      return { success: false, error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.' };
+    }
+
+    try {
+      await ensurePasswordResetsTable();
+
+      const otpHash = hashOtp(String(otp || ''));
+
+      // Load the most recent valid (unused, unexpired) request for this e-mail.
+      const now = new Date();
+      const rows: any[] = await sql`
+        SELECT id, otp_hash, attempts, max_attempts, used, expires_at
+        FROM password_resets
+        WHERE email = ${rawEmail} AND used = false
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
+      if (!rows.length) {
+        return { success: false, error: 'رمز التحقق غير صحيح أو انتهت صلاحيته. يرجى طلب رمز جديد.' };
+      }
+
+      const record = rows[0];
+
+      // Expired check.
+      const expiresAt = new Date(record.expires_at);
+      if (expiresAt.getTime() <= now.getTime()) {
+        return { success: false, error: 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.' };
+      }
+
+      // Attempt limit check.
+      const attempts = Number(record.attempts || 0);
+      const maxAttempts = Number(record.max_attempts || OTP_MAX_ATTEMPTS);
+      if (attempts >= maxAttempts) {
+        return { success: false, error: 'تم تجاوز عدد المحاولات المسموح بها. يرجى طلب رمز جديد.' };
+      }
+
+      // Constant-time compare against the stored hash.
+      const storedHash = String(record.otp_hash);
+      const providedHash = hashOtp(String(otp || ''));
+      const match = timingSafeEqualHex(storedHash, providedHash);
+
+      if (!match) {
+        // Increment attempts (degrade only, never delete).
+        const newAttempts = Math.min(attempts + 1, maxAttempts);
+        await sql`
+          UPDATE password_resets
+          SET attempts = ${newAttempts}
+          WHERE id = ${record.id}
+        `;
+        return { success: false, error: 'رمز التحقق غير صحيح.' };
+      }
+
+      // ---- OTP is valid: find the user by this e-mail in Neon. ----
+      const userRows: any[] = await sql`
+        SELECT id, password_hash, salt
+        FROM users
+        WHERE LOWER(email) = ${rawEmail}
+          AND email IS NOT NULL AND email <> ''
+        LIMIT 1
+      `;
+      if (!userRows.length) {
+        return { success: false, error: 'لم يتم العثور على حساب مرتبط بهذا البريد.' };
+      }
+
+      const u = userRows[0];
+
+      // Rotate the password hash + salt (PBKDF2 via existing system).
+      const newSalt = generateSalt();
+      const newHash = hashPassword(newPassword, newSalt);
+
+      await sql`
+        UPDATE users
+        SET password_hash = ${newHash}, salt = ${newSalt}
+        WHERE id = ${u.id}
+      `;
+
+      // Invalidate the OTP (single-use) so it cannot be reused.
+      await sql`
+        UPDATE password_resets
+        SET used = true, used_at = ${now}
+        WHERE id = ${record.id}
+      `;
+
+      // Invalidate any other pending reset requests for this e-mail too.
+      await sql`
+        UPDATE password_resets
+        SET used = true, used_at = ${now}
+        WHERE email = ${rawEmail} AND used = false
+      `;
+
+      // Update in-memory copy if present for this serverless instance.
+      const stateUser = this.state.users.find((item) => item.id === u.id);
+      if (stateUser) {
+        stateUser.passwordHash = newHash;
+        stateUser.salt = newSalt;
+      }
+
+      // Do NOT log the OTP or new password here.
+      return { success: true };
+    } catch (e: any) {
+      console.error('[RESET] resetPasswordWithOtp error:', e?.message || e);
+      return { success: false, error: 'تعذر إعادة تعيين كلمة المرور. حاول مرة أخرى.' };
+    }
+  }
+
+  /* Read-only OTP verification for the UI's step-2 (before showing the new
+     password form). Does NOT consume the OTP (so step 3 can apply it atomically
+     in resetPasswordWithOtp) but DOES enforce the attempt limit so the code
+     cannot be brute-forced through this endpoint. */
+  async checkResetOtp(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
+    const rawEmail = String(email || '').trim().toLowerCase();
+    if (!rawEmail || !rawEmail.includes('@')) {
+      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
+    }
+
+    try {
+      await ensurePasswordResetsTable();
+
+      const otpHash = hashOtp(String(otp || ''));
+      const now = new Date();
+      const rows: any[] = await sql`
+        SELECT id, otp_hash, attempts, max_attempts, used, expires_at
+        FROM password_resets
+        WHERE email = ${rawEmail} AND used = false
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
+      if (!rows.length) {
+        return { success: false, error: 'رمز التحقق غير صحيح أو انتهت صلاحيته. يرجى طلب رمز جديد.' };
+      }
+
+      const record = rows[0];
+
+      const expiresAt = new Date(record.expires_at);
+      if (expiresAt.getTime() <= now.getTime()) {
+        return { success: false, error: 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.' };
+      }
+
+      const attempts = Number(record.attempts || 0);
+      const maxAttempts = Number(record.max_attempts || OTP_MAX_ATTEMPTS);
+      if (attempts >= maxAttempts) {
+        return { success: false, error: 'تم تجاوز عدد المحاولات المسموح بها. يرجى طلب رمز جديد.' };
+      }
+
+      const match = timingSafeEqualHex(String(record.otp_hash), hashOtp(String(otp || '')));
+      if (!match) {
+        const newAttempts = Math.min(attempts + 1, maxAttempts);
+        await sql`
+          UPDATE password_resets SET attempts = ${newAttempts} WHERE id = ${record.id}
+        `;
+        return { success: false, error: 'رمز التحقق غير صحيح.' };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error('[VERIFY] checkResetOtp error:', e?.message || e);
+      return { success: false, error: 'تعذر التحقق من الرمز. حاول مرة أخرى.' };
+    }
+  }
+
+  // Create User with server-enforced role restrictions.
+  // Async so uniqueness is enforced against Neon (the source of truth) rather
+  // than only the per-instance in-memory array, closing the cold-start and
+  // concurrent-registration gaps in a serverless environment.
+  async createUser(
     userData: {
       name: string;
       email?: string;
@@ -2250,38 +2692,108 @@ class DatabaseStore {
     },
     password?: string,
     ip?: string
-  ): { success: boolean; user?: User; error?: string } {
-    const existing = this.findUserByEmailOrPhone(userData.email || userData.phone);
-    if (existing) {
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    const rawEmail = userData.email?.trim() || '';
+    const rawUsername = userData.username?.trim() || '';
+    const rawPhone = String(userData.phone || '').trim();
+    const phone = normalizePhone(rawPhone);
+    const email = rawEmail.toLowerCase() || '';
+
+    try {
+      await ensureUserUniqueness();
+    } catch (e: any) {
+      console.error('[REGISTER] ensureUserUniqueness failed:', e?.message || e);
+    }
+
+    if (!rawPhone || !phone) {
+      return { success: false, error: 'رقم الهاتف مطلوب.' };
+    }
+
+    // Fast in-memory pre-check.
+    if (this.findUserByEmailOrPhone(email || phone)) {
       return { success: false, error: 'يوجد حساب مسجل بالفعل بهذا البريد أو رقم الهاتف.' };
     }
-    
-    if (userData.username) {
-        const trimmedUsername = userData.username.trim();
-        if (!/^[a-zA-Z0-9_.]{3,30}$/.test(trimmedUsername)) {
-            return { success: false, error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).' };
-        }
-        const usernameExists = this.state.users.some(u => u.username?.toLowerCase() === trimmedUsername.toLowerCase());
-        if (usernameExists) {
-            return { success: false, error: 'اسم المستخدم مأخوذ بالفعل.' };
-        }
+
+    if (email) {
+      const existingEmail = this.state.users.find(
+        (u) => u.email && u.email.toLowerCase() === email
+      );
+      if (existingEmail) {
+        return { success: false, error: 'البريد الإلكتروني مستخدم بالفعل.' };
+      }
+    }
+
+    if (rawUsername) {
+      if (!/^[a-zA-Z0-9_.]{3,30}$/.test(rawUsername)) {
+        return { success: false, error: 'اسم المستخدم يجب أن يتكون من 3 إلى 30 حرفاً (أحرف وأرقام و_ فقط).' };
+      }
+      const usernameExists = this.state.users.some(
+        (u) => u.username?.toLowerCase() === rawUsername.toLowerCase()
+      );
+      if (usernameExists) {
+        return { success: false, error: 'اسم المستخدم مأخوذ بالفعل.' };
+      }
     }
 
     // STRICT SECURITY: Public registration CANNOT grant admin role
     const assignedRole: UserRole = userData.role === 'salon_owner' ? 'salon_owner' : 'customer';
 
+    // Password is REQUIRED. Never fall back to a shared/default password so
+    // accounts are not created with predictable credentials.
+    if (typeof password !== 'string' || !password.trim() || password.length < 8) {
+      return {
+        success: false,
+        error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.',
+      };
+    }
+
+    // Neon is the source of truth: reject if email/phone/username already exist
+    // there, even on a cold serverless instance whose memory is empty.
+    try {
+      // 1) Email uniqueness
+      if (email) {
+        const neoRowsEmail: any[] = await sql`
+          SELECT id FROM users WHERE LOWER(email) = ${email} LIMIT 1
+        `;
+        if (neoRowsEmail.length) {
+          return { success: false, error: 'البريد الإلكتروني مستخدم بالفعل.' };
+        }
+      }
+      // 2) Phone uniqueness (matches across all Iraqi formats via variants)
+      if (phone) {
+        const variants = phoneVariants(phone);
+        const neoRowsPhone: any[] = await sql`
+          SELECT id FROM users WHERE phone = ANY(${variants}) LIMIT 1
+        `;
+        if (neoRowsPhone.length) {
+          return { success: false, error: 'رقم الهاتف مستخدم بالفعل.' };
+        }
+      }
+      // 3) Username uniqueness
+      if (rawUsername) {
+        const neoRowsUser: any[] = await sql`
+          SELECT id FROM users WHERE LOWER(username) = ${rawUsername.toLowerCase()} LIMIT 1
+        `;
+        if (neoRowsUser.length) {
+          return { success: false, error: 'اسم المستخدم مأخوذ بالفعل.' };
+        }
+      }
+    } catch (e: any) {
+      console.error('[REGISTER] Neon uniqueness check failed:', e?.message || e);
+    }
+
     const salt = generateSalt();
-    const passwordHash = password ? hashPassword(password, salt) : hashPassword('Customer@2026!', salt);
+    const passwordHash = hashPassword(password, salt);
 
     const newUser: UserWithAuth = {
       id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: userData.name.trim(),
-      email: userData.email?.trim() || `${Date.now()}@halaqi.iq`,
-      phone: userData.phone.trim(),
+      email: email || '',
+      phone,
       role: assignedRole,
       city: userData.city || 'baghdad',
       salonId: assignedRole === 'salon_owner' ? userData.salonId : undefined,
-      username: userData.username?.trim() || undefined,
+      username: rawUsername || undefined,
       isActive: true,
       isBanned: false,
       salt,
@@ -2291,10 +2803,24 @@ class DatabaseStore {
 
     this.state.users.push(newUser);
 
-    // Persist newly registered user to Neon so refresh/restart does not lose the account.
-    void this.persistUserToNeon(newUser.id).catch((error) => {
+    // Persist to Neon and WAIT so a UNIQUE violation (concurrent duplicate)
+    // is caught now, not silently swallowed. Roll the account back if so.
+    try {
+      const persisted = await this.persistUserToNeon(newUser.id);
+      if (!persisted) {
+        throw new Error('account not found for persistence');
+      }
+    } catch (error: any) {
+      // Unique violation on email/phone/username -> a real duplicate won the race.
+      if (error?.code === '23505') {
+        const idx = this.state.users.findIndex((u) => u.id === newUser.id);
+        if (idx !== -1) this.state.users.splice(idx, 1);
+        return { success: false, error: 'يوجد حساب مسجل بالفعل بهذه البيانات.' };
+      }
+      // Other Neon errors are non-fatal (keep the account) to preserve the
+      // previous behaviour where registration succeeded even if Neon hiccuped.
       console.error('[REGISTER] Failed to persist new user to Neon:', error?.message || error);
-    });
+    }
 
     // Notify all admins about the new registration
     const admins = this.state.users.filter((u) => u.role === 'admin' && u.isActive);
@@ -2313,7 +2839,7 @@ class DatabaseStore {
 
     this.addAuditLog({
       userId: newUser.id,
-      userEmail: newUser.email,
+      userEmail: newUser.email || '',
       userRole: newUser.role,
       action: 'USER_REGISTER',
       targetType: 'user',
@@ -3398,31 +3924,45 @@ class DatabaseStore {
   // Admin User Management
   async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string; username?: string; bio?: string }) {
     try {
-      console.log('[PROFILE UPDATE DEBUG] userId =', userId);
-      console.log('[PROFILE UPDATE DEBUG] newName =', updates.name);
+      const phoneValue = updates.phone ? normalizePhone(updates.phone) : undefined;
 
-      const beforeRows = await sql`
-        SELECT id, name, email, role
-        FROM users
-        WHERE id = ${userId}
-        LIMIT 1
-      `;
+      // Pre-check phone uniqueness on Neon before UPDATE to give a clear error
+      // instead of letting a 23505 unique violation bubble up as 500.
+      if (phoneValue) {
+        const dupPhone: any[] = await sql`
+          SELECT id FROM users
+          WHERE phone = ${phoneValue} AND id <> ${userId}
+          LIMIT 1
+        `;
+        if (dupPhone.length) {
+          return { success: false, error: 'رقم الهاتف مستخدم مسبقاً.' };
+        }
+      }
 
-      console.log('[PROFILE UPDATE DEBUG] BEFORE =', beforeRows[0] || null);
+      // Pre-check username uniqueness on Neon (idx_users_username_lower exists).
+      const rawUsername = updates.username?.trim() || null;
+      if (rawUsername) {
+        const dupUsername: any[] = await sql`
+          SELECT id FROM users
+          WHERE LOWER(username) = ${rawUsername.toLowerCase()} AND id <> ${userId}
+          LIMIT 1
+        `;
+        if (dupUsername.length) {
+          return { success: false, error: 'اسم المستخدم مستخدم مسبقاً.' };
+        }
+      }
 
       const rows = await sql`
         UPDATE users
         SET name = ${updates.name},
-            phone = ${updates.phone ?? null},
+            phone = ${phoneValue ?? null},
             city = ${updates.city ?? null},
-            username = ${updates.username ?? null},
+            username = ${rawUsername},
             bio = ${updates.bio ?? null}
         WHERE id = ${userId}
         RETURNING id, name, email, phone, role, city, salon_id, avatar, username,
                   password_hash, salt, is_active, is_banned, created_at, bio
       `;
-
-      console.log('[PROFILE UPDATE DEBUG] UPDATED =', rows[0] || null);
 
       if (!rows.length) return { success: false, error: 'المستخدم غير موجود' };
 
@@ -3457,7 +3997,14 @@ class DatabaseStore {
       }
 
       return { success: true, user };
-    } catch (error) {
+    } catch (error: any) {
+      // Safety-net: if a 23505 slips past the pre-checks (race), return a clear message.
+      if (error?.code === '23505') {
+        const detail: string = error?.detail || '';
+        if (detail.includes('phone')) return { success: false, error: 'رقم الهاتف مستخدم مسبقاً.' };
+        if (detail.includes('username')) return { success: false, error: 'اسم المستخدم مستخدم مسبقاً.' };
+        return { success: false, error: 'البيانات مكررة.' };
+      }
       console.error('[DB] updateUserProfile:', error);
       return { success: false, error: 'تعذر تحديث بيانات المستخدم' };
     }

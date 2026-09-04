@@ -1,0 +1,208 @@
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import type { Request } from 'express';
+import { sql } from './lib/pg-compliant';
+
+/* Serverless-safe rate limiting backed by Neon Postgres.
+   express-rate-limit's default MemoryStore is per-instance and useless across
+   the isolated function invocations Vercel uses. This store keeps counters in
+   Neon so limits are shared and enforced consistently across instances. */
+
+let rateLimitsTableReady: Promise<void> | null = null;
+
+export function ensureRateLimitsTable(): Promise<void> {
+  if (!rateLimitsTableReady) {
+    rateLimitsTableReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS rate_limits (
+          key TEXT PRIMARY KEY,
+          hits INT NOT NULL DEFAULT 0,
+          reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+    })().catch((e: any) => {
+      rateLimitsTableReady = null;
+      throw e;
+    });
+  }
+  return rateLimitsTableReady;
+}
+
+interface NeonIncrementResult {
+  totalHits: number;
+  resetTime: Date;
+}
+
+type SqlExecutor = (strings: TemplateStringsArray, ...values: any[]) => Promise<any[]>;
+
+export class NeonRateLimitStore {
+  private windowMs = 60_000;
+  private dbPrefix: string;
+  private query: SqlExecutor;
+  private skipInit: boolean;
+  localKeys = false;
+  prefix: string | undefined;
+
+  constructor(prefix = '', executor?: SqlExecutor, opts?: { skipTableInit?: boolean }) {
+    this.dbPrefix = prefix;
+    this.query = executor ?? (sql as unknown as SqlExecutor);
+    this.skipInit = opts?.skipTableInit ?? false;
+  }
+
+  init(options: any): void {
+    this.windowMs = options?.windowMs ?? this.windowMs;
+    this.dbPrefix = options?.prefix ?? this.dbPrefix;
+    this.prefix = this.dbPrefix;
+    void ensureRateLimitsTable().catch((e) => {
+      console.error('[RATE-LIMIT] failed to ensure table:', e?.message || e);
+    });
+  }
+
+  private fullKey(key: string): string {
+    return `${this.dbPrefix}${key}`;
+  }
+
+  async increment(key: string): Promise<NeonIncrementResult> {
+    if (!this.skipInit) await ensureRateLimitsTable();
+    const rows: any[] = await this.query`
+      INSERT INTO rate_limits (key, hits, reset_at)
+      VALUES (${this.fullKey(key)}, 1, NOW() + (${this.windowMs} * INTERVAL '1 millisecond'))
+      ON CONFLICT (key) DO UPDATE SET
+        hits = CASE WHEN rate_limits.reset_at <= NOW() THEN 1 ELSE rate_limits.hits + 1 END,
+        reset_at = CASE WHEN rate_limits.reset_at <= NOW()
+          THEN NOW() + (${this.windowMs} * INTERVAL '1 millisecond')
+          ELSE rate_limits.reset_at END
+      RETURNING hits, reset_at
+    `;
+    const row = rows[0];
+    return { totalHits: Number(row.hits), resetTime: new Date(row.reset_at) };
+  }
+
+  async decrement(key: string): Promise<void> {
+    if (!this.skipInit) await ensureRateLimitsTable().catch(() => {});
+    await this.query`
+      UPDATE rate_limits SET hits = GREATEST(hits - 1, 0) WHERE key = ${this.fullKey(key)}
+    `.catch((e) => {
+      console.error('[RATE-LIMIT] decrement error:', e?.message || e);
+    });
+  }
+
+  async resetKey(key: string): Promise<void> {
+    if (!this.skipInit) await ensureRateLimitsTable().catch(() => {});
+    await this.query`DELETE FROM rate_limits WHERE key = ${this.fullKey(key)}`.catch((e) => {
+      console.error('[RATE-LIMIT] resetKey error:', e?.message || e);
+    });
+  }
+
+  async resetAll(): Promise<void> {
+    if (!this.skipInit) await ensureRateLimitsTable().catch(() => {});
+    await this.query`DELETE FROM rate_limits`.catch((e) => {
+      console.error('[RATE-LIMIT] resetAll error:', e?.message || e);
+    });
+  }
+
+  async get(key: string) {
+    if (!this.skipInit) await ensureRateLimitsTable().catch(() => {});
+    const rows: any[] = await this.query`
+      SELECT hits, reset_at FROM rate_limits WHERE key = ${this.fullKey(key)}
+    `.catch(() => []);
+    if (!rows.length) return undefined;
+    return { totalHits: Number(rows[0].hits), resetTime: new Date(rows[0].reset_at) };
+  }
+}
+
+/* Resolve a client IP that is correct behind Vercel's proxy. */
+function clientIp(req: Request): string {
+  const fwd = (req.headers as any)?.['x-forwarded-for'];
+  const direct =
+    typeof fwd === 'string' && fwd.length
+      ? fwd.split(',')[0].trim()
+      : (req as any).ip || (req as any).socket?.remoteAddress || 'unknown';
+  return direct;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const sharedValidate = { trustProxy: false, xForwardedForHeader: false, keyGeneratorIpFallback: false } as any;
+
+export const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('login:'),
+  keyGenerator: (req: any) => `ip:${clientIp(req)}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'محاولات تسجيل دخول كثيرة. حاول بعد قليل.' },
+});
+
+export const loginIdentifierRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('loginid:'),
+  keyGenerator: (req: any) => {
+    const id = String(req.body?.emailOrPhone || '').trim().toLowerCase();
+    const h = crypto.createHash('sha256').update(id).digest('hex').slice(0, 24);
+    return `ipid:${clientIp(req)}:${h}`;
+  },
+  validate: sharedValidate,
+  message: { success: false, error: 'محاولات دخول كثيرة لهذا الحساب. حاول بعد قليل.' },
+});
+
+export const registerRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('register:'),
+  keyGenerator: (req: any) => `ip:${clientIp(req)}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'تم تجاوز حد إنشاء الحسابات من هذا الجهاز. حاول لاحقاً.' },
+});
+
+export const checkUsernameRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('checkusername:'),
+  keyGenerator: (req: any) => `ip:${clientIp(req)}`,
+  validate: sharedValidate,
+  message: { success: false, error: 'طلبات كثيرة. حاول لاحقاً.' },
+});
+
+/* ---- Password-reset OTP rate limiters ---- */
+
+// Sending an OTP: strict per IP so a single client can't spam emails, plus a
+// per-email key so one address can't be flooded across IPs.
+export const forgotOtpRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 3,                 // 3 OTP requests per hour (per IP)
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('forgototp:'),
+  keyGenerator: (req: any) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const h = crypto.createHash('sha256').update(email).digest('hex').slice(0, 16);
+    return `e:${h}:ip:${clientIp(req)}`;
+  },
+  validate: sharedValidate,
+  message: { success: false, error: 'طلبات إرسال الرمز كثيرة. حاول بعد قليل.' },
+});
+
+// Verifying an OTP: limit attempts per email+IP to slow brute force.
+export const verifyOtpRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 10,                // 10 verification attempts per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: new NeonRateLimitStore('verifyotp:'),
+  keyGenerator: (req: any) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const h = crypto.createHash('sha256').update(email).digest('hex').slice(0, 16);
+    return `e:${h}:ip:${clientIp(req)}`;
+  },
+  validate: sharedValidate,
+  message: { success: false, error: 'محاولات تحقق كثيرة. حاول بعد قليل.' },
+});
