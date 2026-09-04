@@ -300,19 +300,13 @@ export const api = {
   // salon_posts + user_posts
   // ============================================================
 
-  async getUnifiedPostsFeed(cursor?: string | null, limit: number = 20): Promise<{
+  async getUnifiedPostsFeed(): Promise<{
     success: boolean;
     posts?: any[];
-    nextCursor?: string | null;
-    hasMore?: boolean;
     error?: string;
   }> {
     try {
-      const params = new URLSearchParams();
-      params.set('limit', String(limit));
-      if (cursor) params.set('cursor', cursor);
-      const qs = params.toString();
-      const res = await fetchWithAuth(`/api/posts/feed${qs ? `?${qs}` : ''}`);
+      const res = await fetchWithAuth('/api/posts/feed');
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
@@ -326,11 +320,6 @@ export const api = {
       return {
         success: true,
         posts: Array.isArray(data.posts) ? data.posts : [],
-        nextCursor:
-          typeof data.nextCursor === 'string' && data.nextCursor
-            ? data.nextCursor
-            : null,
-        hasMore: data.hasMore === true,
       };
     } catch (error) {
       console.error('[getUnifiedPostsFeed]', error);
@@ -561,25 +550,20 @@ export const api = {
     caption?: string;
     mediaType?: 'image' | 'video';
     duration?: number;
-    idempotencyKey?: string;
   }): Promise<{
     success: boolean;
     post?: any;
     error?: string;
   }> {
     try {
-      const key = data.idempotencyKey || crypto.randomUUID();
-      const body = JSON.stringify({
-        imageUrl: data.imageUrl,
-        caption: data.caption || '',
-        mediaType: data.mediaType || 'image',
-        duration: typeof data.duration === 'number' ? data.duration : undefined,
-      });
-
       const res = await fetchWithAuth('/api/user-posts', {
         method: 'POST',
-        headers: { 'Idempotency-Key': key },
-        body,
+        body: JSON.stringify({
+          imageUrl: data.imageUrl,
+          caption: data.caption || '',
+          mediaType: data.mediaType || 'image',
+          duration: typeof data.duration === 'number' ? data.duration : undefined,
+        }),
       });
 
       const result = await res.json().catch(() => ({}));
@@ -2084,53 +2068,6 @@ export const api = {
       return data;
     } catch {
       return { success: false, error: 'تعذر إنشاء الحساب' };
-    }
-  },
-
-  async forgotPassword(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      return data;
-    } catch {
-      return { success: false, error: 'تعذر إرسال رمز التحقق' };
-    }
-  },
-
-  async verifyOtp(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp }),
-      });
-      const data = await res.json();
-      return data;
-    } catch {
-      return { success: false, error: 'تعذر التحقق من رمز التحقق' };
-    }
-  },
-
-  async resetPassword(
-    email: string,
-    otp: string,
-    newPassword: string,
-    confirmPassword: string
-  ): Promise<{ success: boolean; message?: string; error?: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp, newPassword, confirmPassword }),
-      });
-      const data = await res.json();
-      return data;
-    } catch {
-      return { success: false, error: 'تعذر إعادة تعيين كلمة المرور' };
     }
   },
 

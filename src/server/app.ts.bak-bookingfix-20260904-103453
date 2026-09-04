@@ -6,7 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
-import { db, normalizePhone } from './db.js';
+import { db } from './db.js';
 import { analyzeContent } from './aiModeration';
 import { startAllBots, stopAllBots, initBotEngine, runCronTick } from './bots.js';
 import { getNotificationsFromNeon, loadAllFromNeon, updateUserSalonOwnerInNeon, recordInterestLearning, getCombinedInterests } from './db.js';
@@ -19,40 +19,12 @@ import {
   requireSalonOwnerOrAdmin,
 } from './authMiddleware.js';
 import type { SupportAttachment } from '../types';
-import {
-  loginRateLimiter,
-  loginIdentifierRateLimiter,
-  registerRateLimiter,
-  checkUsernameRateLimiter,
-  forgotOtpRateLimiter,
-  verifyOtpRateLimiter,
-  imageUploadRateLimiter,
-  videoUploadRateLimiter,
-  userPostRateLimiter,
-} from './rateLimitStore.js';
 
 
 /* HALAQI_FOLLOW_SQL_CLIENT */
 const followSql = sql;
 
 const app = express();
-
-// F-05: server-side imageUrl validation. Allows only HTTPS URLs served from
-// the Halaqi Supabase Storage public bucket (whitelist, not blacklist).
-function isValidStorageImageUrl(url: string): boolean {
-  if (typeof url !== 'string' || !url.trim()) return false;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  const supabaseHost = (process.env.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('/')[0];
-  if (!supabaseHost || parsed.hostname !== supabaseHost) return false;
-  if (!parsed.pathname.startsWith('/storage/v1/object/public/avatars/')) return false;
-  return true;
-}
 
 function hashPin(pin: string): string {
   return crypto.createHmac('sha256', process.env.HALAQI_PIN_SECRET || 'halaqi_pin_salt').update(pin).digest('hex');
@@ -116,7 +88,7 @@ async function ensureHalaqiFollowTable(): Promise<void> {
    AUTH
 ========================================================= */
 
-app.post('/api/auth/login', loginRateLimiter, loginIdentifierRateLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { emailOrPhone, password } = req.body || {};
 
@@ -127,16 +99,9 @@ app.post('/api/auth/login', loginRateLimiter, loginIdentifierRateLimiter, async 
       });
     }
 
-    if (!password || typeof password !== 'string' || !password.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: 'كلمة المرور مطلوبة.',
-      });
-    }
-
     const result = await db.authenticate(
       String(emailOrPhone),
-      String(password)
+      String(password || '')
     );
 
     if (!result.success || !result.user) {
@@ -424,7 +389,7 @@ app.put('/api/admin/support/tickets/:id/note', requireAuth, requireRole('admin')
   }
 });
 
-app.post('/api/auth/check-username', checkUsernameRateLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/check-username', async (req: Request, res: Response) => {
   try {
     const { username } = req.body || {};
     if (!username || typeof username !== 'string') {
@@ -469,7 +434,7 @@ app.post('/api/auth/check-username', checkUsernameRateLimiter, async (req: Reque
   }
 });
 
-app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { name, email, phone, password, role, city, username } = req.body || {};
 
@@ -477,13 +442,6 @@ app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Re
       return res.status(400).json({
         success: false,
         error: 'الاسم ورقم الهاتف مطلوبان',
-      });
-    }
-
-    if (!password || typeof password !== 'string' || !password.trim() || password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.',
       });
     }
 
@@ -504,7 +462,7 @@ app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Re
       }
     }
 
-    const result = await db.createUser(
+    const result = db.createUser(
       {
         name,
         email,
@@ -537,77 +495,6 @@ app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Re
       success: false,
       error: 'تعذر إنشاء الحساب.',
     });
-  }
-});
-
-/* ---- Password Reset via Email OTP (BUG-11) ---- */
-
-// Step 1: request an OTP by e-mail. Always returns a generic success so we
-// never reveal whether the e-mail is registered.
-app.post('/api/auth/forgot-password', forgotOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body || {};
-    if (!email || typeof email !== 'string' || !email.trim().includes('@')) {
-      return res.status(400).json({ success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' });
-    }
-
-    const result = await db.requestResetOtp(String(email));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'تعذر إرسال الرمز.' });
-    }
-
-    // Generic response: we never reveal whether the account exists.
-    res.json({ success: true, message: 'إذا كان البريد مسجلاً، ستصلك رسالة تحمل رمز التحقق.' });
-  } catch (error) {
-    console.error('[FORGOT ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر إرسال الرمز.' });
-  }
-});
-
-// Step 2: verify the OTP (read-only) so the UI can advance to the new-password
-// stage. Attempts are still limited here to prevent brute forcing.
-app.post('/api/auth/verify-otp', verifyOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email, otp } = req.body || {};
-    if (!email || !otp) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني ورمز التحقق مطلوبان.' });
-    }
-    const result = await db.checkResetOtp(String(email), String(otp));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'رمز التحقق غير صحيح.' });
-    }
-    res.json({ success: true });
-  } catch (error) {
-    console.error('[VERIFY OTP ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر التحقق من الرمز.' });
-  }
-});
-
-// Step 3: reset the password with the verified OTP (atomic verify + rotate).
-app.post('/api/auth/reset-password', verifyOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email, otp, newPassword, confirmPassword } = req.body || {};
-
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة.' });
-    }
-    // Password policy check (client + server).
-    if (typeof newPassword !== 'string' || newPassword.trim().length < 8) {
-      return res.status(400).json({ success: false, error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.' });
-    }
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ success: false, error: 'تأكيد كلمة المرور غير مطابق.' });
-    }
-
-    const result = await db.resetPasswordWithOtp(String(email), String(otp), String(newPassword));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'تعذر إعادة تعيين كلمة المرور.' });
-    }
-
-    res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.' });
-  } catch (error) {
-    console.error('[RESET PASSWORD ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر إعادة تعيين كلمة المرور.' });
   }
 });
 
@@ -742,7 +629,7 @@ app.put(
 
       const result = await db.updateUserProfile(userId, {
         name: String(name).trim(),
-        phone: phone ? normalizePhone(String(phone)) : undefined,
+        phone: phone ? String(phone).trim() : undefined,
         city: city ? String(city).trim() : undefined,
         username: usernameUpdate,
         bio: bioUpdate,
@@ -1271,125 +1158,6 @@ app.get('/api/salons/:id/posts', async (req: Request, res: Response) => {
   }
 });
 
-/* ---- Salon Posts: Create ---- */
-app.post(
-  '/api/salon-posts',
-  requireAuth,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { salonId, imageUrl, caption } = req.body || {};
-
-      if (!salonId || typeof salonId !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'معرف الصالون مطلوب.',
-        });
-      }
-      if (!imageUrl || typeof imageUrl !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'صورة المنشور مطلوبة.',
-        });
-      }
-      if (!isValidStorageImageUrl(imageUrl)) {
-        return res.status(400).json({
-          success: false,
-          error: 'رابط الصورة غير صالح.',
-        });
-      }
-
-      const result = await db.createSalonPost(
-        {
-          salonId,
-          imageUrl,
-          caption: typeof caption === 'string' ? caption : '',
-        },
-        req.user!
-      );
-
-      if (result.blocked) {
-        return res.status(400).json({
-          success: false,
-          blocked: true,
-          error: result.error,
-        });
-      }
-
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error || 'تعذر نشر المنشور.',
-        });
-      }
-
-      return res.status(201).json({
-        success: true,
-        post: result.post,
-      });
-    } catch (error) {
-      console.error('[CREATE SALON POST ERROR]', error);
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر نشر المنشور.',
-      });
-    }
-  }
-);
-
-/* ---- Salon Posts: Delete ---- */
-app.delete(
-  '/api/salon-posts/:id',
-  requireAuth,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const post = await db.getSalonPostById(req.params.id);
-
-      if (!post) {
-        return res
-          .status(404)
-          .json({ success: false, error: 'المنشور غير موجود.' });
-      }
-
-      const isAdmin = req.user!.role === 'admin';
-      const isOwner =
-        req.user!.role === 'salon_owner' &&
-        post.ownerId === req.user!.id;
-      if (!isAdmin && !isOwner) {
-        return res.status(403).json({
-          success: false,
-          error: 'غير مسموح لك بحذف هذا المنشور.',
-        });
-      }
-
-      if (post.imageUrl) {
-        const storageResult = await deleteStoredMedia(post.imageUrl);
-        if (!storageResult.ok) {
-          return res.status(502).json({
-            success: false,
-            error: storageResult.error || 'تعذر حذف الصورة من التخزين.',
-          });
-        }
-      }
-
-      const result = await db.deleteSalonPost(req.params.id, req.user!);
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error || 'تعذر حذف المنشور.',
-        });
-      }
-
-      return res.json({ success: true });
-    } catch (error) {
-      console.error('[DELETE SALON POST ERROR]', error);
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حذف المنشور.',
-      });
-    }
-  }
-);
-
 /* =========================================================
    UNIFIED POSTS FEED
 ========================================================= */
@@ -1399,20 +1167,12 @@ app.get(
     try {
       // optionalAuthMiddleware يعرّف المشاهد الحالي إن وُجد
       // حتى تُحمَل حالة الإعجاب الخاصة به من Neon مع الـFeed.
-      const cursor =
-        typeof req.query.cursor === 'string' && req.query.cursor
-          ? req.query.cursor
-          : null;
-      const rawLimit =
-        typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
-      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 20;
-
-      const feed = await db.getUnifiedPostsFeed(req.user?.id, { cursor, limit });
+      const posts = await db.getUnifiedPostsFeed(req.user?.id);
 
       // FEATURE 6: hide posts from users the viewer has blocked or been
       // blocked by (only user posts carry an author id; salon posts are unaffected).
       const viewerId = req.user?.id;
-      let visible = Array.isArray(feed.posts) ? feed.posts : [];
+      let visible = Array.isArray(posts) ? posts : [];
 
       if (viewerId) {
         try {
@@ -1432,27 +1192,13 @@ app.get(
       return res.json({
         success: true,
         posts: visible,
-        nextCursor: feed.nextCursor,
-        hasMore: feed.hasMore,
       });
-    } catch (error: any) {
-      // Malformed cursor → 400 (never silently fall back to page 1).
-      if (error?.cursorInvalid) {
-        return res.status(400).json({
-          success: false,
-          posts: [],
-          nextCursor: null,
-          hasMore: false,
-          error: 'Cursor غير صالح.',
-        });
-      }
+    } catch (error) {
       console.error('[UNIFIED POSTS FEED ERROR]', error);
 
       return res.status(500).json({
         success: false,
         posts: [],
-        nextCursor: null,
-        hasMore: false,
         error: 'تعذر جلب المنشورات.',
       });
     }
@@ -1826,11 +1572,6 @@ db.ensureReelsTables().catch((e: any) =>
   console.error('[REELS MIGRATION]', e?.message || e)
 );
 
-// Ensure idempotency_keys table exists before post creation requests.
-db.ensureIdempotencyKeysTable().catch((e: any) =>
-  console.error('[IDEMPOTENCY MIGRATION]', e?.message || e)
-);
-
 // Ensure Username System schema (username column + case-insensitive unique index)
 db.ensureUsernameTables().catch((e: any) =>
   console.error('[USERNAME MIGRATION]', e?.message || e)
@@ -2106,7 +1847,6 @@ function contentTypeFromExt(ext: string): string {
 app.post(
   '/api/uploads/image',
   requireAuth,
-  imageUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2135,16 +1875,6 @@ app.post(
         extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
 
       const fileName = `${req.user!.id}_${Date.now()}.${extension}`;
-
-      // ── F-04: server-side image size check (before Buffer.from) ──
-      const approxBytes = Math.floor((match[2].length * 3) / 4);
-      if (approxBytes > 25 * 1024 * 1024) {
-        return res.status(413).json({
-          success: false,
-          error: 'حجم الصورة كبير جداً. الحد الأقصى 25 ميجابايت.',
-        });
-      }
-
       const fileBuffer = Buffer.from(match[2], 'base64');
 
       // Verify configuration without logging secrets.
@@ -2224,7 +1954,6 @@ app.delete(
 app.post(
   '/api/uploads/video',
   requireAuth,
-  videoUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2548,7 +2277,6 @@ app.post(
 app.post(
   '/api/user-posts',
   requireAuth,
-  userPostRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
@@ -2567,12 +2295,6 @@ app.post(
               : 'الصورة مطلوبة لإنشاء المنشور.',
         });
       }
-      if (!isValidStorageImageUrl(imageUrl)) {
-        return res.status(400).json({
-          success: false,
-          error: 'رابط الصورة غير صالح.',
-        });
-      }
 
       // Enforce Reels duration limits server-side (Premium unlocks 120s).
       if (mediaType === 'video' && typeof duration === 'number' && duration > 0) {
@@ -2587,23 +2309,6 @@ app.post(
         }
       }
 
-      // ── Idempotency-Key validation ──
-      let idempotencyKey: string | undefined;
-      let payloadHash: string | undefined;
-      const rawKey = req.headers['idempotency-key'];
-      if (rawKey && typeof rawKey === 'string') {
-        // Validate UUID v4 format.
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawKey)) {
-          idempotencyKey = rawKey;
-          payloadHash = crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
-        } else {
-          return res.status(400).json({
-            success: false,
-            error: ' Idempotency-Key غير صالح. يجب أن يكون UUID v4.',
-          });
-        }
-      }
-
       const result = await db.createUserPost(
         {
           imageUrl,
@@ -2611,24 +2316,8 @@ app.post(
           mediaType: mediaType === 'video' ? 'video' : 'image',
           duration: typeof duration === 'number' ? duration : undefined,
         },
-        req.user!,
-        idempotencyKey,
-        payloadHash
+        req.user!
       );
-
-      if (result.serviceUnavailable) {
-        return res.status(503).json({
-          success: false,
-          error: result.error || 'الخدمة غير متاحة حالياً.',
-        });
-      }
-
-      if ((result as any).conflict) {
-        return res.status(409).json({
-          success: false,
-          error: result.error || 'تعارض في بيانات النشر.',
-        });
-      }
 
       if (result.blocked) {
         return res.status(400).json({
@@ -2645,7 +2334,7 @@ app.post(
         });
       }
 
-      return res.status(result.cached ? 200 : 201).json({
+      return res.status(201).json({
         success: true,
         post: result.post,
       });
@@ -6687,7 +6376,7 @@ async function tryGroqFallback(args: {
         type: 'function' as const,
         function: {
           name: 'search_salons',
-          description: 'Search approved salons by keyword, area, city, or service name. Use ONLY when the user wants to FIND a new salon or SWITCH to a different one. Do NOT call it just because the sentence contains "صالون" inside a booking request (e.g. "احجز لي في صالون الميار") — that is a booking within a known salon; use get_salon_services / search_services / get_availability instead.',
+          description: 'Search approved salons by keyword, area, city, or service name.',
           parameters: {
             type: 'object',
             properties: {
@@ -6792,28 +6481,9 @@ async function tryGroqFallback(args: {
     // do NOT leak the previous salon/booking context into the model — otherwise the
     // model keeps "locked" onto the old salon (e.g. always رويال) and can't switch.
     const rawU = String(args.userText || '').trim();
-    // Real search intent = user explicitly asks to FIND or CHANGE a salon.
-    // A bare occurrence of "صالون" inside a booking sentence ("احجز لي في
-    // صالون الميار") is NOT a search — it is a booking within a known salon,
-    // so we must KEEP injecting the current salon context then.
-    const bookingIntentGr =
-      /(احجز|حجز|اريد\s+احجز|أريد\s+أحجز|احجزلي|احجز\s+لي|اريد\s+الحجز|أريد\s+الحجز|موعد)/iu.test(rawU);
-    // Changing to a different salon is a new search too — we must NOT leak the
-    // old salon context then, otherwise the model stays locked on it.
-    const changeSalonGr =
-      /غير\s*(الصالون|صالون)/iu.test(rawU) ||
-      /صالون\s*(ثاني|تاني|آخر|اخر|ابدي|بديل)/iu.test(rawU) ||
-      /(ثاني|تاني|آخر|اخر|ابدي)\s*صالون/iu.test(rawU) ||
-      /(بدل|بدّل|غيّر|غير|تبديل|تغيير|تغيّر)\s*صالون/iu.test(rawU) ||
-      /(غير|ثاني|تاني|آخر|اخر|ابدي)\s*(الصالون|صالون)/iu.test(rawU) ||
-      /مو\s*(هذا|هذاك|هاي|ذي)\s*الصالون/iu.test(rawU);
     const looksLikeNewSearch =
-      !bookingIntentGr &&
-      (
-        changeSalonGr ||
-        /(ابحث|ادور|دور|وريد|ابغي|ابي|شوف|وين)\s*(لي)?\s*(عن)?\s*(صالون|سالون)/iu.test(rawU) ||
-        /(اريد|أريد|ابي|ابغي|وريد|عايز)\s+(صالون|سالون)/iu.test(rawU)
-      );
+      /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(rawU) ||
+      /صالون/.test(rawU);
     const isGenericChat =
       /^\s*(سلام|هلا|اهلا|شلون|صباح|مساء|السلام|هذة|شخبار|شلونكم|اوكي|حسنا|تمام|uhok|هاي|يا\s*للاه)\s*$/i.test(rawU) ||
       rawU.length < 4;
@@ -7180,15 +6850,13 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - الرسالة الحالية أعلى أولوية من السياق السابق.
 
 قواعد البحث:
-- استدعِ search_salons فقط عندما يريد المستخدم صراحةً البحث عن صالون جديد أو تغيير الصالون (مثل: "ابحثلي عن صالون"، "اريد صالون قريب"، "اريد صالون ثاني"، "غير الصالون"، أو اسم منطقة/مدينة بدون نية حجز).
-- إذا كان الصالون معروفاً (salonId موجود في حالة السياق أعلاه) والمستخدم يحجز أو يضيف بيانات حجز (خدمة/تاريخ/وقت) أو يؤكد، لا تستدعِ search_salons إطلاقاً. استخدم get_salon_services أو search_services (داخل الصالون المحدد) أو get_availability.
-- لا تعتبر مجرد ورود كلمة "صالون" داخل جملة الحجز (مثل: "احجز لي في صالون الميار" أو "اريد احجز خدمة صبغ في صالون حلاقة الميار") طلب بحث. إنها حجز داخل صالون محدد.
+- إذا ذكر المستخدم اسم صالون أو خدمة أو مدينة أو منطقة، استدعِ أداة البحث المناسبة (search_salons أو get_salon) قبل الرد.
 - لا تخترع صالونات أو خدمات أو أسعار أو تقييمات أو مواعيد متاحة.
 
 مسار الحجز (متعدد الخطوات):
-1. إن ذكر المستخدم صالوناً بالاسم أو اختاره مسبقاً، ثبّت هذا الصالون (salonId) من حالة السياق أو عبر get_salon، ولا تبحث عنه من جديد.
-2. احصل على الخدمات الحقيقية داخل هذا الصالون فقط باستخدام get_salon_services أو search_services (مع تمرير salonId).
-3. إذا كانت الخدمة غير محددة، اطلب من المستخدم اختيارها أو اعرض خدمات الصالون الحقيقية.
+1. حدّد الصالون الحقيقي باستخدام search_salons أو get_salon.
+2. احصل على الخدمات الحقيقية باستخدام get_salon_services.
+3. إذا كانت الخدمة غير محددة، اطلب من المستخدم اختيارها.
 4. احصل على المواعيد المتاحة باستخدام get_availability.
 5. اعرض على المستخدم ملخص الحجز (الصالون + الخدمة + التاريخ + الوقت).
 6. بعد التأكيد الصريح من المستخدم، استدعِ create_booking.
@@ -7198,7 +6866,6 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - لا يعتبر قول المستخدم "أريد أن أحجز" تأكيداً كافياً. يجب أن يؤكد الصالون والخدمة والتاريخ والوقت محدداً.
 - لا تخترع مواعيد أو توفر. اعتمد فقط على نتائج get_availability.
 - إذا كان السياق يحتوي على صالون محدد (salonId موجود) والمستخدم يرسل كلمات تأكيد، لا تستدعِ search_salons. احتفظ بالصالون النشط واسأل فقط عن البيانات الناقصة.
-- عند اختيار خدمة بعد تحديد الصالون، احصر البحث في خدمات هذا الصالون عبر search_services أو get_salon_services بالـ salonId، ولا تبحث عن الخدمة في كل الصالونات.
 
 حالة السياق الحالية المعتمدة من الخادم (هذه هي الحقيقة الوحيدة الموثوقة عن الصالون/الخدمة المختارة، ويجب أن تتجاوز أي ذكر قديم في سجل المحادثة): ${
         resolvedState.salonId ? 'الصالون المختار: ' + (resolvedState.salonName || resolvedState.salonId) + '. ' : 'لا يوجد صالون مختار حالياً. '
@@ -7847,27 +7514,18 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           wantsServices ||
           /الخدمات|شو عندك|شنو عندك/.test(searchTerm);
         const isGreeting = /^\s*(مرحبا|هلا|اهلا|سلام|السلام|صباح|مساء)/i.test(searchTerm);
-        // Real booking intent: the user wants to MAKE a booking or add booking
-        // details (service/date/time). Presence of booking intent must PREVENT a
-        // salon re-search, even though the sentence may contain the word "صالون".
-        const bookingIntent =
-          /(احجز|حجز|احجزي|حجزي|اريد\s+احجز|أريد\s+أحجز|اريد\s+الحجز|أريد\s+الحجز|ابي\s+احجز|ابغي\s+احجز|موعد|حجز\s+موعد|اريد\s+موعد|خل\s+احجز|يلا\s+احجز|احجزلي|احجز\s+لي)/iu.test(searchTerm) ||
-          /احجز|حجز|موعد/i.test(searchTerm);
-        // A clear request to look up / switch a salon: an explicit search or
-        // change verbs, or a bare salon/place name with no booking intent.
-        // NOTE: the word "صالون" ALONE is NOT treated as a search — it commonly
-        // appears inside booking sentences like "احجز لي في صالون الميار".
+        // A clear request to look up a salon: explicit search verb / "صالون" +
+        // name, or just a bare salon/place name. Generic short chat like "أوكي"
+        // is not a search.
         const isSalonLookup =
-          (changeSalonRequested) ||
-          /(ابحث|ادور|دور|وريد|ابغي|ابي|عايز|لق[يي]|شوف|وين)\s*(لي)?\s*(عن)?\s*(صالون|سالون)/i.test(searchTerm) ||
-          /(اريد|أريد|ابي|ابغي|وريد|عايز)\s+(صالون|سالون)/i.test(searchTerm) ||
-          (!bookingIntent && !isBookingConfirm && !hasInlineBookingDetail && !isGreeting && searchTerm.split(/\s+/).filter(Boolean).length <= 4) ||
+          /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|لق[يي]|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(searchTerm) ||
+          /صالون/.test(searchTerm) ||
+          (!isBookingConfirm && !hasInlineBookingDetail && !isGreeting && searchTerm.split(/\s+/).filter(Boolean).length <= 4) ||
           /رويال|الميار|النجم|لاونج|بيوتي|باربر|اكبر|تاج|قائد|mİyar|miyar/i.test(searchTerm);
 
         if (
           userText &&
           !modelCalledSearch &&
-          !bookingIntent &&
           (changeSalonRequested || !isBookingConfirm) &&
           !hasInlineBookingDetail &&
           !isGreeting &&

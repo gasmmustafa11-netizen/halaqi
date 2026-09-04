@@ -1826,11 +1826,6 @@ db.ensureReelsTables().catch((e: any) =>
   console.error('[REELS MIGRATION]', e?.message || e)
 );
 
-// Ensure idempotency_keys table exists before post creation requests.
-db.ensureIdempotencyKeysTable().catch((e: any) =>
-  console.error('[IDEMPOTENCY MIGRATION]', e?.message || e)
-);
-
 // Ensure Username System schema (username column + case-insensitive unique index)
 db.ensureUsernameTables().catch((e: any) =>
   console.error('[USERNAME MIGRATION]', e?.message || e)

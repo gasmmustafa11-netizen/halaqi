@@ -24,11 +24,6 @@ import {
   loginIdentifierRateLimiter,
   registerRateLimiter,
   checkUsernameRateLimiter,
-  forgotOtpRateLimiter,
-  verifyOtpRateLimiter,
-  imageUploadRateLimiter,
-  videoUploadRateLimiter,
-  userPostRateLimiter,
 } from './rateLimitStore.js';
 
 
@@ -36,23 +31,6 @@ import {
 const followSql = sql;
 
 const app = express();
-
-// F-05: server-side imageUrl validation. Allows only HTTPS URLs served from
-// the Halaqi Supabase Storage public bucket (whitelist, not blacklist).
-function isValidStorageImageUrl(url: string): boolean {
-  if (typeof url !== 'string' || !url.trim()) return false;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  const supabaseHost = (process.env.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('/')[0];
-  if (!supabaseHost || parsed.hostname !== supabaseHost) return false;
-  if (!parsed.pathname.startsWith('/storage/v1/object/public/avatars/')) return false;
-  return true;
-}
 
 function hashPin(pin: string): string {
   return crypto.createHmac('sha256', process.env.HALAQI_PIN_SECRET || 'halaqi_pin_salt').update(pin).digest('hex');
@@ -537,77 +515,6 @@ app.post('/api/auth/register', registerRateLimiter, async (req: Request, res: Re
       success: false,
       error: 'تعذر إنشاء الحساب.',
     });
-  }
-});
-
-/* ---- Password Reset via Email OTP (BUG-11) ---- */
-
-// Step 1: request an OTP by e-mail. Always returns a generic success so we
-// never reveal whether the e-mail is registered.
-app.post('/api/auth/forgot-password', forgotOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email } = req.body || {};
-    if (!email || typeof email !== 'string' || !email.trim().includes('@')) {
-      return res.status(400).json({ success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' });
-    }
-
-    const result = await db.requestResetOtp(String(email));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'تعذر إرسال الرمز.' });
-    }
-
-    // Generic response: we never reveal whether the account exists.
-    res.json({ success: true, message: 'إذا كان البريد مسجلاً، ستصلك رسالة تحمل رمز التحقق.' });
-  } catch (error) {
-    console.error('[FORGOT ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر إرسال الرمز.' });
-  }
-});
-
-// Step 2: verify the OTP (read-only) so the UI can advance to the new-password
-// stage. Attempts are still limited here to prevent brute forcing.
-app.post('/api/auth/verify-otp', verifyOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email, otp } = req.body || {};
-    if (!email || !otp) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني ورمز التحقق مطلوبان.' });
-    }
-    const result = await db.checkResetOtp(String(email), String(otp));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'رمز التحقق غير صحيح.' });
-    }
-    res.json({ success: true });
-  } catch (error) {
-    console.error('[VERIFY OTP ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر التحقق من الرمز.' });
-  }
-});
-
-// Step 3: reset the password with the verified OTP (atomic verify + rotate).
-app.post('/api/auth/reset-password', verifyOtpRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { email, otp, newPassword, confirmPassword } = req.body || {};
-
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة.' });
-    }
-    // Password policy check (client + server).
-    if (typeof newPassword !== 'string' || newPassword.trim().length < 8) {
-      return res.status(400).json({ success: false, error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.' });
-    }
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ success: false, error: 'تأكيد كلمة المرور غير مطابق.' });
-    }
-
-    const result = await db.resetPasswordWithOtp(String(email), String(otp), String(newPassword));
-    if (!result.success) {
-      return res.status(400).json({ success: false, error: result.error || 'تعذر إعادة تعيين كلمة المرور.' });
-    }
-
-    res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.' });
-  } catch (error) {
-    console.error('[RESET PASSWORD ERROR]', error);
-    return res.status(500).json({ success: false, error: 'تعذر إعادة تعيين كلمة المرور.' });
   }
 });
 
@@ -1271,125 +1178,6 @@ app.get('/api/salons/:id/posts', async (req: Request, res: Response) => {
   }
 });
 
-/* ---- Salon Posts: Create ---- */
-app.post(
-  '/api/salon-posts',
-  requireAuth,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { salonId, imageUrl, caption } = req.body || {};
-
-      if (!salonId || typeof salonId !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'معرف الصالون مطلوب.',
-        });
-      }
-      if (!imageUrl || typeof imageUrl !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'صورة المنشور مطلوبة.',
-        });
-      }
-      if (!isValidStorageImageUrl(imageUrl)) {
-        return res.status(400).json({
-          success: false,
-          error: 'رابط الصورة غير صالح.',
-        });
-      }
-
-      const result = await db.createSalonPost(
-        {
-          salonId,
-          imageUrl,
-          caption: typeof caption === 'string' ? caption : '',
-        },
-        req.user!
-      );
-
-      if (result.blocked) {
-        return res.status(400).json({
-          success: false,
-          blocked: true,
-          error: result.error,
-        });
-      }
-
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error || 'تعذر نشر المنشور.',
-        });
-      }
-
-      return res.status(201).json({
-        success: true,
-        post: result.post,
-      });
-    } catch (error) {
-      console.error('[CREATE SALON POST ERROR]', error);
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر نشر المنشور.',
-      });
-    }
-  }
-);
-
-/* ---- Salon Posts: Delete ---- */
-app.delete(
-  '/api/salon-posts/:id',
-  requireAuth,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const post = await db.getSalonPostById(req.params.id);
-
-      if (!post) {
-        return res
-          .status(404)
-          .json({ success: false, error: 'المنشور غير موجود.' });
-      }
-
-      const isAdmin = req.user!.role === 'admin';
-      const isOwner =
-        req.user!.role === 'salon_owner' &&
-        post.ownerId === req.user!.id;
-      if (!isAdmin && !isOwner) {
-        return res.status(403).json({
-          success: false,
-          error: 'غير مسموح لك بحذف هذا المنشور.',
-        });
-      }
-
-      if (post.imageUrl) {
-        const storageResult = await deleteStoredMedia(post.imageUrl);
-        if (!storageResult.ok) {
-          return res.status(502).json({
-            success: false,
-            error: storageResult.error || 'تعذر حذف الصورة من التخزين.',
-          });
-        }
-      }
-
-      const result = await db.deleteSalonPost(req.params.id, req.user!);
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error || 'تعذر حذف المنشور.',
-        });
-      }
-
-      return res.json({ success: true });
-    } catch (error) {
-      console.error('[DELETE SALON POST ERROR]', error);
-      return res.status(500).json({
-        success: false,
-        error: 'تعذر حذف المنشور.',
-      });
-    }
-  }
-);
-
 /* =========================================================
    UNIFIED POSTS FEED
 ========================================================= */
@@ -1399,20 +1187,12 @@ app.get(
     try {
       // optionalAuthMiddleware يعرّف المشاهد الحالي إن وُجد
       // حتى تُحمَل حالة الإعجاب الخاصة به من Neon مع الـFeed.
-      const cursor =
-        typeof req.query.cursor === 'string' && req.query.cursor
-          ? req.query.cursor
-          : null;
-      const rawLimit =
-        typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
-      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 20;
-
-      const feed = await db.getUnifiedPostsFeed(req.user?.id, { cursor, limit });
+      const posts = await db.getUnifiedPostsFeed(req.user?.id);
 
       // FEATURE 6: hide posts from users the viewer has blocked or been
       // blocked by (only user posts carry an author id; salon posts are unaffected).
       const viewerId = req.user?.id;
-      let visible = Array.isArray(feed.posts) ? feed.posts : [];
+      let visible = Array.isArray(posts) ? posts : [];
 
       if (viewerId) {
         try {
@@ -1432,27 +1212,13 @@ app.get(
       return res.json({
         success: true,
         posts: visible,
-        nextCursor: feed.nextCursor,
-        hasMore: feed.hasMore,
       });
-    } catch (error: any) {
-      // Malformed cursor → 400 (never silently fall back to page 1).
-      if (error?.cursorInvalid) {
-        return res.status(400).json({
-          success: false,
-          posts: [],
-          nextCursor: null,
-          hasMore: false,
-          error: 'Cursor غير صالح.',
-        });
-      }
+    } catch (error) {
       console.error('[UNIFIED POSTS FEED ERROR]', error);
 
       return res.status(500).json({
         success: false,
         posts: [],
-        nextCursor: null,
-        hasMore: false,
         error: 'تعذر جلب المنشورات.',
       });
     }
@@ -1826,11 +1592,6 @@ db.ensureReelsTables().catch((e: any) =>
   console.error('[REELS MIGRATION]', e?.message || e)
 );
 
-// Ensure idempotency_keys table exists before post creation requests.
-db.ensureIdempotencyKeysTable().catch((e: any) =>
-  console.error('[IDEMPOTENCY MIGRATION]', e?.message || e)
-);
-
 // Ensure Username System schema (username column + case-insensitive unique index)
 db.ensureUsernameTables().catch((e: any) =>
   console.error('[USERNAME MIGRATION]', e?.message || e)
@@ -2106,7 +1867,6 @@ function contentTypeFromExt(ext: string): string {
 app.post(
   '/api/uploads/image',
   requireAuth,
-  imageUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2135,16 +1895,6 @@ app.post(
         extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
 
       const fileName = `${req.user!.id}_${Date.now()}.${extension}`;
-
-      // ── F-04: server-side image size check (before Buffer.from) ──
-      const approxBytes = Math.floor((match[2].length * 3) / 4);
-      if (approxBytes > 25 * 1024 * 1024) {
-        return res.status(413).json({
-          success: false,
-          error: 'حجم الصورة كبير جداً. الحد الأقصى 25 ميجابايت.',
-        });
-      }
-
       const fileBuffer = Buffer.from(match[2], 'base64');
 
       // Verify configuration without logging secrets.
@@ -2224,7 +1974,6 @@ app.delete(
 app.post(
   '/api/uploads/video',
   requireAuth,
-  videoUploadRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { dataUrl } = req.body || {};
@@ -2548,7 +2297,6 @@ app.post(
 app.post(
   '/api/user-posts',
   requireAuth,
-  userPostRateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
@@ -2567,12 +2315,6 @@ app.post(
               : 'الصورة مطلوبة لإنشاء المنشور.',
         });
       }
-      if (!isValidStorageImageUrl(imageUrl)) {
-        return res.status(400).json({
-          success: false,
-          error: 'رابط الصورة غير صالح.',
-        });
-      }
 
       // Enforce Reels duration limits server-side (Premium unlocks 120s).
       if (mediaType === 'video' && typeof duration === 'number' && duration > 0) {
@@ -2587,23 +2329,6 @@ app.post(
         }
       }
 
-      // ── Idempotency-Key validation ──
-      let idempotencyKey: string | undefined;
-      let payloadHash: string | undefined;
-      const rawKey = req.headers['idempotency-key'];
-      if (rawKey && typeof rawKey === 'string') {
-        // Validate UUID v4 format.
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawKey)) {
-          idempotencyKey = rawKey;
-          payloadHash = crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
-        } else {
-          return res.status(400).json({
-            success: false,
-            error: ' Idempotency-Key غير صالح. يجب أن يكون UUID v4.',
-          });
-        }
-      }
-
       const result = await db.createUserPost(
         {
           imageUrl,
@@ -2611,24 +2336,8 @@ app.post(
           mediaType: mediaType === 'video' ? 'video' : 'image',
           duration: typeof duration === 'number' ? duration : undefined,
         },
-        req.user!,
-        idempotencyKey,
-        payloadHash
+        req.user!
       );
-
-      if (result.serviceUnavailable) {
-        return res.status(503).json({
-          success: false,
-          error: result.error || 'الخدمة غير متاحة حالياً.',
-        });
-      }
-
-      if ((result as any).conflict) {
-        return res.status(409).json({
-          success: false,
-          error: result.error || 'تعارض في بيانات النشر.',
-        });
-      }
 
       if (result.blocked) {
         return res.status(400).json({
@@ -2645,7 +2354,7 @@ app.post(
         });
       }
 
-      return res.status(result.cached ? 200 : 201).json({
+      return res.status(201).json({
         success: true,
         post: result.post,
       });

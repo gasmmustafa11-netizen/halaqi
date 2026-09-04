@@ -1,7 +1,6 @@
 import "dotenv/config";
-import { sql, pool } from "./lib/pg-compliant";
+import { sql } from "./lib/pg-compliant";
 import { moderateContent } from "./moderation";
-import { sendOtpEmail } from "./email";
 
 import crypto from 'crypto';
 import {
@@ -645,84 +644,6 @@ export function ensureUserUniqueness(): Promise<void> {
     })();
   }
   return usersUniquenessReady;
-}
-
-/* Password-reset OTP table. Stores ONLY a hash of the OTP (never the plain
-   code), plus attempt counters and expiry so an OTP is single-use, short-lived
-   and brute-force limited. Non-destructive: creates the table/indexes if they
-   do not already exist and touches nothing else. */
-let passwordResetsReady: Promise<void> | null = null;
-
-export function ensurePasswordResetsTable(): Promise<void> {
-  if (!passwordResetsReady) {
-    passwordResetsReady = (async () => {
-      await sql`
-        CREATE TABLE IF NOT EXISTS password_resets (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          email TEXT NOT NULL,
-          otp_hash TEXT NOT NULL,
-          attempts INT NOT NULL DEFAULT 0,
-          max_attempts INT NOT NULL DEFAULT 5,
-          used BOOLEAN NOT NULL DEFAULT false,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          expires_at TIMESTAMPTZ NOT NULL,
-          used_at TIMESTAMPTZ
-        )
-      `;
-      await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets (email)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets (expires_at)`;
-    })().catch((e: any) => {
-      passwordResetsReady = null;
-      throw e;
-    });
-  }
-  return passwordResetsReady;
-}
-
-/* ---- Idempotency keys table (for duplicate-post prevention) ---- */
-let idempotencyKeysReady: Promise<void> | null = null;
-
-export function ensureIdempotencyKeysTable(): Promise<void> {
-  if (!idempotencyKeysReady) {
-    idempotencyKeysReady = (async () => {
-      await sql`
-        CREATE TABLE IF NOT EXISTS idempotency_keys (
-          key TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          payload_hash TEXT NOT NULL,
-          post_id TEXT NOT NULL,
-          response_status INT NOT NULL,
-          response_body JSONB NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          expires_at TIMESTAMPTZ NOT NULL
-        )
-      `;
-      await sql`CREATE INDEX IF NOT EXISTS idx_idempotency_keys_user ON idempotency_keys (user_id)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_idempotency_keys_expires ON idempotency_keys (expires_at)`;
-    })().catch((e: any) => {
-      idempotencyKeysReady = null;
-      throw e;
-    });
-  }
-  return idempotencyKeysReady;
-}
-
-export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-export const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
-export const OTP_MAX_ATTEMPTS = 5;
-
-/* Cryptographically secure random 6-digit OTP. */
-export function generateOtp(): string {
-  const buf = crypto.randomBytes(4);
-  const num = buf.readUInt32BE(0) % 1_000_000;
-  return String(num).padStart(6, '0');
-}
-
-/* Hash of the OTP for storage — we never persist the plain code. */
-export function hashOtp(otp: string): string {
-  return crypto.createHash('sha256').update(String(otp)).digest('hex');
 }
 
 // Pre-compute salt & hash for initial users
@@ -2471,242 +2392,6 @@ class DatabaseStore {
     };
   }
 
-  /* ---- Password Reset via Email OTP (BUG-11) ----
-
-     requestOtp:      generates a random OTP, stores its hash, sends the code.
-                      Always returns a generic success so we never reveal whether
-                      an e-mail is registered.
-     confirmReset:    verifies the OTP (single-use, 10-min, max-attempts) and, on
-                      success, rotates the account's password hash+salt & marks
-                      the OTP used so it cannot be reused.
-  */
-  async requestResetOtp(
-    email: string
-  ): Promise<{ success: boolean; error?: string; sent?: boolean }> {
-    const rawEmail = String(email || '').trim().toLowerCase();
-    if (!rawEmail || !rawEmail.includes('@')) {
-      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
-    }
-
-    // Never reveal whether the e-mail is registered. If the account doesn't
-    // exist (or is missing an e-mail), still appear to "send" a code.
-    const generic = { success: true, sent: false };
-
-    try {
-      await ensurePasswordResetsTable();
-
-      const found = await sql`
-        SELECT id FROM users
-        WHERE LOWER(email) = ${rawEmail}
-          AND email IS NOT NULL AND email <> ''
-        LIMIT 1
-      `;
-      if (!found.length) {
-        return generic;
-      }
-
-      const otp = generateOtp();
-      const otpHash = hashOtp(otp);
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
-
-      // Atomic insert for this request; use inserts not updates so history and
-      // attempt counter reset cleanly per request.
-      await sql`
-        INSERT INTO password_resets (email, otp_hash, attempts, max_attempts, used, created_at, expires_at)
-        VALUES (${rawEmail}, ${otpHash}, 0, ${OTP_MAX_ATTEMPTS}, false, ${now}, ${expiresAt})
-      `;
-
-      const mail = await sendOtpEmail(rawEmail, otp);
-
-      // WARNING: do NOT log `otp` here. Only report whether e-mail was sent.
-      if (mail.sent) return { success: true, sent: true };
-
-      // If the provider is unconfigured or the domain unverified, still succeed
-      // at the API level (no enumeration) but note that no e-mail was delivered.
-      return { ...generic, sent: false };
-    } catch (e: any) {
-      // Do not log the OTP — only the fact that the request failed.
-      console.error('[FORGOT] requestResetOtp error:', e?.message || e);
-      // Generic to avoid leaking account existence.
-      return generic;
-    }
-  }
-
-  async resetPasswordWithOtp(
-    email: string,
-    otp: string,
-    newPassword: string
-  ): Promise<{ success: boolean; error?: string }> {
-    const rawEmail = String(email || '').trim().toLowerCase();
-    if (!rawEmail || !rawEmail.includes('@')) {
-      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
-    }
-
-    // Password policy: required, trim check, min 8.
-    if (typeof newPassword !== 'string' || !newPassword.trim() || newPassword.trim().length < 8) {
-      return { success: false, error: 'كلمة المرور مطلوبة وأن لا تقل عن 8 أحرف.' };
-    }
-
-    try {
-      await ensurePasswordResetsTable();
-
-      const otpHash = hashOtp(String(otp || ''));
-
-      // Load the most recent valid (unused, unexpired) request for this e-mail.
-      const now = new Date();
-      const rows: any[] = await sql`
-        SELECT id, otp_hash, attempts, max_attempts, used, expires_at
-        FROM password_resets
-        WHERE email = ${rawEmail} AND used = false
-        ORDER BY created_at DESC
-        LIMIT 1
-      `;
-
-      if (!rows.length) {
-        return { success: false, error: 'رمز التحقق غير صحيح أو انتهت صلاحيته. يرجى طلب رمز جديد.' };
-      }
-
-      const record = rows[0];
-
-      // Expired check.
-      const expiresAt = new Date(record.expires_at);
-      if (expiresAt.getTime() <= now.getTime()) {
-        return { success: false, error: 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.' };
-      }
-
-      // Attempt limit check.
-      const attempts = Number(record.attempts || 0);
-      const maxAttempts = Number(record.max_attempts || OTP_MAX_ATTEMPTS);
-      if (attempts >= maxAttempts) {
-        return { success: false, error: 'تم تجاوز عدد المحاولات المسموح بها. يرجى طلب رمز جديد.' };
-      }
-
-      // Constant-time compare against the stored hash.
-      const storedHash = String(record.otp_hash);
-      const providedHash = hashOtp(String(otp || ''));
-      const match = timingSafeEqualHex(storedHash, providedHash);
-
-      if (!match) {
-        // Increment attempts (degrade only, never delete).
-        const newAttempts = Math.min(attempts + 1, maxAttempts);
-        await sql`
-          UPDATE password_resets
-          SET attempts = ${newAttempts}
-          WHERE id = ${record.id}
-        `;
-        return { success: false, error: 'رمز التحقق غير صحيح.' };
-      }
-
-      // ---- OTP is valid: find the user by this e-mail in Neon. ----
-      const userRows: any[] = await sql`
-        SELECT id, password_hash, salt
-        FROM users
-        WHERE LOWER(email) = ${rawEmail}
-          AND email IS NOT NULL AND email <> ''
-        LIMIT 1
-      `;
-      if (!userRows.length) {
-        return { success: false, error: 'لم يتم العثور على حساب مرتبط بهذا البريد.' };
-      }
-
-      const u = userRows[0];
-
-      // Rotate the password hash + salt (PBKDF2 via existing system).
-      const newSalt = generateSalt();
-      const newHash = hashPassword(newPassword, newSalt);
-
-      await sql`
-        UPDATE users
-        SET password_hash = ${newHash}, salt = ${newSalt}
-        WHERE id = ${u.id}
-      `;
-
-      // Invalidate the OTP (single-use) so it cannot be reused.
-      await sql`
-        UPDATE password_resets
-        SET used = true, used_at = ${now}
-        WHERE id = ${record.id}
-      `;
-
-      // Invalidate any other pending reset requests for this e-mail too.
-      await sql`
-        UPDATE password_resets
-        SET used = true, used_at = ${now}
-        WHERE email = ${rawEmail} AND used = false
-      `;
-
-      // Update in-memory copy if present for this serverless instance.
-      const stateUser = this.state.users.find((item) => item.id === u.id);
-      if (stateUser) {
-        stateUser.passwordHash = newHash;
-        stateUser.salt = newSalt;
-      }
-
-      // Do NOT log the OTP or new password here.
-      return { success: true };
-    } catch (e: any) {
-      console.error('[RESET] resetPasswordWithOtp error:', e?.message || e);
-      return { success: false, error: 'تعذر إعادة تعيين كلمة المرور. حاول مرة أخرى.' };
-    }
-  }
-
-  /* Read-only OTP verification for the UI's step-2 (before showing the new
-     password form). Does NOT consume the OTP (so step 3 can apply it atomically
-     in resetPasswordWithOtp) but DOES enforce the attempt limit so the code
-     cannot be brute-forced through this endpoint. */
-  async checkResetOtp(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
-    const rawEmail = String(email || '').trim().toLowerCase();
-    if (!rawEmail || !rawEmail.includes('@')) {
-      return { success: false, error: 'يرجى إدخال بريد إلكتروني صحيح.' };
-    }
-
-    try {
-      await ensurePasswordResetsTable();
-
-      const otpHash = hashOtp(String(otp || ''));
-      const now = new Date();
-      const rows: any[] = await sql`
-        SELECT id, otp_hash, attempts, max_attempts, used, expires_at
-        FROM password_resets
-        WHERE email = ${rawEmail} AND used = false
-        ORDER BY created_at DESC
-        LIMIT 1
-      `;
-
-      if (!rows.length) {
-        return { success: false, error: 'رمز التحقق غير صحيح أو انتهت صلاحيته. يرجى طلب رمز جديد.' };
-      }
-
-      const record = rows[0];
-
-      const expiresAt = new Date(record.expires_at);
-      if (expiresAt.getTime() <= now.getTime()) {
-        return { success: false, error: 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.' };
-      }
-
-      const attempts = Number(record.attempts || 0);
-      const maxAttempts = Number(record.max_attempts || OTP_MAX_ATTEMPTS);
-      if (attempts >= maxAttempts) {
-        return { success: false, error: 'تم تجاوز عدد المحاولات المسموح بها. يرجى طلب رمز جديد.' };
-      }
-
-      const match = timingSafeEqualHex(String(record.otp_hash), hashOtp(String(otp || '')));
-      if (!match) {
-        const newAttempts = Math.min(attempts + 1, maxAttempts);
-        await sql`
-          UPDATE password_resets SET attempts = ${newAttempts} WHERE id = ${record.id}
-        `;
-        return { success: false, error: 'رمز التحقق غير صحيح.' };
-      }
-
-      return { success: true };
-    } catch (e: any) {
-      console.error('[VERIFY] checkResetOtp error:', e?.message || e);
-      return { success: false, error: 'تعذر التحقق من الرمز. حاول مرة أخرى.' };
-    }
-  }
-
   // Create User with server-enforced role restrictions.
   // Async so uniqueness is enforced against Neon (the source of truth) rather
   // than only the per-instance in-memory array, closing the cold-start and
@@ -3955,45 +3640,33 @@ class DatabaseStore {
   // Admin User Management
   async updateUserProfile(userId: string, updates: { name: string; phone?: string; city?: string; username?: string; bio?: string }) {
     try {
+      console.log('[PROFILE UPDATE DEBUG] userId =', userId);
+      console.log('[PROFILE UPDATE DEBUG] newName =', updates.name);
+
+      const beforeRows = await sql`
+        SELECT id, name, email, role
+        FROM users
+        WHERE id = ${userId}
+        LIMIT 1
+      `;
+
+      console.log('[PROFILE UPDATE DEBUG] BEFORE =', beforeRows[0] || null);
+
       const phoneValue = updates.phone ? normalizePhone(updates.phone) : undefined;
-
-      // Pre-check phone uniqueness on Neon before UPDATE to give a clear error
-      // instead of letting a 23505 unique violation bubble up as 500.
-      if (phoneValue) {
-        const dupPhone: any[] = await sql`
-          SELECT id FROM users
-          WHERE phone = ${phoneValue} AND id <> ${userId}
-          LIMIT 1
-        `;
-        if (dupPhone.length) {
-          return { success: false, error: 'رقم الهاتف مستخدم مسبقاً.' };
-        }
-      }
-
-      // Pre-check username uniqueness on Neon (idx_users_username_lower exists).
-      const rawUsername = updates.username?.trim() || null;
-      if (rawUsername) {
-        const dupUsername: any[] = await sql`
-          SELECT id FROM users
-          WHERE LOWER(username) = ${rawUsername.toLowerCase()} AND id <> ${userId}
-          LIMIT 1
-        `;
-        if (dupUsername.length) {
-          return { success: false, error: 'اسم المستخدم مستخدم مسبقاً.' };
-        }
-      }
 
       const rows = await sql`
         UPDATE users
         SET name = ${updates.name},
             phone = ${phoneValue ?? null},
             city = ${updates.city ?? null},
-            username = ${rawUsername},
+            username = ${updates.username ?? null},
             bio = ${updates.bio ?? null}
         WHERE id = ${userId}
         RETURNING id, name, email, phone, role, city, salon_id, avatar, username,
                   password_hash, salt, is_active, is_banned, created_at, bio
       `;
+
+      console.log('[PROFILE UPDATE DEBUG] UPDATED =', rows[0] || null);
 
       if (!rows.length) return { success: false, error: 'المستخدم غير موجود' };
 
@@ -4028,14 +3701,7 @@ class DatabaseStore {
       }
 
       return { success: true, user };
-    } catch (error: any) {
-      // Safety-net: if a 23505 slips past the pre-checks (race), return a clear message.
-      if (error?.code === '23505') {
-        const detail: string = error?.detail || '';
-        if (detail.includes('phone')) return { success: false, error: 'رقم الهاتف مستخدم مسبقاً.' };
-        if (detail.includes('username')) return { success: false, error: 'اسم المستخدم مستخدم مسبقاً.' };
-        return { success: false, error: 'البيانات مكررة.' };
-      }
+    } catch (error) {
       console.error('[DB] updateUserProfile:', error);
       return { success: false, error: 'تعذر تحديث بيانات المستخدم' };
     }
@@ -5101,33 +4767,6 @@ class DatabaseStore {
     }
   }
 
-  async getSalonPostById(postId: string): Promise<SalonPost | null> {
-    try {
-      const rows = await sql`
-        SELECT * FROM salon_posts WHERE id = ${postId} LIMIT 1
-      `;
-      if (!rows.length) return null;
-      const p = rows[0];
-      return {
-        id: p.id,
-        salonId: p.salon_id,
-        ownerId: p.owner_id,
-        salonName: p.salon_name,
-        imageUrl: p.image_url,
-        caption: p.caption || '',
-        createdAt: new Date(p.created_at).toISOString(),
-        updatedAt: p.updated_at
-          ? new Date(p.updated_at).toISOString()
-          : undefined,
-        likeCount: Number(p.like_count || 0),
-        commentCount: Number(p.comment_count || 0),
-      };
-    } catch (error: any) {
-      console.error('فشل جلب منشور الصالون من Neon:', error.message);
-      return null;
-    }
-  }
-
   async getUserSalonPosts(userId: string): Promise<SalonPost[]> {
     try {
       const rows = await sql`
@@ -5390,35 +5029,9 @@ class DatabaseStore {
   // لا نغيّر الـtypes الأصلية؛ postType خاص بالـFeed فقط.
   // عند تمرير viewerUserId يُحسب liked لكل منشور من Neon مباشرة
   // (post_likes هي مصدر الحقيقة لحالة الإعجاب).
-  async getUnifiedPostsFeed(
-    viewerUserId?: string,
-    opts?: { cursor?: string | null; limit?: number }
-  ): Promise<{ posts: any[]; nextCursor: string | null; hasMore: boolean }> {
+  async getUnifiedPostsFeed(viewerUserId?: string): Promise<any[]> {
     try {
       const viewerId = viewerUserId || '';
-      const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 100);
-      // cursor format: "created_at_raw|id" — created_at_raw is the lossless
-      // TIMESTAMPTZ text produced by Postgres (full microsecond precision).
-      let cursorCreatedAt: string | null = null;
-      let cursorId: string | null = null;
-      if (opts?.cursor) {
-        const sep = opts.cursor.indexOf('|');
-        if (sep <= 0 || sep === opts.cursor.length - 1) {
-          // Malformed cursor: must contain 'date|id' with both non-empty.
-          const err: any = new Error('INVALID_CURSOR');
-          err.cursorInvalid = true;
-          throw err;
-        }
-        const datePart = opts.cursor.slice(0, sep);
-        const idPart = opts.cursor.slice(sep + 1);
-        if (!datePart || !idPart || Number.isNaN(Date.parse(datePart))) {
-          const err: any = new Error('INVALID_CURSOR');
-          err.cursorInvalid = true;
-          throw err;
-        }
-        cursorCreatedAt = datePart;
-        cursorId = idPart;
-      }
 
       // ----- Viewer signals (power the Cold Start -> Personalized transition) -----
       const engagedUserIds = new Set<string>();
@@ -5488,7 +5101,6 @@ class DatabaseStore {
           sp.image_url,
           sp.caption,
           sp.created_at,
-          sp.created_at::text AS created_at_raw,
           sp.updated_at,
           sp.like_count,
           sp.comment_count,
@@ -5504,7 +5116,6 @@ class DatabaseStore {
         FROM salon_posts sp
         LEFT JOIN users owner ON owner.id = sp.owner_id
         WHERE sp.is_hidden IS DISTINCT FROM true
-        ${cursorCreatedAt ? sql`AND (sp.created_at, sp.id) < (${cursorCreatedAt}, ${cursorId})` : sql``}
 
         UNION ALL
 
@@ -5521,7 +5132,6 @@ class DatabaseStore {
           up.image_url,
           up.caption,
           up.created_at,
-          up.created_at::text AS created_at_raw,
           up.updated_at,
           up.like_count,
           up.comment_count,
@@ -5538,21 +5148,12 @@ class DatabaseStore {
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.media_type IS DISTINCT FROM 'video'
           AND up.is_hidden IS DISTINCT FROM true
-        ${cursorCreatedAt ? sql`AND (up.created_at, up.id) < (${cursorCreatedAt}, ${cursorId})` : sql``}
 
-        ORDER BY created_at DESC, id DESC
-        LIMIT ${limit + 1}
+        ORDER BY created_at DESC
+        LIMIT ${FEED_LIMIT}
       `;
 
-      // hasMore = the query fetched limit+1 rows; fired only when a full page exists.
-      let hasMore = false;
-      let fetchRows = Array.isArray(rows) ? rows as any[] : [];
-      if (fetchRows.length > limit) {
-        hasMore = true;
-        fetchRows = fetchRows.slice(0, limit);
-      }
-
-      const posts: any[] = fetchRows.map((p: any) => ({
+      const posts: any[] = (rows as any[]).map((p: any) => ({
         id: String(p.id),
         postType: p.post_type === 'user' ? 'user' : 'salon',
 
@@ -5732,30 +5333,14 @@ class DatabaseStore {
       };
       const ranked = diversify(posts);
 
-      // nextCursor is derived from the OLDEST chronological element in the page,
-      // NOT from the score/diversity reorder. fetchRows is already in
-      // created_at DESC / id DESC order, so the last element is the boundary.
-      // created_at_raw is the lossless TIMESTAMPTZ text, preserving full
-      // microsecond precision so the next page re-partitions identically.
-      let nextCursor: string | null = null;
-      if (hasMore && fetchRows.length > 0) {
-        const boundary = fetchRows[fetchRows.length - 1];
-        const rawTs = boundary.created_at_raw
-          ? String(boundary.created_at_raw)
-          : new Date(boundary.created_at).toISOString();
-        nextCursor = `${rawTs}|${String(boundary.id)}`;
-      }
-
       // Strip internal scoring fields before returning.
-      const clean = ranked.map(({ score, interestMatch, sourceId, ...rest }: any) => rest);
-      return { posts: clean, nextCursor, hasMore };
+      return ranked.map(({ score, interestMatch, sourceId, ...rest }: any) => rest);
     } catch (error: any) {
-      if (error?.cursorInvalid) throw error;
       console.error(
         '[getUnifiedPostsFeed] فشل جلب الـFeed الموحد:',
         error?.message || error
       );
-      return { posts: [], nextCursor: null, hasMore: false };
+      return [];
     }
   }
 
@@ -5766,10 +5351,8 @@ class DatabaseStore {
       mediaType?: 'image' | 'video';
       duration?: number;
     },
-    requestingUser: User,
-    idempotencyKey?: string,
-    payloadHash?: string
-  ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string; cached?: boolean; serviceUnavailable?: boolean; conflict?: boolean }> {
+    requestingUser: User
+  ): Promise<{ success: boolean; blocked?: boolean; post?: UserPost; error?: string }> {
     try {
       // Respect AI/Admin restriction (non-blocking check; safe if column missing).
       try {
@@ -5811,147 +5394,6 @@ class DatabaseStore {
         duration: mediaType === 'video' ? Number(data.duration || 0) : undefined,
       };
 
-      // ── Idempotency: use a real PostgreSQL transaction when a key is provided ──
-      if (idempotencyKey && payloadHash) {
-        let client: any;
-        try {
-          client = await pool.connect();
-        } catch (connectErr: any) {
-          console.error('[createUserPost] Neon connection failed (503):', connectErr?.message);
-          return { success: false, error: 'الخدمة غير متاحة حالياً. حاول لاحقاً.', serviceUnavailable: true };
-        }
-
-        try {
-          await client.query('BEGIN');
-
-          // Check for existing idempotency key.
-          const existing = await client.query(
-            `SELECT post_id, response_status, response_body, payload_hash
-             FROM idempotency_keys
-             WHERE key = $1 AND user_id = $2 AND expires_at > NOW()`,
-            [idempotencyKey, requestingUser.id]
-          );
-
-          if (existing.rows.length > 0) {
-            const row = existing.rows[0];
-            // Same key but different payload = client bug → 409.
-            if (row.payload_hash !== payloadHash) {
-              await client.query('ROLLBACK').catch(() => {});
-              return { success: false, error: 'تعارض في بيانات النشر. استخدم مفتاح جديد.', conflict: true } as any;
-            }
-            // Fetch the actual post to return fresh data.
-            const postRow = await client.query(
-              `SELECT * FROM user_posts WHERE id = $1`,
-              [row.post_id]
-            );
-            await client.query('COMMIT');
-            if (postRow.rows.length > 0) {
-              const p = postRow.rows[0];
-              return {
-                success: true,
-                cached: true,
-                post: {
-                  id: p.id,
-                  userId: p.user_id,
-                  userName: p.user_name || requestingUser.name || 'مستخدم',
-                  userAvatar: p.user_avatar || undefined,
-                  imageUrl: p.image_url || undefined,
-                  caption: p.caption || '',
-                  createdAt: new Date(p.created_at).toISOString(),
-                  likeCount: Number(p.like_count || 0),
-                  commentCount: Number(p.comment_count || 0),
-                  mediaType: p.media_type || 'image',
-                  duration: p.duration != null ? Number(p.duration) : undefined,
-                } as UserPost,
-              };
-            }
-            // Post deleted between insert and now — treat as new.
-          }
-
-          // Insert the post within the transaction.
-          await client.query(
-            `INSERT INTO user_posts
-             (id, user_id, image_url, caption, media_type, duration, created_at, updated_at, like_count, comment_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0)`,
-            [
-              post.id,
-              post.userId,
-              post.imageUrl ?? null,
-              post.caption,
-              post.mediaType,
-              post.duration ?? null,
-              post.createdAt,
-              post.createdAt,
-            ]
-          );
-
-          // Store the idempotency key in the same transaction.
-          await client.query(
-            `INSERT INTO idempotency_keys
-             (key, user_id, endpoint, payload_hash, post_id, response_status, response_body, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + INTERVAL '24 hours')`,
-            [
-              idempotencyKey,
-              requestingUser.id,
-              '/api/user-posts',
-              payloadHash,
-              post.id,
-              201,
-              JSON.stringify({ success: true, post }),
-            ]
-          );
-
-          await client.query('COMMIT');
-          return { success: true, post };
-        } catch (txErr: any) {
-          await client.query('ROLLBACK').catch(() => {});
-
-          // Unique violation on idempotency key = concurrent duplicate won the race.
-          if (txErr?.code === '23505') {
-            const retry = await sql`
-              SELECT post_id, payload_hash, response_body
-              FROM idempotency_keys
-              WHERE key = ${idempotencyKey} AND user_id = ${requestingUser.id}
-            `;
-            if (retry.length) {
-              // Same key but different payload → 409.
-              if (retry[0].payload_hash !== payloadHash) {
-                return { success: false, error: 'تعارض في بيانات النشر. استخدم مفتاح جديد.', conflict: true } as any;
-              }
-              const postId = retry[0].post_id;
-              const postRow = await sql`SELECT * FROM user_posts WHERE id = ${postId}`;
-              if (postRow.length) {
-                const p = postRow[0];
-                return {
-                  success: true,
-                  cached: true,
-                  post: {
-                    id: p.id,
-                    userId: p.user_id,
-                    userName: p.user_name || requestingUser.name || 'مستخدم',
-                    userAvatar: p.user_avatar || undefined,
-                    imageUrl: p.image_url || undefined,
-                    caption: p.caption || '',
-                    createdAt: new Date(p.created_at).toISOString(),
-                    likeCount: Number(p.like_count || 0),
-                    commentCount: Number(p.comment_count || 0),
-                    mediaType: p.media_type || 'image',
-                    duration: p.duration != null ? Number(p.duration) : undefined,
-                  } as UserPost,
-                };
-              }
-            }
-            return { success: false, error: 'تعذر نشر المنشور.' };
-          }
-
-          console.error('[createUserPost] transaction error:', txErr?.message || txErr);
-          return { success: false, error: 'تعذر حفظ المنشور في قاعدة البيانات.' };
-        } finally {
-          client.release();
-        }
-      }
-
-      // ── No idempotency key: standard non-transactional path (backwards compatible) ──
       await sql`
         INSERT INTO user_posts
         (

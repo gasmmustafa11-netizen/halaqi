@@ -1,0 +1,506 @@
+// Native Function Calling declarations for Gemini AI layer.
+export const aiSalonToolDeclarations = [
+  {
+    name: 'search_salons',
+    description: 'Search approved salons by keyword, area, city, or service name. Read-only. IMPORTANT: Do NOT call this if a salon is already selected (salonId is set in context). When a salon is already selected, use get_salon, search_services, or get_availability instead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: 'Search keyword, salon name, or service' },
+        location: { type: 'string', description: 'City or area filter' },
+      },
+    },
+  },
+  {
+    name: 'get_salon',
+    description: 'Get a specific salon by name or salonId. Read-only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        salonId: { type: 'string', description: 'Exact salon id' },
+        salonName: { type: 'string', description: 'Salon name hint' },
+      },
+    },
+  },
+  {
+    name: 'search_services',
+    description: 'Search services for a salon. Read-only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        salonId: { type: 'string', description: 'Salon id' },
+        keyword: { type: 'string', description: 'Service keyword' },
+      },
+    },
+  },
+  {
+    name: 'get_salon_services',
+    description: 'Get all services for a salon. Read-only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        salonId: { type: 'string', description: 'Salon id' },
+      },
+      required: ['salonId'],
+    },
+  },
+  {
+    name: 'create_booking',
+    description: 'Create a real booking only after the user has explicitly confirmed the exact salon, service, date, and time. The server derives the authenticated customer identity; never accept customerId from the model.',
+    parameters: {
+      type: 'object',
+      properties: {
+        salonId: { type: 'string', description: 'Exact salon id' },
+        serviceId: { type: 'string', description: 'Exact service id' },
+        date: { type: 'string', description: 'Booking date YYYY-MM-DD' },
+        timeSlot: { type: 'string', description: 'Booking time HH:MM' },
+        confirmed: { type: 'boolean', description: 'Must be true only when the user explicitly confirmed this exact booking' },
+      },
+      required: ['salonId', 'serviceId', 'date', 'timeSlot', 'confirmed'],
+    },
+  },
+  {
+    name: 'get_availability',
+    description: 'Retrieve salon working hours and occupied/booked slots for a date. Read-only. Does not invent availability.',
+    parameters: {
+      type: 'object',
+      properties: {
+        salonId: { type: 'string', description: 'Salon id' },
+        date: { type: 'string', description: 'Date YYYY-MM-DD' },
+        barberId: { type: 'string', description: 'Optional barber id' },
+      },
+      required: ['salonId'],
+    },
+  },
+];
+
+// Executions happen server-side only; Gemini never sees DB code
+export async function executeTool(
+  name: string,
+  params: any,
+  dbModule: any,
+  sqlImport?: any,
+  context?: {
+    user?: any;
+    allowBooking?: boolean;
+    conversationState?: any;
+  }
+): Promise<any> {
+  const db = (dbModule as any)?.default || (dbModule as any)?.db;
+  try {
+    if (name === 'search_salons') {
+      // NOTE: Removed the blanket "block search when a salon is already selected"
+      // guard. The user explicitly asking to look up a salon must always be able
+      // to find it, even if a stale salon had leaked in from persisted state.
+      // We only guard the absurd edge: an active booking confirmation in progress
+      // (pendingQuestion) — otherwise search results would clobber the flow.
+      const pendingState = context?.conversationState || {};
+      if (pendingState.pendingQuestion) {
+        return { salons: [], blocked: true, reason: 'booking_confirmation_in_progress' };
+      }
+      // Prefer live approved data from Neon so newly-added approved salons
+      // (e.g. registered through the app after deploy) are always visible to
+      // the AI, even when the in-memory state hasn't refreshed (on serverless
+      // platforms like Vercel loadAllFromNeon is never run). Fall back to the
+      // in-memory state only if the live query returns nothing or fails. Only
+      // approved salons are returned — pending/banned salons must never surface.
+      let all: any[] = [];
+      if (typeof db?.getApprovedSalonsFromNeon === 'function') {
+        try {
+          const live = await db.getApprovedSalonsFromNeon();
+          if (Array.isArray(live) && live.length > 0) all = live;
+        } catch (e) {
+          all = [];
+        }
+      }
+      if (all.length === 0 && typeof db?.getState === 'function' && db.getState().salons?.length > 0) {
+        all = db.getState().salons;
+      }
+      all = (all || []).filter(
+        (s: any) => (s.status || 'approved') === 'approved'
+      );
+      const source = (all || []).slice(0, 50);
+      const normalizeArabic = (value: unknown) =>
+        String(value || '')
+          .toLowerCase()
+          .normalize('NFKC')
+          .replace(/[ًٌٍَُِّْـ]/g, '')
+          .replace(/[أإآ]/g, 'ا')
+          .replace(/ة/g, 'ه')
+          .replace(/ى/g, 'ي')
+          .replace(/ؤ/g, 'و')
+          .replace(/ئ/g, 'ي')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const rawKeyword = normalizeArabic(params.keyword || params.name || '');
+      const loc = normalizeArabic(params.location || '');
+
+      // Arabic <-> English city mapping so "بغداد" matches city "baghdad", etc.
+      const CITY_ALIASES: Record<string, string[]> = {
+        baghdad: ['بغداد', 'بغداد'],
+        basra: ['بصره', 'البصرة', 'بصرة'],
+        erbil: ['اربيل', 'أربيل', 'اربل'],
+        karbala: ['كربلاء', 'كربلا'],
+        nasiriyah: ['ناصريه', 'الناصرية', 'ناصرية'],
+        najaf: ['نجف', 'النجف'],
+        mosul: ['موصل', 'الموصل'],
+      };
+      const locCityMatches: string[] = [];
+      if (loc) {
+        const lowerLoc = String(loc).toLowerCase();
+        for (const [enSlug, aliases] of Object.entries(CITY_ALIASES)) {
+          if (
+            lowerLoc === enSlug ||
+            aliases.some((a) => normalizeArabic(a).includes(loc) || loc.includes(normalizeArabic(a)))
+          ) {
+            locCityMatches.push(enSlug);
+          }
+        }
+      }
+      const citySet = new Set(locCityMatches.map((c) => c.toLowerCase()));
+
+      // Remove generic search words so "صالون النجمة" can match DB name "النجمه".
+      // NOTE: \b (word boundaries) is NOT used here because it does not work
+      // with Arabic script in JavaScript regex; "صالونات" must be removed before
+      // "صالون" (the latter is a substring of the former).
+      const kw = rawKeyword
+        .replace(/صالونات/g, ' ')
+        .replace(/صالون/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const filtered = source.filter((s: any) => {
+        const name = normalizeArabic(s.name || s.nameEn || '');
+        const cityField = normalizeArabic(String(s.city || ''));
+        const areaField = normalizeArabic(String(s.area || ''));
+        const text = normalizeArabic(
+          `${s.name || ''} ${s.nameEn || ''} ${s.city || ''} ${s.area || ''} ${s.services || ''}`
+        );
+
+        const keywordMatch =
+          !kw ||
+          name.includes(kw) ||
+          kw.includes(name) ||
+          text.includes(kw);
+
+        let locationMatch = !loc || text.includes(loc);
+        // If direct text match failed, try the Arabic/English city mapping.
+        if (!locationMatch && loc) {
+          const matchesCity =
+            citySet.size > 0 && citySet.has(cityField.toLowerCase());
+          const matchesArea = areaField.includes(loc);
+          locationMatch = matchesCity || matchesArea;
+        }
+
+        return keywordMatch && locationMatch;
+      });
+      return { salons: (filtered || []).slice(0, 5).map((s: any) => ({
+        id: s.id,
+        name: s.name || s.nameEn || '',
+        type: s.type || 'صالون',
+        city: s.city || '',
+        area: s.area || '',
+        services: s.services || '',
+        startingPrice: s.startingPrice ? String(s.startingPrice) : null,
+      })) };
+    }
+    if (name === 'get_salon') {
+      const sid = params.salonId || null;
+      let salon = null;
+      if (sid && typeof db?.getSalonByIdFromNeon === 'function') salon = await db.getSalonByIdFromNeon(sid);
+      if (!salon && params.salonName && typeof db?.getApprovedSalonsFromNeon === 'function') {
+        const all = await db.getApprovedSalonsFromNeon();
+        salon = (all || []).find((s: any) => (s.name || '').toString().toLowerCase().includes(String(params.salonName).toLowerCase()));
+      }
+      if (!salon) return { error: 'Salon not found' };
+      return { salon: {
+        id: salon.id,
+        name: salon.name || salon.nameEn || '',
+        type: salon.type || 'صالون',
+        city: salon.city || '',
+        area: salon.area || '',
+        services: salon.services || '',
+        workingHours: salon.workingHours || salon.working_hours || null,
+        startingPrice: salon.startingPrice ? String(salon.startingPrice) : null,
+      }};
+    }
+    if (name === 'search_services' || name === 'get_salon_services') {
+      const sid = params.salonId || null;
+      if (!sid) return { error: 'salonId required' };
+      const { sql } = sqlImport ? await sqlImport() : await import('./lib/pg-compliant');
+      const rows = await sql`SELECT id, name, price, duration_minutes FROM services WHERE salon_id = ${sid} LIMIT 8`;
+      return {
+        services: (rows || []).map((r: any) => ({
+          id: r.id || '',
+          salonId: sid,
+          name: r.name || '',
+          price: r.price ? String(r.price) : null,
+          durationMinutes: r.duration_minutes ?? null,
+        })),
+      };
+    }
+    if (name === 'create_booking') {
+      if (!context?.user?.id) {
+        return { error: 'يجب تسجيل الدخول أولاً لإتمام الحجز.', code: 'UNAUTHORIZED' };
+      }
+
+      if (!context.allowBooking || params.confirmed !== true) {
+        return {
+          error: 'لم يتم تأكيد الحجز بشكل صريح من المستخدم.',
+          code: 'BOOKING_CONFIRMATION_REQUIRED',
+        };
+      }
+
+      // Resolve booking arguments: prefer explicit args, fall back to validated conversation state.
+      const state = context?.conversationState || {};
+      const salonId = String(params.salonId || state.salonId || '').trim();
+      let serviceId = String(params.serviceId || state.serviceId || '').trim();
+      const serviceNameHint = String(params.serviceName || state.serviceName || '').trim();
+      const date = String(params.date || state.date || '').trim();
+      const timeSlot = String(params.timeSlot || state.time || '').trim();
+
+      if (!salonId || !serviceId || !date || !timeSlot) {
+        // Allow proceeding when we only have a service NAME (no id); the id is
+        // resolved below from the DB for the target salon.
+        if (!serviceId && !serviceNameHint) {
+          return { error: 'بيانات الحجز غير مكتملة.', code: 'INCOMPLETE_BOOKING' };
+        }
+      }
+
+      // Sync authoritative salon/service data before booking.
+      let salon = db?.getState?.()?.salons?.find((x: any) => x.id === salonId);
+      if (!salon && typeof db?.getSalonByIdFromNeon === 'function') {
+        salon = await db.getSalonByIdFromNeon(salonId);
+        if (salon) db.getState().salons.push(salon);
+      }
+      if (!salon) return { error: 'الصالون المحدد غير موجود.', code: 'SALON_NOT_FOUND' };
+
+      // Resolve the actual service id. The model may pass:
+      //   - a real id like "srv_1_1"
+      //   - a raw/human string like "صبغ" (service name)
+      //   - a mock id like "service_67890"
+      // Try id lookup first, then fall back to matching by name for THIS salon.
+      let service = serviceId
+        ? db?.getState?.()?.services?.find(
+            (x: any) => x.id === serviceId && x.salonId === salonId
+          )
+        : undefined;
+      if (!service && serviceId && typeof db?.getServiceByIdFromNeon === 'function') {
+        service = await db.getServiceByIdFromNeon(serviceId);
+        if (service && service.salonId === salonId) {
+          db.getState().services.push(service);
+        } else if (service && service.salonId !== salonId) {
+          service = undefined;
+        }
+      }
+
+      // Fallback: resolve by NAME for this salon (id unknown/mock/name-as-id).
+      if (!service) {
+        const normalizedName = serviceNameHint || serviceId;
+        const norm = (v: unknown) =>
+          String(v || '')
+            .toLowerCase()
+            .normalize('NFKC')
+            .replace(/[أإآ]/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const target = norm(normalizedName);
+        service = (db?.getState?.()?.services || []).find(
+          (x: any) => x.salonId === salonId && (norm(x.name) === target || norm(x.name).includes(target))
+        );
+        // If not found in memory, query Neon directly for this salon.
+        if (!service && typeof sqlImport === 'function') {
+          try {
+            const { sql } = await sqlImport();
+            const rows = await sql`
+              SELECT id, name, price, duration_minutes
+              FROM services
+              WHERE salon_id = ${salonId}
+                AND (LOWER(name) LIKE ${'%' + String(normalizedName).toLowerCase() + '%'} OR id = ${serviceId})
+              LIMIT 1
+            `;
+            if (rows && rows[0]) {
+              service = {
+                id: rows[0].id,
+                salonId,
+                name: rows[0].name,
+                price: rows[0].price ? String(rows[0].price) : null,
+                durationMinutes: rows[0].duration_minutes ?? null,
+              } as any;
+              db.getState().services.push(service);
+            }
+          } catch (e: any) {
+            // Ignore DB lookup errors — fail gracefully below, never throw
+            // uncaught type errors that would reset the conversation state.
+            console.error('[AI BOOKING] service name lookup failed:', e?.message || e);
+          }
+        }
+      }
+
+      if (!service || service.salonId !== salonId) {
+        // Final fallbacks before declaring the service not found:
+        // 1) If the salon has exactly one service, auto-select it (covers salons
+        //    with a single menu item where the user's keyword may not match exactly).
+        // 2) Broader keyword matching: "حلاقة" -> matches services containing
+        //    "حلاق" or "قص", "صبغ" -> matches "صبغ", "قص شعر" etc.
+        const salonServices =
+          (db?.getState?.()?.services || []).filter((x: any) => x.salonId === salonId);
+        if (salonServices.length === 1) {
+          service = salonServices[0];
+        } else {
+          const norm2 = (v: unknown) =>
+            String(v || '')
+              .toLowerCase()
+              .normalize('NFKC')
+              .replace(/[أإآ]/g, 'ا')
+              .replace(/ة/g, 'ه')
+              .replace(/ى/g, 'ي')
+              .replace(/ؤ/g, 'و')
+              .replace(/ئ/g, 'ي')
+              .replace(/[\s\-،.,]/g, '')
+              .trim();
+          const target2 = norm2(serviceNameHint || serviceId || '');
+          service = salonServices.find(
+            (x: any) =>
+              target2 && (
+                norm2(x.name).includes(target2) ||
+                target2.includes(norm2(x.name)) ||
+                // keyword synonym groups
+                (/حلاق|قص|قصة/.test(target2) && /حلاق|قص|قصة/.test(norm2(x.name))) ||
+                (/صبغ|صبغة/.test(target2) && /صبغ/.test(norm2(x.name))) ||
+                (/تشذيب|لحية/.test(target2) && /تشذيب|لحية/.test(norm2(x.name)))
+              )
+          );
+        }
+      }
+
+      if (!service || service.salonId !== salonId) {
+        return { error: 'لم أتمكن من مطابقة الخدمة المحددة مع خدمات الصالون. يرجى اختيار خدمة من قائمة الخدمات المتاحة.', code: 'SERVICE_NOT_FOUND' };
+      }
+
+      // Use the authoritative real service id for the booking.
+      serviceId = String(service.id);
+
+      const customer = context.user;
+      const securePayload = {
+        salonId,
+        serviceId,
+        date,
+        timeSlot,
+        customerId: customer.id,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        customerEmail: customer.email,
+        barberId: undefined,
+        barberName: undefined,
+      };
+
+      const result = await db.createBookingAtomic(
+        securePayload,
+        undefined,
+        undefined
+      );
+
+      if (!result?.success || !result?.booking) {
+        return {
+          error: result?.error || 'تعذر إتمام الحجز.',
+          code: 'BOOKING_FAILED',
+        };
+      }
+
+      // Canonical notifications: customer + salon owner + admins.
+      try {
+        const recipients = new Map<string, any>();
+
+        if (salon.ownerId) {
+          const owner =
+            db.getUserById(salon.ownerId) ||
+            await db.getUserByIdFromNeon(salon.ownerId);
+          if (owner) recipients.set(owner.id, owner);
+        }
+
+        const admins = db.getAdminUsers?.() || [];
+        for (const admin of admins) recipients.set(admin.id, admin);
+
+        const notificationPayload = {
+          title: 'حجز جديد 🎉',
+          titleEn: 'New Booking 🎉',
+          message: `لديك حجز جديد من ${result.booking.customerName} يوم ${result.booking.date} الساعة ${result.booking.timeSlot}. الخدمة: ${result.booking.serviceName}، المبلغ: ${result.booking.finalPrice.toLocaleString()} د.ع.`,
+          messageEn: `You have a new booking from ${result.booking.customerName} on ${result.booking.date} at ${result.booking.timeSlot}. Service: ${result.booking.serviceName}. Amount: ${result.booking.finalPrice.toLocaleString()} IQD.`,
+          type: 'booking_created' as const,
+          link: '/bookings',
+          salonId: result.booking.salonId,
+        };
+
+        for (const recipient of recipients.values()) {
+          await db.createNotification({
+            userId: recipient.id,
+            ...notificationPayload,
+          });
+        }
+
+        // Customer confirmation is created centrally by createBookingAtomic().
+        // Do not create a second booking_confirmed notification here.
+      } catch (notificationError: any) {
+        console.error(
+          '[AI BOOKING NOTIFICATION] Failed:',
+          notificationError?.message || notificationError
+        );
+      }
+
+      return {
+        success: true,
+        booking: {
+          id: result.booking.id,
+          bookingNumber: result.booking.bookingNumber,
+          salonId: result.booking.salonId,
+          salonName: result.booking.salonName,
+          serviceId: result.booking.serviceId,
+          serviceName: result.booking.serviceName,
+          date: result.booking.date,
+          timeSlot: result.booking.timeSlot,
+          finalPrice: result.booking.finalPrice,
+          status: result.booking.status,
+        },
+      };
+    }
+
+    if (name === 'get_availability') {
+      const sid = params.salonId || null;
+      const date = params.date || '';
+      if (!sid) return { error: 'salonId required' };
+      // Read salon working hours
+      let workingHours = null;
+      try {
+        if (typeof db?.getSalonByIdFromNeon === 'function') {
+          const salon = await db.getSalonByIdFromNeon(sid);
+          if (salon) workingHours = salon.working_hours || salon.workingHours || null;
+        }
+      } catch (e) { /* ignore */ }
+      // Read occupied slots via existing DB method
+      let occupiedSlots: string[] = [];
+      try {
+        if (typeof db?.getOccupiedSlots === 'function' && params.barberId && date) {
+          occupiedSlots = db.getOccupiedSlots(params.barberId, date);
+        } else if (sqlImport) {
+          const { sql } = await sqlImport();
+          const rows = await sql`SELECT time_slot FROM bookings WHERE salon_id = ${sid} AND date = ${date} AND status = 'confirmed' LIMIT 20`;
+          occupiedSlots = (rows || []).map((r: any) => r.time_slot);
+        }
+      } catch (e) { /* ignore */ }
+      return {
+        salonId: sid,
+        date,
+        workingHours,
+        occupiedSlots,
+        note: 'Availability is not fully verifiable without checking working hours, barber schedules, and blocked times. No inventing available slots.',
+      };
+    }
+    return { error: 'Unknown tool' };
+  } catch (e: any) {
+    return { error: 'Retrieval failed', message: e?.message || '' };
+  }
+}
