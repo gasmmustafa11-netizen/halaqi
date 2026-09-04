@@ -52,7 +52,17 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [posts, setPosts] = useState<SalonPost[]>([]);
   const [userPosts, setUserPosts] = useState<UserPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const hasLoadedPosts = React.useRef(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const pullStartY = useRef<number | null>(null);
+  const pullOffset = useRef<number>(0);
+  const isPulling = useRef<boolean>(false);
+  const refreshToken = useRef<number>(0);
   const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, PostComment[]>>({});
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
@@ -199,11 +209,15 @@ export const PostsView: React.FC<PostsViewProps> = ({
   useEffect(() => {
     let cancelled = false;
 
-    const loadPosts = async () => {
-      if (!hasLoadedPosts.current) setLoading(true);
+    const loadPosts = async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else if (!hasLoadedPosts.current) {
+        setLoading(true);
+      }
 
       try {
-        const feedResult = await api.getUnifiedPostsFeed();
+        const feedResult = await api.getUnifiedPostsFeed(null, 20);
 
         if (cancelled) return;
 
@@ -247,6 +261,8 @@ export const PostsView: React.FC<PostsViewProps> = ({
               (post: any) => post.postType === 'user'
             ) as UserPost[]
           );
+          setNextCursor(feedResult.nextCursor ?? null);
+          setHasMore(feedResult.hasMore === true);
         }
 
         if (cancelled) return;
@@ -285,6 +301,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setRefreshing(false);
         }
       }
     };
@@ -299,7 +316,213 @@ export const PostsView: React.FC<PostsViewProps> = ({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salons]);
+
+  const handleRefresh = async () => {
+    if (refreshing || loading) return;
+    ++refreshToken.current;
+    try {
+      let innerCancelled = false;
+      setRefreshing(true);
+      const feedResult = await api.getUnifiedPostsFeed(null, 20);
+      if (innerCancelled) return;
+      if (!feedResult.success) {
+        notify(
+          isRtl ? 'فشل تحديث المنشورات.' : 'Failed to refresh feed.',
+          'error'
+        );
+        return;
+      }
+      const merged = Array.isArray(feedResult.posts)
+        ? feedResult.posts.map((post: any) => ({
+            ...post,
+            likeCount: Number(post.likeCount || 0),
+            commentCount: Number(post.commentCount || 0),
+          }))
+        : [];
+      merged.sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setPosts(merged as SalonPost[]);
+      setUserPosts(
+        merged.filter((post: any) => post.postType === 'user') as UserPost[]
+      );
+      setNextCursor(feedResult.nextCursor ?? null);
+      setHasMore(feedResult.hasMore === true);
+      const hydratedLikes: Record<string, boolean> = {};
+      merged.forEach((post: any) => {
+        if (post.liked === true) hydratedLikes[post.id] = true;
+      });
+      setLikedPosts(hydratedLikes);
+    } catch (e) {
+      console.error('Refresh error', e);
+      notify(
+        isRtl ? 'حدث خطأ أثناء التحديث.' : 'Refresh error occurred.',
+        'error'
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Infinite scroll: load the next page when the sentinel becomes visible.
+  const loadMore = async () => {
+    if (loadingMore || refreshing || !hasMore || !nextCursor) return;
+    const myToken = refreshToken.current;
+    setLoadingMore(true);
+    try {
+      const feedResult = await api.getUnifiedPostsFeed(nextCursor, 20);
+      if (!feedResult.success) {
+        if (myToken !== refreshToken.current) {
+          // Stale response after refresh; ignore.
+          setLoadingMore(false);
+          return;
+        }
+        setLoadingMore(false);
+        return;
+      }
+      const added = Array.isArray(feedResult.posts)
+        ? feedResult.posts.map((post: any) => ({
+            ...post,
+            likeCount: Number(post.likeCount || 0),
+            commentCount: Number(post.commentCount || 0),
+          }))
+        : [];
+      if (myToken !== refreshToken.current) {
+        // Stale loadMore response after a refresh; discard.
+        setLoadingMore(false);
+        return;
+      }
+      setPosts((current) => {
+        const map = new Map<string, any>();
+        [...current, ...added].forEach((p) => map.set(p.id, p));
+        return Array.from(map.values()) as SalonPost[];
+      });
+      setUserPosts((current) => {
+        const map = new Map<string, any>();
+        [...current, ...added.filter((p: any) => p.postType === 'user')].forEach(
+          (p) => map.set(p.id, p)
+        );
+        return Array.from(map.values()) as UserPost[];
+      });
+      setNextCursor(feedResult.nextCursor ?? null);
+      setHasMore(feedResult.hasMore === true);
+    } catch (error) {
+      console.error('[PostsView] loadMore error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || refreshing) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMore();
+        }
+      },
+      { root: scrollContainerRef.current, rootMargin: '200px 0px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, nextCursor, loadingMore]);
+
+  // Listen for new posts published elsewhere (e.g. profile) and inject into feed
+  useEffect(() => {
+    const onPostPublished = (e: Event) => {
+      const post = (e as CustomEvent).detail;
+      if (!post || !post.id) return;
+      setPosts((prev) => {
+        const exists = prev.some((p) => p.id === post.id);
+        if (exists) return prev;
+        const next = [
+          ...prev,
+          {
+            ...post,
+            likeCount: Number(post.likeCount || 0),
+            commentCount: Number(post.commentCount || 0),
+          },
+        ];
+        next.sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        return next as SalonPost[];
+      });
+      setUserPosts((prev) => {
+        if (post.postType === 'user') {
+          const exists = prev.some((p) => p.id === post.id);
+          if (!exists) {
+            return [post, ...prev] as UserPost[];
+          }
+        }
+        return prev;
+      });
+    };
+    window.addEventListener('halaqi:post-published', onPostPublished);
+    return () => window.removeEventListener('halaqi:post-published', onPostPublished);
+  }, []);
+
+  // Pull-to-Refresh handler: safe vertical pull at top, no interference with snap/scroll
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || refreshing || loading) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      // Only start pull when near top
+      if (container.scrollTop > 20) {
+        pullStartY.current = null;
+        return;
+      }
+      pullStartY.current = e.touches[0].clientY;
+      isPulling.current = true;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!isPulling.current || pullStartY.current === null || refreshing || loading) return;
+      const deltaY = e.touches[0].clientY - pullStartY.current;
+      if (deltaY > 0) {
+        pullOffset.current = deltaY;
+        // Only apply visual offset if we're at top and pulling down
+        const container = scrollContainerRef.current;
+        if (container && container.scrollTop <= 5) {
+          pullOffset.current = Math.min(deltaY, 120);
+        } else {
+          pullOffset.current = 0;
+          isPulling.current = false;
+          pullStartY.current = null;
+        }
+      } else {
+        pullOffset.current = 0;
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (pullOffset.current > 60 && !refreshing && !loading) {
+        handleRefresh();
+      }
+      pullStartY.current = null;
+      isPulling.current = false;
+      pullOffset.current = 0;
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [refreshing, loading]);
 
   /*
    * DIRECT_POST_LOAD_V1
@@ -868,7 +1091,18 @@ export const PostsView: React.FC<PostsViewProps> = ({
             </p>
           </div>
         ) : (
-          <div className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black">
+          <>
+            {/* Refresh indicator */}
+            <div className="fixed top-[max(3.5rem,env(safe-area-inset-top))] left-1/2 z-50 -translate-x-1/2 transition-all duration-200">
+              <div className={`flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 backdrop-blur-xl border border-white/10 shadow-lg transition-opacity duration-200 ${refreshing ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <Loader2 className="h-4 w-4 animate-spin text-[#D4AF37]" />
+                <span className="text-xs font-bold text-white">{isRtl ? 'جاري التحديث...' : 'Refreshing...'}</span>
+              </div>
+            </div>
+            <div
+              ref={scrollContainerRef}
+              className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black"
+            >
             {visiblePosts.map((post, postIndex) => {
               const salon = getSalon(post);
 
@@ -1309,7 +1543,25 @@ export const PostsView: React.FC<PostsViewProps> = ({
                 </article>
               );
             })}
+
+            {hasMore && (
+              <div
+                ref={(el) => {
+                  if (el && !sentinelRef.current) sentinelRef.current = el;
+                }}
+                className="flex items-center justify-center py-6"
+              >
+                {loadingMore ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+                ) : (
+                  <span className="text-sm text-white/40">
+                    {isRtl ? 'مرّر للمزيد' : 'Scroll for more'}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+          </>
         )}
       </div>
 

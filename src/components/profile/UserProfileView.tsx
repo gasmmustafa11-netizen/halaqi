@@ -276,6 +276,10 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       setMentionResults([]);
       localStorage.removeItem(DRAFT_KEY);
       setPosts((current) => [result.post, ...current]);
+      // Notify unified feed to refresh so new post appears immediately
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('halaqi:post-published', { detail: result.post }));
+      }
     } catch (error) {
       console.error('[CREATE USER POST]', error);
       notify('حدث خطأ أثناء نشر الصورة.', 'error');
