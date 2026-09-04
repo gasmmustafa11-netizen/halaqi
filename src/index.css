@@ -224,3 +224,7 @@ img {
   max-height: none !important;
 }
 
+/* Globe animation fix */
+img[alt="Halaqi Globe"] {
+  animation: globeSpin 90s linear infinite !important;
+}
