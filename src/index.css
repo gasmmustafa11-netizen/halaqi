@@ -228,3 +228,8 @@ img {
 img[alt="Halaqi Globe"] {
   animation: globeSpin 90s linear infinite !important;
 }
+
+@keyframes globeSpin {
+  from { transform: rotate(0deg) scale(1); }
+  to { transform: rotate(360deg) scale(1.035); }
+}
