@@ -5504,7 +5504,7 @@ class DatabaseStore {
         FROM salon_posts sp
         LEFT JOIN users owner ON owner.id = sp.owner_id
         WHERE sp.is_hidden IS DISTINCT FROM true
-        ${cursorCreatedAt ? sql`AND (sp.created_at, sp.id) < (${cursorCreatedAt}, ${cursorId})` : sql``}
+        AND (${cursorCreatedAt === null} OR (sp.created_at, sp.id) < (${cursorCreatedAt}, ${cursorId}))
 
         UNION ALL
 
@@ -5538,7 +5538,7 @@ class DatabaseStore {
         LEFT JOIN users u ON u.id = up.user_id
         WHERE up.media_type IS DISTINCT FROM 'video'
           AND up.is_hidden IS DISTINCT FROM true
-        ${cursorCreatedAt ? sql`AND (up.created_at, up.id) < (${cursorCreatedAt}, ${cursorId})` : sql``}
+        AND (${cursorCreatedAt === null} OR (up.created_at, up.id) < (${cursorCreatedAt}, ${cursorId}))
 
         ORDER BY created_at DESC, id DESC
         LIMIT ${limit + 1}
