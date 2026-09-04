@@ -2,7 +2,7 @@
 export const aiSalonToolDeclarations = [
   {
     name: 'search_salons',
-    description: 'Search approved salons by keyword, area, city, or service name. Read-only. IMPORTANT: Do NOT call this if a salon is already selected (salonId is set in context). When a salon is already selected, use get_salon, search_services, or get_availability instead.',
+    description: 'Search approved salons by keyword, area, city, or service name. Read-only. Call this when the user asks to find/switch to a salon (e.g. says a salon name, city, or asks for a different/another salon). If a salon is already selected but the user wants a DIFFERENT one, call search_salons anyway rather than staying on the old salon. When a salon is already selected and the user is NOT asking to change it, prefer get_salon, search_services, or get_availability instead.',
     parameters: {
       type: 'object',
       properties: {

@@ -6483,7 +6483,7 @@ async function tryGroqFallback(args: {
     const rawU = String(args.userText || '').trim();
     const looksLikeNewSearch =
       /(ابحث|ادور|دور|وريد|ابغي|ابي|اريد|عايز|شوف|وين)\s*(لي)?\s*(عل)?\s*صالون/i.test(rawU) ||
-      /\bصالون\b/.test(rawU);
+      /صالون/.test(rawU);
     const isGenericChat =
       /^\s*(سلام|هلا|اهلا|شلون|صباح|مساء|السلام|هذة|شخبار|شلونكم|اوكي|حسنا|تمام|uhok|هاي|يا\s*للاه)\s*$/i.test(rawU) ||
       rawU.length < 4;
@@ -6730,6 +6730,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
     // True when the model actually invoked a salon-search/tool successfully,
     // so the server-side orchestration never second-guesses a real search.
     let modelCalledSearch = false;
+    // True when create_booking actually succeeded this turn, so we can clear the
+    // completed booking's service/date/time and not keep re-confirming an old
+    // booking when the user later says "أريد حجز جديد".
+    let bookingCompletedOnThisTurn = false;
 
     const resolvedState: any = {
       ...(conversationState &&
@@ -6782,6 +6786,37 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       resolvedState.time = null;
     }
 
+    // =====================================================================
+    // CENTRAL CHANGE-SALON DETECTOR + STATE RESET
+    // ---------------------------------------------------------------------
+    // Recognizes when the user wants to switch to a DIFFERENT salon
+    // ("غير صالون", "صالون ثاني/آخر", "مو هذا", "لا أريد صالون ثاني",
+    //  "بدل صالون", ...) and clears the stale selected salon + its dependent
+    // booking fields so the AI no longer clings to the old salon/service.
+    // Without this, search returns nothing, the stale salon survives in
+    // resolvedState, and the LAST-RESORT keeps replying about the old salon.
+    // =====================================================================
+    const isChangeSalonRequest = (t: string) =>
+      /غير\s*(الصالون|صالون|سالون|هداك|هذا|هذاك|ذي)/i.test(t) ||
+      /صالون\s*(ثاني|ثانية|تاني|آخر|اخر|ابدي|بديل)/i.test(t) ||
+      /(ثاني|ثانية|تاني|آخر|اخر|ابدي)\s*صالون/i.test(t) ||
+      /(بدل|بدّل|غيّر|غير|تبديل|تغيير|تغيّر)\s*صالون/i.test(t) ||
+      /مو\s*(هذا|هذاك|ذاك|هاي|ذي)\s*(الصالون|صالون)/i.test(t) ||
+      /(هذا|هذاك|هاي|ذا)\s*مو\s*الصالون/i.test(t) ||
+      /لا[,،\s]+(اريد|أريد|ابي|ابغي|ابيي|وريد)[,،\s]+(غير|صالون\s*(ثاني|تاني|آخر|اخر))/i.test(t) ||
+      /(اريد|أريد|ابي|ابغي|وريد)\s*غير\s*(الصالون|صالون)/i.test(t);
+    const changeSalonRequested = Boolean(userText && isChangeSalonRequest(userText));
+    if (changeSalonRequested) {
+      resolvedState.salonId = null;
+      resolvedState.salonName = null;
+      resolvedState.serviceId = null;
+      resolvedState.serviceName = null;
+      resolvedState.date = null;
+      resolvedState.time = null;
+      resolvedState.pendingQuestion = null;
+      resolvedState.lastResolvedContext = null;
+    }
+
     const structuredSchema = {
       type: 'object',
       properties: {
@@ -6830,7 +6865,19 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
 - لا تستدعِ create_booking إلا بعد تأكيد المستخدم الصريح (مثل: "نعم احجز"، "تمام احجز"، "موافق").
 - لا يعتبر قول المستخدم "أريد أن أحجز" تأكيداً كافياً. يجب أن يؤكد الصالون والخدمة والتاريخ والوقت محدداً.
 - لا تخترع مواعيد أو توفر. اعتمد فقط على نتائج get_availability.
-- إذا كان السياق يحتوي على صالون محدد (salonId موجود) والمستخدم يرسل كلمات تأكيد، لا تستدعِ search_salons. احتفظ بالصالون النشط واسأل فقط عن البيانات الناقصة.`;
+- إذا كان السياق يحتوي على صالون محدد (salonId موجود) والمستخدم يرسل كلمات تأكيد، لا تستدعِ search_salons. احتفظ بالصالون النشط واسأل فقط عن البيانات الناقصة.
+
+حالة السياق الحالية المعتمدة من الخادم (هذه هي الحقيقة الوحيدة الموثوقة عن الصالون/الخدمة المختارة، ويجب أن تتجاوز أي ذكر قديم في سجل المحادثة): ${
+        resolvedState.salonId ? 'الصالون المختار: ' + (resolvedState.salonName || resolvedState.salonId) + '. ' : 'لا يوجد صالون مختار حالياً. '
+      }${
+        resolvedState.serviceName ? 'الخدمة: ' + resolvedState.serviceName + '. ' : ''
+      }${
+        resolvedState.date ? 'التاريخ: ' + resolvedState.date + '. ' : ''
+      }${
+        resolvedState.time ? 'الوقت: ' + resolvedState.time + '. ' : ''
+      }${
+        changeSalonRequested ? 'الملاحظة الحاسمة: المستخدم هذه الجولة يطلب صالوناً مختلفاً (تغيير الصالون). تجاهل أي صالون/حجز سابق، وابحث عن صالون جديد أو اسأل المستخدم عن اسم الصالون الذي يريده. لا تستمر بأي حجز قديم. ' : ''
+      }`;
 
     if (apiKey && typeof apiKey === 'string' && apiKey.length > 10 && !apiKey.includes('REDACTED') && !apiKey.includes('example')) {
       try {
@@ -6996,8 +7043,14 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               console.log('[AI DEBUG] TOOL ARGS:', JSON.stringify(args, null, 2));
 
               const hasConfirmation = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز|اي احجز|إي احجز)/iu.test(userText.trim());
-              const negativeNearBooking = /\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) || /\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
-              const explicitBookingConfirm = hasConfirmation && !negativeNearBooking;
+              // Arabic has no \w, so \b is unreliable for Arabic tokens. Use
+              // non-letter boundaries so negation (ما/لا) is detected reliably
+              // and doesn't swallow words like "غيره"/"مش".
+              const AR_END = '(?![A-Za-z0-9\\u0600-\\u06FF])';
+              const AR_START = '(?<![A-Za-z0-9\\u0600-\\u06FF])';
+              const negRe = new RegExp(`${AR_START}(ما|لا)${AR_END}`, 'iu');
+              const negNearBooking = negRe.test(userText.trim()) && /(?:احجز|نعم|اي|تمام|موافق)/iu.test(userText.trim());
+              const explicitBookingConfirm = hasConfirmation && !negNearBooking;
 
               const previousState = resolvedState || {};
 
@@ -7105,6 +7158,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
                 '[AI DEBUG] TOOL RESULT:',
                 JSON.stringify(res, null, 2).slice(0, 20000)
               );
+
+              if (name === 'create_booking' && res?.success === true && res?.booking) {
+                bookingCompletedOnThisTurn = true;
+              }
 
               // Preserve authoritative IDs/details returned by Halaqi tools.
               // Only update salon from get_salon (explicit user request), not from search_salons.
@@ -7382,7 +7439,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         extractBookingDetailsFromUserText(userText, resolvedState);
         if (process.env.GROQ_API_KEY) {
           console.log('[AI Salon] GEMINI_PRIMARY failed. Activating GROQ_FALLBACK. Reason:', gemErr?.message || gemErr);
-          const groqConfirm = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز)/iu.test(userText.trim()) && !/\b(ما|لا)\b.*?\b(احجز|نعم|اي|تمام)/iu.test(userText.trim()) && !/\b(احجز|نعم|اي|تمام).*?\b(ما|لا)\b/iu.test(userText.trim());
+          const grkEnd = '(?![A-Za-z0-9\\u0600-\\u06FF])';
+          const grkStart = '(?<![A-Za-z0-9\\u0600-\\u06FF])';
+          const grkNeg = new RegExp(`${grkStart}(ما|لا)${grkEnd}`, 'iu');
+          const groqConfirm = /(?:اي|إي|نعم|ايوه|أيوه|تمام|موافق|احجز|احجزلي|احجز لي|توكل|توكلنا|يلا احجز)/iu.test(userText.trim()) && !(grkNeg.test(userText.trim()) && /(?:احجز|نعم|اي|تمام|موافق)/iu.test(userText.trim()));
           const groqRes = await tryGroqFallback({ userText, systemInstruction, dbModule, cards, user: req.user, conversationState: resolvedState, conversationHistory: history, explicitBookingConfirm: groqConfirm });
           reply = groqRes.reply;
           if (groqRes.cards && groqRes.cards.length > 0) cards = groqRes.cards;
@@ -7443,7 +7503,10 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       // service requests, or inline booking details.
       {
         const searchTerm = String(userText || '').trim();
-        const isBookingConfirm = /\b(نعم|اي|ايوه|اي|إي|تمام|موافق|احجز|احجزلي|لا|مش|مابي|الغاء|يلغي)\b/i.test(searchTerm);
+        // Arabic has no \w so \b is unreliable for Arabic tokens. We frame each
+        // confirm/cancel token with non-letter boundaries instead. This ensures
+        // "نعم"/"لا" are detected reliably while "غيره"/"مش" style words still match.
+        const isBookingConfirm = /(?<![A-Za-z0-9\u0600-\u06FF])(?:نعم|اي|ايوه|إي|تمام|موافق|احجز|احجزلي|لا|مش|مابي|الغاء|يلغي)(?![A-Za-z0-9\u0600-\u06FF])/i.test(searchTerm);
         const hasInlineBookingDetail =
           /\d{1,2}[\/\-]\d{1,2}/.test(searchTerm) ||
           /\d{1,2}:\d{2}/.test(searchTerm) ||
@@ -7463,7 +7526,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
         if (
           userText &&
           !modelCalledSearch &&
-          !isBookingConfirm &&
+          (changeSalonRequested || !isBookingConfirm) &&
           !hasInlineBookingDetail &&
           !isGreeting &&
           isSalonLookup
@@ -7477,7 +7540,7 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
               // when the user is actively asking for a (possibly different) salon,
               // so we must let it search regardless of any previously selected salon
               // that may have leaked in from persisted state.
-              conversationState: { ...resolvedState, salonId: null },
+              conversationState: { ...resolvedState, salonId: null, pendingQuestion: null },
             });
             if (sr && sr.salons && sr.salons.length > 0) {
               cards = sr.salons.map((c: any) => ({
@@ -7564,7 +7627,11 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
       // primary and fallback models both failed, give a helpful, honest reply
       // grounded in the resolved state instead of an error string.
       if (!reply || /\bحدث خطأ\b|الاستجابة البديلة|Failed|temporary error/i.test(reply)) {
-        if (resolvedState.salonId) {
+        if (changeSalonRequested) {
+          // The user asked for a different salon but we couldn't resolve a new one
+          // yet — guide them instead of resurrecting the stale salon.
+          reply = 'تمام، خل نغير الصالون! أي صالون تريد بدل عنه؟ اكتب اسم الصالون أو مدينته.';
+        } else if (resolvedState.salonId) {
           const hasBooking = resolvedState.serviceName && resolvedState.date && resolvedState.time;
           reply = hasBooking
             ? `تمام، ملخص الحجز الحالي:\n- الصالون: ${resolvedState.salonName || resolvedState.salonId}\n- الخدمة: ${resolvedState.serviceName}\n- التاريخ: ${resolvedState.date}\n- الوقت: ${resolvedState.time}\n\nهل تريد تأكيد الحجز؟`
@@ -7573,6 +7640,17 @@ app.post('/api/ai-salon', optionalAuthMiddleware, async (req: AuthenticatedReque
           reply = 'هلا بيك! أستطيع أن أبحث لك عن صالون. اكتب اسم أو مدينة الصالون، أو اطلب "خدمات" أو "حجز".';
         }
       }
+    }
+
+    // Post-loop lifecycle cleanup: after a booking actually succeeded this turn,
+    // clear the completed booking's service/date/time so the user can start a new
+    // booking without the stale data being treated as an in-progress booking.
+    if (bookingCompletedOnThisTurn) {
+      resolvedState.serviceId = null;
+      resolvedState.serviceName = null;
+      resolvedState.date = null;
+      resolvedState.time = null;
+      resolvedState.pendingQuestion = null;
     }
 
     // Persist authoritative conversation state to DB so it survives across turns.

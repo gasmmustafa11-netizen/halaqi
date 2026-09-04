@@ -10,6 +10,10 @@ export default function SalonAIChat({ onBack }: { onBack: () => void }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [regionAsk, setRegionAsk] = useState(false);
+  // Mirror the conversation state the server returns so multi-turn context
+  // (selected salon/service/date/time) survives across messages — same as
+  // YourSalonView. Without this the server gets no state in follow-up turns.
+  const [conversationState, setConversationState] = useState<Record<string, any>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
@@ -21,12 +25,37 @@ export default function SalonAIChat({ onBack }: { onBack: () => void }) {
     setInput('');
     setLoading(true);
     try {
+      const history = [
+        ...messages.map((m) => ({ role: m.role, text: m.text })),
+        { role: 'user', text: userMsg },
+      ].slice(-12);
       const res = await fetch('/api/ai-salon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, regionConsent: true })
+        body: JSON.stringify({ message: userMsg, regionConsent: true, conversationHistory: history, conversationState })
       });
       const data = await res.json();
+      if (data?.conversationState) {
+        setConversationState((prev) => {
+          const incoming = data.conversationState;
+          const incomingSalonId = incoming.salonId !== undefined ? String(incoming.salonId || '').trim() || undefined : prev.salonId;
+          const prevSalonId = prev.salonId ? String(prev.salonId).trim() : '';
+          if (incomingSalonId && prevSalonId && incomingSalonId !== prevSalonId) {
+            return {
+              ...prev,
+              ...Object.fromEntries(Object.entries(incoming).filter(([, v]) => v !== null && v !== '')),
+              serviceId: incoming.serviceId !== undefined ? incoming.serviceId : undefined,
+              serviceName: incoming.serviceName !== undefined ? incoming.serviceName : undefined,
+              date: incoming.date !== undefined ? incoming.date : undefined,
+              time: incoming.time !== undefined ? incoming.time : undefined,
+            };
+          }
+          return {
+            ...prev,
+            ...Object.fromEntries(Object.entries(incoming).filter(([, v]) => v !== null && v !== '')),
+          };
+        });
+      }
       setMessages(prev => [...prev, { role: 'ai', text: data.reply || 'ما عندي نتائج حالياً، حاول مرة أخرى.', cards: data.cards || [] }]);
     } catch {
       setMessages(prev => [...prev, { role: 'ai', text: 'حدث خطأ في الاتصال. حاول لاحقاً.' }]);
