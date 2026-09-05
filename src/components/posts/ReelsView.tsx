@@ -256,7 +256,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const { user, openAuthModal } = useAuth();
 
   const [reels, setReels] = useState<Reel[]>([]);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, []);
   const [muted, setMuted] = useState(true);
 
   // Comments modal
@@ -538,7 +542,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
           </button>
         </div>
       ) : (
-        <div className="absolute inset-0 h-[100dvh] overflow-y-auto snap-y snap-mandatory">
+        <div ref={scrollContainerRef} className="absolute inset-0 h-[100dvh] overflow-y-auto snap-y snap-mandatory">
           {reels.map((reel) => (
             <ReelItem
               key={reel.id}

@@ -252,6 +252,9 @@ export const MessagesView: React.FC<{
   // messages is never interrupted by polling. Scrolling is contained to this
   // element (never the page) by setting scrollTop directly.
   const threadScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (threadScrollRef.current) threadScrollRef.current.scrollTop = 0;
+  }, []);
   const nearBottomRef = useRef(true);
   // Scroll anchor used to preserve the visible position when older messages are
   // prepended (loading history). Saved right before the state update and

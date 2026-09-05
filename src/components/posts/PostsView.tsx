@@ -58,6 +58,10 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // Reset scroll container to top when this view is mounted
+  useEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, []);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const pullStartY = useRef<number | null>(null);
   const pullOffset = useRef<number>(0);

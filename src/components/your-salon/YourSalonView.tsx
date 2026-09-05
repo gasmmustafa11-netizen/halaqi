@@ -11,6 +11,9 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
   ]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, []);
 
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<{
