@@ -1,4 +1,5 @@
 import "leaflet/dist/leaflet.css";
+import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import React, { useState, useEffect, useRef } from 'react';
 import { Salon } from '../../types';
@@ -404,17 +405,30 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
               </Marker>
             )}
 
-            {salons.map((salon) => (
-              <Marker
-                key={salon.id}
-                position={[salon.lat, salon.lng]}
-                eventHandlers={{
-                  click: () => setActiveSalon(salon),
-                }}
-              >
-                <Popup>{salon.name}</Popup>
-              </Marker>
-            ))}
+            {salons.map((salon) => {
+              const hasCover = salon.coverImage && typeof salon.coverImage === 'string' && salon.coverImage.trim().length > 0;
+              const customIcon = hasCover
+                ? L.divIcon({
+                    html: `<img src="${salon.coverImage}" style="width:48px;height:48px;border-radius:50%;border:3px solid #D4AF37;object-fit:cover;display:block;" alt="" />`,
+                    className: 'bg-transparent shadow-none',
+                    iconSize: [48, 48],
+                    iconAnchor: [24, 24],
+                    popupAnchor: [0, -24],
+                  })
+                : undefined;
+              return (
+                <Marker
+                  key={salon.id}
+                  position={[salon.lat, salon.lng]}
+                  icon={customIcon}
+                  eventHandlers={{
+                    click: () => setActiveSalon(salon),
+                  }}
+                >
+                  <Popup>{salon.name}</Popup>
+                </Marker>
+              );
+            })}
           </MapContainer>
         </div>
       {/* Selected Salon Info Card Drawer */}
