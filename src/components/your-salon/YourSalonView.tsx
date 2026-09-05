@@ -12,7 +12,11 @@ export default function YourSalonView({ onBack, onSelectSalonId }: { onBack: () 
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const handleReset = () => {
+      if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    };
+    window.addEventListener('halaqi-scroll-reset', handleReset);
+    return () => window.removeEventListener('halaqi-scroll-reset', handleReset);
   }, []);
 
   const [selectedSalonId, setSelectedSalonId] = useState<string | null>(null);

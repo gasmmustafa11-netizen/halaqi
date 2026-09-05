@@ -156,6 +156,7 @@ function AppContent() {
   // Reset scroll instantly after view changes and renders.
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
+    window.dispatchEvent(new CustomEvent('halaqi-scroll-reset', { detail: currentView }));
   }, [currentView]);
 
   const [allSalons, setAllSalons] = useState<Salon[]>([]);

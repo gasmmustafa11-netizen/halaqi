@@ -60,7 +60,11 @@ export const PostsView: React.FC<PostsViewProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // Reset scroll container to top when this view is mounted
   useEffect(() => {
-    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    const handleReset = () => {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    };
+    window.addEventListener('halaqi-scroll-reset', handleReset);
+    return () => window.removeEventListener('halaqi-scroll-reset', handleReset);
   }, []);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const pullStartY = useRef<number | null>(null);

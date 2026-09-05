@@ -259,7 +259,11 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    const handleReset = () => {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    };
+    window.addEventListener('halaqi-scroll-reset', handleReset);
+    return () => window.removeEventListener('halaqi-scroll-reset', handleReset);
   }, []);
   const [muted, setMuted] = useState(true);
 

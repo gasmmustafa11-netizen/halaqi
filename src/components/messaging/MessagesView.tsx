@@ -253,7 +253,11 @@ export const MessagesView: React.FC<{
   // element (never the page) by setting scrollTop directly.
   const threadScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (threadScrollRef.current) threadScrollRef.current.scrollTop = 0;
+    const handleReset = () => {
+      if (threadScrollRef.current) threadScrollRef.current.scrollTop = 0;
+    };
+    window.addEventListener('halaqi-scroll-reset', handleReset);
+    return () => window.removeEventListener('halaqi-scroll-reset', handleReset);
   }, []);
   const nearBottomRef = useRef(true);
   // Scroll anchor used to preserve the visible position when older messages are
