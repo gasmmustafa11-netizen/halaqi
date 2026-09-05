@@ -276,7 +276,7 @@ function AppContent() {
   };
 
   return (
-    <div ref={swipeRootRef} className={`${currentView === 'your-salon' ? 'h-[100dvh] min-h-0' : 'min-h-screen'} bg-[#0A0A0A] text-white flex flex-col antialiased selection:bg-[#D4AF37] selection:text-black`}>
+    <div ref={swipeRootRef} className={`${currentView === 'your-salon' ? 'h-[100dvh] min-h-0' : 'min-h-screen'} bg-page text-primary flex flex-col antialiased selection:bg-[var(--gold)] selection:text-black`}>
       {/* Top Bento Navigation Header — hidden inside Posts so its fixed sub-tabs don't overlap */}
       {currentView !== 'posts' && currentView !== 'reels' && currentView !== 'photos' && currentView !== 'your-salon' && (
         <Navbar

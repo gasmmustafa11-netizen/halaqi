@@ -467,7 +467,7 @@ export const SalonDetailView: React.FC<SalonDetailViewProps> = ({ salon, onBack 
               {tab.count !== undefined && (
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                    isActive ? 'bg-black/20 text-black' : 'bg-white/10 text-slate-400'
+                    isActive ? 'bg-[var(--gold)] text-black' : 'bg-[var(--bg-card-strong)] text-subtle'
                   }`}
                 >
                   {tab.count}

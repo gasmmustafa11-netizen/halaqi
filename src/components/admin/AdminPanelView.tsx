@@ -961,7 +961,7 @@ export const AdminPanelView: React.FC<{ onNavigate?: (view: string) => void }> =
               {tab.count !== undefined && (
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
-                    isActive ? 'bg-black/20 text-black font-black' : 'bg-[#262626] text-gray-300'
+                    isActive ? 'bg-[var(--gold)] text-black font-black' : 'bg-[var(--bg-card-strong)] text-muted'
                   }`}
                 >
                   {tab.count}
