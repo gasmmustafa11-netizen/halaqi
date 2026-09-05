@@ -153,6 +153,11 @@ function AppContent() {
       el.removeEventListener('touchend', handleTouchEnd);
     };
   }, [currentView]);
+  // Reset scroll instantly after view changes and renders.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [currentView]);
+
   const [allSalons, setAllSalons] = useState<Salon[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -178,7 +183,6 @@ function AppContent() {
   const handleSelectSalon = (salon: Salon) => {
     setSelectedSalon(salon);
     setCurrentView('salon_detail');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSelectSalonById = async (salonId: string) => {
@@ -222,7 +226,6 @@ function AppContent() {
       if (postId) {
         setSelectedPostId(postId);
         setCurrentView('posts');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
     }
@@ -248,7 +251,6 @@ function AppContent() {
         prevProfileViewRef.current = currentView;
         setSelectedUserId(userId);
         setCurrentView('user_profile');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
     }
@@ -261,7 +263,6 @@ function AppContent() {
       if (uid) {
         setSelectedMessageUserId(uid);
         setCurrentView('messages');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
     }
@@ -272,7 +273,6 @@ function AppContent() {
     }
 
     setCurrentView(view);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
