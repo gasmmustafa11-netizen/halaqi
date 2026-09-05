@@ -87,6 +87,7 @@ export interface Salon {
   commissionRate?: number; // e.g. 10 (%)
   ownerId: string;
   createdAt: string;
+  lastCoverUpdate?: string;
 }
 
 export interface Barber {

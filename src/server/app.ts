@@ -907,6 +907,120 @@ app.get('/api/salons/:id', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
+app.put('/api/salons/:id/cover-image', requireAuth, requireSalonOwnerOrAdmin, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const salonId = req.params.id;
+      const ownerId = req.user!.id;
+      const role = req.user!.role;
+
+      // 1. Get salon data (already verified by requireSalonOwnerOrAdmin).
+      const salon = await db.getSalonByIdFromNeon(salonId);
+      if (!salon) {
+        return res.status(404).json({ success: false, error: 'الصالون غير موجود.' });
+      }
+
+      // 2. Check 30-day limit (atomic, server-side).
+      const now = Date.now();
+      const lastCoverUpdate = salon.lastCoverUpdate ? new Date(salon.lastCoverUpdate).getTime() : 0;
+      const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+      const timeSinceLastUpdate = Math.floor((now - lastCoverUpdate) / 1000);
+
+      if (timeSinceLastUpdate < thirtyDaysInSeconds) {
+        const nextAllowed = new Date(lastCoverUpdate + thirtyDaysInSeconds * 1000);
+        return res.status(403).json({
+          success: false,
+          error: `يجب الانتظار 30 يوماً بين تغييرات صورة الغلاف. الموعد التالي المسموح: ${nextAllowed.toLocaleString('ar-IQ')}`,
+          nextAllowedAt: nextAllowed.toISOString(),
+        });
+      }
+
+      // 3. Validate and parse image from request body.
+      const { dataUrl } = req.body || {};
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        return res.status(400).json({ success: false, error: 'الصورة مطلوبة.' });
+      }
+
+      const match = dataUrl.match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/);
+      if (!match) {
+        return res.status(400).json({ success: false, error: 'صيغة الصورة غير مدعومة.' });
+      }
+
+      const extension = match[1] === 'jpeg' || match[1] === 'jpg' ? 'jpg' : match[1];
+      const contentType = extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
+
+      // Server-side size check.
+      const approxBytes = Math.floor((match[2].length * 3) / 4);
+      if (approxBytes > 25 * 1024 * 1024) {
+        return res.status(413).json({ success: false, error: 'حجم الصورة كبير جداً. الحد الأقصى 25 ميجابايت.' });
+      }
+
+      const fileBuffer = Buffer.from(match[2], 'base64');
+
+      // 4. Upload to salon_covers/ folder (server-determined path).
+      const supabaseAdmin = getSupabaseStorageClient();
+      const bucketName = 'avatars';
+      const filePath = `salon_covers/${salonId}_${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(bucketName)
+        .upload(filePath, fileBuffer, {
+          contentType,
+          upsert: true,
+          cacheControl: '31536000',
+        });
+
+      if (uploadError) {
+        console.error('[Cover Image Upload] Supabase upload failed:', uploadError);
+        return res.status(500).json({ success: false, error: 'تعذر رفع صورة الغلاف.' });
+      }
+
+      const { data: publicData } = supabaseAdmin.storage
+        .from(bucketName)
+        .getPublicUrl(filePath);
+
+      const imageUrl = publicData.publicUrl;
+
+      // 5. Update DB atomically (cover_image + last_cover_update = NOW()).
+      const updated = await db.updateSalonCoverInNeon(salonId, imageUrl);
+      if (!updated) {
+        // DB failed — clean up the uploaded file silently.
+        try {
+          await supabaseAdmin.storage.from(bucketName).remove([filePath]);
+        } catch (_) {
+          // Ignore cleanup failure.
+        }
+        return res.status(500).json({ success: false, error: 'تعذر تحديث بيانات الصالون.' });
+      }
+
+      // 6. Delete old cover image IF it is a system-owned Storage URL.
+      const oldCoverImage = salon.coverImage;
+      const storageBase = `${process.env.SUPABASE_URL || ''}/storage/v1/object/public/${bucketName}/`;
+      if (oldCoverImage && oldCoverImage.startsWith(storageBase)) {
+        try {
+          const oldPath = oldCoverImage.replace(storageBase, '');
+          if (oldPath !== filePath) {
+            await supabaseAdmin.storage.from(bucketName).remove([oldPath]);
+          }
+        } catch (_) {
+          // Delete failure after successful DB update — do NOT fail the operation.
+        }
+      }
+
+      // 7. Return success with new cover info.
+      const nextAllowedAt = new Date(Date.now() + thirtyDaysInSeconds * 1000);
+      return res.json({
+        success: true,
+        salon: updated,
+        coverImage: imageUrl,
+        lastCoverUpdate: updated.lastCoverUpdate,
+        nextAllowedAt: nextAllowedAt.toISOString(),
+      });
+    } catch (error) {
+      console.error('[SALON COVER IMAGE]', error);
+      return res.status(500).json({ success: false, error: 'تعذر تغيير صورة الغلاف.' });
+    }
+  });
+
 app.post('/api/salons', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const data = req.body;
   const ip = req.ip || '127.0.0.1';

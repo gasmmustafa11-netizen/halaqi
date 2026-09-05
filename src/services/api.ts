@@ -1060,6 +1060,29 @@ export const api = {
     }
   },
 
+  async updateSalonCover(salonId: string, dataUrl: string): Promise<{ success: boolean; salon?: Salon; coverImage?: string; lastCoverUpdate?: string; nextAllowedAt?: string; error?: string } | null> {
+    try {
+      const res = await fetchWithAuth(`/api/salons/${salonId}/cover-image`, {
+        method: 'PUT',
+        body: JSON.stringify({ dataUrl }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        return {
+          success: true,
+          salon: data.salon,
+          coverImage: data.coverImage,
+          lastCoverUpdate: data.lastCoverUpdate,
+          nextAllowedAt: data.nextAllowedAt,
+        };
+      }
+      return { success: false, error: data.error };
+    } catch (err) {
+      console.error('API Error [updateSalonCover]:', err);
+      return null;
+    }
+  },
+
   async registerSalon(salonData: Partial<Salon>): Promise<{ success: boolean; salon?: Salon; error?: string }> {
     try {
       console.log('[SALON AUTH CHECK]', {

@@ -60,6 +60,59 @@ export const SalonDashboardView: React.FC = () => {
   const [isPublishingPost, setIsPublishingPost] = useState<boolean>(false);
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
 
+  // Cover Image Change State
+  const [isCoverChanging, setIsCoverChanging] = useState<boolean>(false);
+  const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
+  const [coverUploadSuccess, setCoverUploadSuccess] = useState<boolean>(false);
+  const [coverNextAllowedAt, setCoverNextAllowedAt] = useState<string | null>(null);
+
+  const handleCoverChange = async () => {
+    try {
+      setIsCoverChanging(true);
+      setCoverUploadError(null);
+      setCoverUploadSuccess(false);
+      setCoverNextAllowedAt(null);
+
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 90,
+        allowEditing: true,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Photos,
+      });
+
+      if (!photo.dataUrl) {
+        setCoverUploadError('لم يتم اختيار صورة.');
+        setIsCoverChanging(false);
+        return;
+      }
+
+      const result = await api.updateSalonCover(salon!.id, photo.dataUrl);
+      if (!result) {
+        setCoverUploadError('حدث خطأ في الاتصال.');
+        setIsCoverChanging(false);
+        return;
+      }
+
+      if (!result.success) {
+        setCoverUploadError(result.error || 'فشل تغيير صورة الغلاف.');
+        setIsCoverChanging(false);
+        return;
+      }
+
+      setSalon(result.salon || null);
+      setCoverUploadSuccess(true);
+      if (result.nextAllowedAt) {
+        setCoverNextAllowedAt(result.nextAllowedAt);
+      }
+      notify('تم تغيير صورة الغلاف بنجاح.', 'success');
+    } catch (err) {
+      console.error('[Cover Change Error]:', err);
+      setCoverUploadError('تعذر تغيير صورة الغلاف.');
+    } finally {
+      setIsCoverChanging(false);
+    }
+  };
+
   // New Staff Modal
   const [isStaffModalOpen, setIsStaffModalOpen] = useState<boolean>(false);
   const [editingStaff, setEditingStaff] = useState<Partial<Barber> | null>(null);
@@ -398,18 +451,54 @@ export const SalonDashboardView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setEditingService({});
-              setIsServiceModalOpen(true);
-            }}
-            className="px-4 py-2.5 rounded-xl bg-[#d4af37] hover:brightness-110 text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-[#d4af37]/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة خدمة جديدة</span>
-          </button>
-        </div>
+            {salon?.ownerId === user?.id && (
+              <>
+                <button
+                  onClick={handleCoverChange}
+                  disabled={isCoverChanging}
+                  className={`px-4 py-2.5 rounded-xl text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md ${
+                    isCoverChanging
+                      ? 'bg-slate-500 cursor-not-allowed'
+                      : 'bg-[#d4af37] hover:brightness-110'
+                  }`}
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>{isCoverChanging ? 'جاري الرفع...' : 'تغيير صورة الغلاف'}</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                setEditingService({});
+                setIsServiceModalOpen(true);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-[#d4af37] hover:brightness-110 text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-[#d4af37]/20"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة خدمة جديدة</span>
+            </button>
+          </div>
       </div>
+
+      {/* Cover Upload Status Feedback */}
+      {coverUploadError && (
+        <div className="p-4 rounded-xl bg-red-900/30 border border-red-500/50 text-red-300 text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{coverUploadError}</span>
+        </div>
+      )}
+      {coverUploadSuccess && (
+        <div className="p-4 rounded-xl bg-emerald-900/30 border border-emerald-500/50 text-emerald-300 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>تم تغيير صورة الغلاف بنجاح! ستظهر الصورة الجديدة فوراً.</span>
+        </div>
+      )}
+      {coverNextAllowedAt && (
+        <div className="p-4 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-sm flex items-center gap-2">
+          <Clock className="w-4 h-4 shrink-0" />
+          <span>موعد السماح بتغيير صورة الغلاف التالي: {new Date(coverNextAllowedAt).toLocaleString('ar-IQ')}</span>
+        </div>
+      )}
 
       {/* Overview Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

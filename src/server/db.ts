@@ -1561,6 +1561,9 @@ class DatabaseStore {
     this.ensureModerationTables().catch((e) =>
       console.error('[MODERATION INIT]', e)
     );
+    this.ensureSalonCoverUpdateColumn().catch((e) =>
+      console.error('[SALON COVER INIT]', e)
+    );
   }
 
   // Neon salon operations
@@ -1602,6 +1605,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     }));
   }
 
@@ -1829,6 +1833,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     };
   }
 
@@ -1867,6 +1872,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     }));
   }
 
@@ -1911,6 +1917,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     };
   }
 
@@ -1955,6 +1962,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     };
   }
 
@@ -2050,6 +2058,7 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     };
   }
 
@@ -2096,6 +2105,49 @@ class DatabaseStore {
       workingHours: s.working_hours || defaultWorkingHours,
       features: s.features || [],
       createdAt: new Date(s.created_at).toISOString(),
+    };
+  }
+
+  async updateSalonCoverInNeon(salonId: string, coverImageUrl: string): Promise<Salon | undefined> {
+    const rows = await sql`
+      UPDATE salons
+      SET cover_image = ${coverImageUrl},
+          last_cover_update = NOW()
+      WHERE id = ${salonId}
+      RETURNING *
+    `;
+
+    if (!rows.length) return undefined;
+
+    const s: any = rows[0];
+    return {
+      id: s.id,
+      name: s.name,
+      nameEn: s.name_en,
+      slug: s.slug,
+      type: s.type,
+      city: s.city,
+      area: s.area,
+      address: s.address,
+      lat: Number(s.lat),
+      lng: Number(s.lng),
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      description: s.description,
+      descriptionEn: s.description_en,
+      rating: Number(s.rating || 0),
+      reviewCount: Number(s.review_count || 0),
+      startingPrice: Number(s.starting_price || 0),
+      coverImage: s.cover_image,
+      gallery: s.gallery || [],
+      isVerified: s.is_verified ?? false,
+      isFeatured: s.is_featured ?? false,
+      status: s.status,
+      ownerId: s.owner_id,
+      workingHours: s.working_hours || defaultWorkingHours,
+      features: s.features || [],
+      createdAt: new Date(s.created_at).toISOString(),
+      lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
     };
   }
 
@@ -3182,6 +3234,15 @@ class DatabaseStore {
       lastReplyPreview: t.last_reply_preview ?? undefined,
       replyCount: t.reply_count ?? 0,
     };
+  }
+
+// Ensure salon cover update column exists (additive, safe migration).
+  private async ensureSalonCoverUpdateColumn(): Promise<void> {
+    try {
+      await sql`ALTER TABLE salons ADD COLUMN IF NOT EXISTS last_cover_update TIMESTAMPTZ NULL`;
+    } catch (err) {
+      console.error('[SALON COVER UPDATE COLUMN]', err);
+    }
   }
 
   // ---- Push notification delivery hook ----
@@ -8219,6 +8280,7 @@ export async function loadAllFromNeon(): Promise<void> {
         workingHours: s.working_hours || defaultWorkingHours,
         features: s.features || [],
         createdAt: new Date(s.created_at).toISOString(),
+        lastCoverUpdate: s.last_cover_update ? new Date(s.last_cover_update).toISOString() : undefined,
       }));
     }
 
