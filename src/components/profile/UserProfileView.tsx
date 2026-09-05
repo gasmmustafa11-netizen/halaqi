@@ -514,7 +514,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
 
   return (
     <div
-      className="min-h-screen bg-[#08090B] text-white pb-20"
+      className="min-h-screen w-full max-w-full overflow-hidden bg-[#08090B] text-white pb-20"
       dir="rtl"
     >
       <div className="relative">
@@ -860,7 +860,7 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
           >
             <div
               dir={language === 'ar' ? 'rtl' : 'ltr'}
-              className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[30px] border border-white/10 bg-[#0D0F14] shadow-[0_30px_100px_rgba(0,0,0,0.7)]"
+              className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-[30px] border border-white/10 bg-[#0D0F14] shadow-[0_30px_100px_rgba(0,0,0,0.7)]"
             >
               <div className="absolute -top-24 -right-24 h-56 w-56 rounded-full bg-[#D4AF37]/10 blur-3xl pointer-events-none" />
               <div className="absolute -bottom-32 -left-24 h-64 w-64 rounded-full bg-violet-500/[0.06] blur-3xl pointer-events-none" />
