@@ -409,10 +409,10 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
               const hasCover = salon.coverImage && typeof salon.coverImage === 'string' && salon.coverImage.trim().length > 0;
               const customIcon = hasCover
                 ? L.divIcon({
-                    html: `<img src="${salon.coverImage}" style="width:48px;height:48px;border-radius:50%;border:3px solid #D4AF37;object-fit:cover;display:block;" alt="" />`,
+                    html: `<img src="${salon.coverImage}" style="width:36px;height:36px;border-radius:50%;border:2px solid #D4AF37;object-fit:cover;display:block;" alt="" />`,
                     className: 'bg-transparent shadow-none',
-                    iconSize: [48, 48],
-                    iconAnchor: [24, 24],
+                    iconSize: [36, 36],
+                    iconAnchor: [18, 18],
                     popupAnchor: [0, -24],
                   })
                 : undefined;
