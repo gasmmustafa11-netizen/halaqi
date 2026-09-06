@@ -3,8 +3,8 @@
   align-items: center;
   justify-content: center;
   position: relative;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background-color: transparent;
   color: #333;
@@ -23,4 +23,5 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   width: 100%;
   text-align: center;
+  color: #007bff;
 }
