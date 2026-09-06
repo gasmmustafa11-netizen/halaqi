@@ -184,45 +184,44 @@ const ReelItem: React.FC<{
         {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
       </button>
 
-      {/* Right action rail: Like + Comment */}
-      <div className="absolute bottom-[calc(64px+env(safe-area-inset-bottom))] right-3 z-50 flex flex-col items-center gap-6 md:bottom-28 md:z-30">
-        <button
-          type="button"
-          onClick={handleLike}
-          disabled={liking}
-          className="flex flex-col items-center gap-1"
+      {/* Like — lowest, closest to Bottom Nav */}
+      <button
+        type="button"
+        onClick={handleLike}
+        disabled={liking}
+        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+0rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-28 md:z-30"
+      >
+        <span
+          className={`flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 backdrop-blur-xl ${
+            liked ? 'text-rose-500' : 'text-white'
+          }`}
         >
-          <span
-            className={`flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 backdrop-blur-xl ${
-              liked ? 'text-rose-500' : 'text-white'
-            }`}
-          >
-            <Heart className={`h-6 w-6 ${liked ? 'fill-rose-500' : ''}`} />
-          </span>
-          <span className="text-xs font-bold text-white drop-shadow">
-            {likeCount > 0 ? likeCount : ''}
-          </span>
-        </button>
+          <Heart className={`h-6 w-6 ${liked ? 'fill-rose-500' : ''}`} />
+        </span>
+        <span className="text-xs font-bold text-white drop-shadow">
+          {likeCount > 0 ? likeCount : ''}
+        </span>
+      </button>
 
-        <button
-          type="button"
-          onClick={() => onOpenComments(reel)}
-          className="flex flex-col items-center gap-1"
-        >
-          <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
-            <MessageCircle className="h-6 w-6" />
-          </span>
-          <span className="text-xs font-bold text-white drop-shadow">
-            {reel.commentCount > 0 ? reel.commentCount : ''}
-          </span>
-        </button>
-      </div>
+      {/* Comment — above Like */}
+      <button
+        type="button"
+        onClick={() => onOpenComments(reel)}
+        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+4rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-[9.5rem] md:z-30"
+      >
+        <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
+          <MessageCircle className="h-6 w-6" />
+        </span>
+        <span className="text-xs font-bold text-white drop-shadow">
+          {reel.commentCount > 0 ? reel.commentCount : ''}
+        </span>
+      </button>
 
       {/* Author + caption (bottom-left, safe-area aware, clickable → profile) */}
       <button
         type="button"
         onClick={() => onNavigate(`user:${reel.userId}`)}
-        className="absolute inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-50 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left md:bottom-[5.5rem] md:z-30"
+        className="absolute inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom)+8.5rem)] z-50 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left md:bottom-[5.5rem] md:z-30"
       >
         <div className="flex items-center gap-2">
           {reel.userAvatar ? (
