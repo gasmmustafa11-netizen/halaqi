@@ -24,4 +24,8 @@
   width: 100%;
   text-align: center;
   color: #007bff;
+  position: relative;
+  z-index: 2;
+  font-size: 9px;
+  line-height: 1;
 }
