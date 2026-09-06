@@ -4,53 +4,20 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  clip-path: polygon(
-    50% 0%,
-    62% 12%,
-    75% 25%,
-    85% 42%,
-    94% 58%,
-    98% 72%,
-    100% 85%,
-    98% 95%,
-    85% 100%,
-    72% 100%,
-    58% 100%,
-    50% 98%,
-    42% 100%,
-    28% 100%,
-    15% 95%,
-    2% 85%,
-    2% 72%,
-    5% 58%,
-    15% 42%,
-    28% 25%,
-    42% 12%
-  );
-  -webkit-clip-path: polygon(
-    50% 0%,
-    62% 12%,
-    75% 25%,
-    85% 42%,
-    94% 58%,
-    98% 72%,
-    100% 85%,
-    98% 95%,
-    85% 100%,
-    72% 100%,
-    58% 100%,
-    50% 98%,
-    42% 100%,
-    28% 100%,
-    15% 95%,
-    2% 85%,
-    2% 72%,
-    5% 58%,
-    15% 42%,
-    28% 25%,
-    42% 12%
-  );
-  background-color: #D4AF37;
+  border-radius: 50%;
+  background-color: transparent;
+  background-image:
+    radial-gradient(circle at 50% 50%, #D4AF37 6.5px, transparent 6.5px),
+    radial-gradient(circle at 50% 3%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 75% 13%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 92% 37%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 92% 63%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 75% 87%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 50% 97%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 25% 87%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 8% 63%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 8% 37%, #D4AF37 3px, transparent 3px),
+    radial-gradient(circle at 25% 13%, #D4AF37 3px, transparent 3px);
   color: #333;
   font-size: 10px;
   line-height: 1;
