@@ -564,15 +564,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
 
       {/* Comments modal (in-app, no native dialogs) */}
       {commentsReel && (
-        <div className="fixed inset-0 z-[200] flex flex-col bg-[#0A0A0A]/95 backdrop-blur-2xl">
-          <div className="flex items-center justify-between border-b border-white/[0.10] p-4">
-            <span className="text-base font-bold text-white">
+        <div className="fixed inset-0 z-[200] flex flex-col bg-[var(--bg-glass)] backdrop-blur-2xl">
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-4">
+            <span className="text-base font-bold text-[var(--text-primary)]">
               {isRtl ? 'التعليقات' : 'Comments'}
             </span>
             <button
               type="button"
               onClick={() => setCommentsReel(null)}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-white"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)]"
             >
               <X className="h-5 w-5" />
             </button>
@@ -584,14 +584,14 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
                 <Loader2 className="h-5 w-5 animate-spin text-[#D4AF37]" />
               </div>
             ) : comments.length === 0 ? (
-              <p className="py-10 text-center text-sm text-slate-500">
+              <p className="py-10 text-center text-sm text-[var(--text-muted)]">
                 {isRtl ? 'لا توجد تعليقات بعد' : 'No comments yet'}
               </p>
             ) : (
               comments.map((c) => (
                 <div
                   key={c.id}
-                  className="rounded-2xl border border-white/[0.08] bg-white/[0.05] p-3"
+                  className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3"
                 >
                   <div className="mb-1 flex items-center gap-2">
                     {c.userAvatar ? (
@@ -605,15 +605,15 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
                         {(c.userName || 'U').charAt(0)}
                       </div>
                     )}
-                    <span className="text-sm font-bold text-white flex items-center gap-1">@{c.userName}{c.isVerified && <VerifiedBadge />}</span>
+                    <span className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-1">@{c.userName}{c.isVerified && <VerifiedBadge />}</span>
                   </div>
-                  <p className="text-sm leading-5 text-slate-200">{c.comment}</p>
+                  <p className="text-sm leading-5 text-[var(--text-secondary)]">{c.comment}</p>
                 </div>
               ))
             )}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-white/[0.10] p-3">
+          <div className="flex items-center gap-2 border-t border-[var(--border-subtle)] p-3">
             <input
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
@@ -621,7 +621,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
                 if (e.key === 'Enter') postComment();
               }}
               placeholder={isRtl ? 'أضف تعليقاً...' : 'Add a comment...'}
-              className="flex-1 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-500"
+              className="flex-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-2.5 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
             <button
               type="button"
