@@ -1,0 +1,22 @@
+name: OWASP ZAP Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: 'https://halaqi.vercel.app'
+          fail_action: false
+          allow_issue_writing: true
