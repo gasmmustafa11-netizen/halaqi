@@ -185,7 +185,7 @@ const ReelItem: React.FC<{
       </button>
 
       {/* Right action rail: Like + Comment */}
-      <div className="absolute bottom-28 right-3 z-20 flex flex-col items-center gap-6">
+      <div className="absolute bottom-[calc(64px+env(safe-area-inset-bottom))] right-3 z-50 flex flex-col items-center gap-6 md:bottom-28 md:z-30">
         <button
           type="button"
           onClick={handleLike}
@@ -222,7 +222,7 @@ const ReelItem: React.FC<{
       <button
         type="button"
         onClick={() => onNavigate(`user:${reel.userId}`)}
-        className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left"
+        className="absolute inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-50 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left md:bottom-[5.5rem] md:z-30"
       >
         <div className="flex items-center gap-2">
           {reel.userAvatar ? (
