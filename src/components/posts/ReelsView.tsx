@@ -184,12 +184,12 @@ const ReelItem: React.FC<{
         {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
       </button>
 
-      {/* Like — lowest, closest to Bottom Nav */}
+      {/* Like — أعلى عنصر (الأقرب لأعلى الشاشة من العناصر الثلاثة) */}
       <button
         type="button"
         onClick={handleLike}
         disabled={liking}
-        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+0rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-28 md:z-30"
+        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+10rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-[16rem] md:z-30"
       >
         <span
           className={`flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 backdrop-blur-xl ${
@@ -203,11 +203,11 @@ const ReelItem: React.FC<{
         </span>
       </button>
 
-      {/* Comment — above Like */}
+      {/* Comment — تحته مباشرة */}
       <button
         type="button"
         onClick={() => onOpenComments(reel)}
-        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+4rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-[9.5rem] md:z-30"
+        className="absolute bottom-[calc(64px+env(safe-area-inset-bottom)+5.5rem)] right-3 z-50 flex flex-col items-center gap-1 md:bottom-[12rem] md:z-30"
       >
         <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
           <MessageCircle className="h-6 w-6" />
@@ -217,11 +217,11 @@ const ReelItem: React.FC<{
         </span>
       </button>
 
-      {/* Author + caption (bottom-left, safe-area aware, clickable → profile) */}
+      {/* Author + caption — تحته مباشرة وفوق Bottom Navigation */}
       <button
         type="button"
         onClick={() => onNavigate(`user:${reel.userId}`)}
-        className="absolute inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom)+8.5rem)] z-50 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left md:bottom-[5.5rem] md:z-30"
+        className="absolute inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom)+0rem)] z-50 flex flex-col items-start gap-2 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] text-left md:bottom-[5.5rem] md:z-30"
       >
         <div className="flex items-center gap-2">
           {reel.userAvatar ? (
