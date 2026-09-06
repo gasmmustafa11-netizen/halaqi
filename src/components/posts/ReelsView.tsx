@@ -151,7 +151,7 @@ const ReelItem: React.FC<{
           className="absolute inset-0 z-10 flex items-center justify-center"
           aria-label={isRtl ? 'تشغيل' : 'Play'}
         >
-          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-xl">
+          <span className="overlay-text flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-xl">
             <Play className="h-7 w-7 translate-x-[1px]" />
           </span>
         </button>
@@ -198,9 +198,9 @@ const ReelItem: React.FC<{
         >
           <Heart className={`h-6 w-6 ${liked ? 'fill-rose-500' : ''}`} />
         </span>
-        <span className="text-xs font-bold text-white drop-shadow">
-          {likeCount > 0 ? likeCount : ''}
-        </span>
+        <span className="overlay-text text-xs font-bold text-white drop-shadow">
+            {likeCount > 0 ? likeCount : ''}
+          </span>
       </button>
 
       {/* Comment — تحته مباشرة */}
@@ -212,9 +212,9 @@ const ReelItem: React.FC<{
         <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur-xl">
           <MessageCircle className="h-6 w-6" />
         </span>
-        <span className="text-xs font-bold text-white drop-shadow">
-          {reel.commentCount > 0 ? reel.commentCount : ''}
-        </span>
+        <span className="overlay-text text-xs font-bold text-white drop-shadow">
+            {reel.commentCount > 0 ? reel.commentCount : ''}
+          </span>
       </button>
 
       {/* Author + caption — تحته مباشرة وفوق Bottom Navigation */}
@@ -235,13 +235,13 @@ const ReelItem: React.FC<{
               {(reel.userName || 'U').charAt(0)}
             </div>
           )}
-          <span className="text-sm font-bold text-white drop-shadow flex items-center gap-1">
+          <span className="overlay-text text-sm font-bold text-white drop-shadow flex items-center gap-1">
             @{reel.userName || 'مستخدم'}
             {reel.isVerified && <VerifiedBadge />}
           </span>
         </div>
         {reel.caption ? (
-          <p className="line-clamp-3 text-sm leading-5 text-slate-200 drop-shadow">
+          <p className="overlay-text line-clamp-3 text-sm leading-5 text-slate-200 drop-shadow">
             {reel.caption}
           </p>
         ) : null}
@@ -484,7 +484,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
           )}
           <div className="flex items-center gap-2">
             <Film className="h-5 w-5 text-[#D4AF37]" />
-            <span className="text-lg font-black text-white">
+            <span className="overlay-text text-lg font-black text-white">
               {isRtl ? 'ريلز' : 'Reels'}
             </span>
           </div>

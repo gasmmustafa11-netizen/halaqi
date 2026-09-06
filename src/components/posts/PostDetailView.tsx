@@ -183,7 +183,7 @@ export const PostDetailView: React.FC<PostDetailViewProps> = ({
 
             {/* Caption */}
             {post.caption && (
-              <p className="whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed text-gray-100">
+              <p className="overlay-text whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed text-gray-100">
                 {post.caption}
               </p>
             )}

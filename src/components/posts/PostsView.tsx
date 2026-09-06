@@ -1170,7 +1170,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-bold text-white flex items-center gap-1">
+                      <div className="truncate text-sm font-bold text-white overlay-text flex items-center gap-1">
                         {isUserPost
                           ? userPost?.userName || 'مستخدم'
                           : post.salonName}
@@ -1254,9 +1254,9 @@ export const PostsView: React.FC<PostsViewProps> = ({
 
                   <div className="absolute inset-x-0 bottom-[4.5rem] z-20 flex items-end bg-gradient-to-t from-black/60 via-black/5 to-transparent px-4 pb-4 pt-12">
                     {post.caption && (
-                      <div className="max-w-[85%]">
+                      <div                         className="max-w-[85%]">
                         <p
-                          className={`overflow-hidden whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)] transition-all duration-300 ${
+                          className={`overlay-text overflow-hidden whitespace-pre-wrap text-sm leading-6 text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)] transition-all duration-300 ${
                             expandedCaptions[post.id] ? '' : 'line-clamp-4'
                           }`}
                           dir="auto"
@@ -1521,7 +1521,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                       type="button"
                       onClick={() => handleLike(post)}
                       disabled={isLikeLoading}
-                      className={`flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90 ${isLiked ? 'text-red-400' : 'text-white'}`}
+                      className={`overlay-text flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90 ${isLiked ? 'text-red-400' : 'text-white'}`}
                       aria-label={isRtl ? 'إعجاب' : 'Like'}
                     >
                       <Heart className={`h-7 w-7 ${isLiked ? 'fill-current' : ''}`} />
@@ -1531,7 +1531,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleToggleComments(post)}
-                      className="flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90"
+                      className="overlay-text flex flex-col items-center gap-1 rounded-full bg-black/30 p-2 text-white backdrop-blur-xl transition active:scale-90"
                       aria-label={isRtl ? 'تعليقات' : 'Comments'}
                     >
                       {isCommentsLoading ? (

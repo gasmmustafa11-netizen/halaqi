@@ -105,11 +105,17 @@
     background-color: var(--bg-card) !important;
   }
 
-  body.light-mode .text-white,
-  body.light-mode .text-slate-100,
-  body.light-mode .text-slate-200,
-  body.light-mode .text-slate-300,
-  body.light-mode .text-gray-300 {
+  .overlay-text,
+  .overlay-text * {
+    color: #ffffff !important;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  }
+
+  body.light-mode .text-white:not(.overlay-text),
+  body.light-mode .text-slate-100:not(.overlay-text),
+  body.light-mode .text-slate-200:not(.overlay-text),
+  body.light-mode .text-slate-300:not(.overlay-text),
+  body.light-mode .text-gray-300:not(.overlay-text) {
     color: var(--text-primary) !important;
   }
 
