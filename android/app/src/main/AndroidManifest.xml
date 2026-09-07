@@ -38,7 +38,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Required to post push notifications on Android 13+ (API 33). The
-         Capacitor Push plugin requests the runtime grant; this declares it. -->
+    <!-- Push notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Camera (Capacitor Camera plugin) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!-- Microphone (WebRTC / getUserMedia for voice messages) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Location (Geolocation / interactive map) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 </manifest>

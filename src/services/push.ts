@@ -78,7 +78,18 @@ export async function initPushNotifications(): Promise<void> {
   try {
     const perm = await PushNotifications.checkPermissions();
     if (perm.receive !== 'granted') {
-      await PushNotifications.requestPermissions();
+      try {
+        const req = await PushNotifications.requestPermissions();
+        if (req.receive !== 'granted') {
+          // Permission denied; don't crash — continue safely.
+          console.warn('[PUSH] Notification permission denied');
+          return;
+        }
+      } catch (reqErr: any) {
+        console.error('[PUSH] Request permissions failed:', reqErr);
+        // Don't crash the app; abort push init safely.
+        return;
+      }
     }
 
     // Token registration (fires immediately if already granted, or after grant).
