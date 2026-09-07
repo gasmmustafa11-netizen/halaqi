@@ -153,6 +153,59 @@ function AppContent() {
       el.removeEventListener('touchend', handleTouchEnd);
     };
   }, [currentView]);
+  // DEBUG: Find actual scroll owner at runtime
+  useEffect(() => {
+    const logScrollElements = () => {
+      const all = document.querySelectorAll('*');
+      const scrollables: {tag: string; id?: string; className: string; scrollTop: number; scrollHeight: number; clientHeight: number; overflowY: string; overflow: string; tagName: string}[] = [];
+      all.forEach((el: any) => {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        const overflow = style.overflow;
+        const scrollTop = el.scrollTop || 0;
+        const scrollHeight = el.scrollHeight || 0;
+        const clientHeight = el.clientHeight || 0;
+        // Element is scrollable if overflow allows scroll and scrollHeight > clientHeight, or if it's a known scroll container
+        const isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll' || overflowY === 'overlay') && scrollHeight > clientHeight;
+        // Also capture elements that could potentially scroll (overflow set) regardless of content
+        const hasOverflowSet = overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll' || overflowY === 'overlay';
+        if (isScrollable || hasOverflowSet) {
+          scrollables.push({
+            tag: el.tagName,
+            id: el.id || undefined,
+            className: el.className || '',
+            scrollTop,
+            scrollHeight,
+            clientHeight,
+            overflowY,
+            overflow,
+            tagName: el.tagName,
+          });
+        }
+      });
+      // Also log root/body/html
+      [document.body, document.documentElement, document.querySelector('#root')].forEach((el: any) => {
+        if (!el) return;
+        const style = window.getComputedStyle(el);
+        scrollables.push({
+          tag: el.tagName || 'DIV',
+          id: el.id || undefined,
+          className: el.className || '',
+          scrollTop: el.scrollTop || 0,
+          scrollHeight: el.scrollHeight || 0,
+          clientHeight: el.clientHeight || 0,
+          overflowY: style.overflowY,
+          overflow: style.overflow,
+          tagName: el.tagName || 'DIV',
+        });
+      });
+      console.log('[SCROLL DEBUG] Scrollable elements:', scrollables);
+      console.log('[SCROLL DEBUG] document.scrollingElement:', document.scrollingElement?.tagName, 'scrollTop:', document.scrollingElement?.scrollTop, 'scrollHeight:', document.scrollingElement?.scrollHeight);
+    };
+    logScrollElements();
+    // Log again after a tick
+    setTimeout(logScrollElements, 100);
+  }, [currentView]);
   // Reset scroll instantly after view changes and renders.
   useEffect(() => {
     // Reset scroll on the scrolling element (window or internal container owner)
