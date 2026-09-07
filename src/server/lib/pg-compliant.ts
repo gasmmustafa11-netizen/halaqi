@@ -3,6 +3,19 @@ import { Pool } from 'pg';
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
   ssl: { rejectUnauthorized: false },
+  max: 2,
+  idleTimeoutMillis: 3000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: false,
+  // Serverless-safe: no persistent idle connections; handles ECONNRESET / TLS disconnect by short timeouts.
+});
+
+pool.on('error', (err: any) => {
+  console.error('[PG POOL ERROR]', err?.message || err);
+});
+
+pool.on('connect', () => {
+  // Silent: serverless instances connect briefly.
 });
 
 /**
