@@ -362,6 +362,13 @@ async function sendToFcm(
       );
       const json: any = await res.json().catch(() => ({}));
       const err = json?.error?.details?.[0]?.errorCode || json?.error?.status;
+      console.log('[PUSH] FCM response:', {
+        status: res.status,
+        ok: res.ok,
+        error: err || null,
+        message: json?.error?.message || null,
+        tokenPrefix: reg.slice(0, 12),
+      });
       if (err === 'UNREGISTERED' || res.status === 404) {
         stale.push(reg);
       }
@@ -3907,6 +3914,7 @@ class DatabaseStore {
   async getActiveDeviceTokens(userId: string): Promise<string[]> {
     try {
       await ensurePushTables();
+      console.log('[PUSH DEBUG] userId:', userId);
       const rows = await sql`
         SELECT token FROM device_push_tokens
         WHERE user_id = ${userId} AND active = TRUE
@@ -3993,13 +4001,18 @@ class DatabaseStore {
     }
   ): Promise<void> {
     try {
+      console.log('[PUSH] sendPushToUser START', { userId, category: payload.category });
       const prefs = await this.getNotificationPreferences(userId);
       if (prefs[payload.category] === false) {
         return; // user disabled this category
       }
 
       const tokens = await this.getActiveDeviceTokens(userId);
-      if (tokens.length === 0) return;
+      console.log('[PUSH] active tokens:', { count: tokens.length });
+      if (tokens.length === 0) {
+        console.log('[PUSH] no active tokens');
+        return;
+      }
 
       // Strip undefined values (FCM requires string map).
       const data: Record<string, string> = {};
@@ -4007,7 +4020,9 @@ class DatabaseStore {
         if (v !== undefined && v !== null) data[k] = String(v);
       }
 
+      console.log('[PUSH] calling FCM:', { count: tokens.length, title: payload.title });
       await sendToFcm(tokens, payload.title, payload.body, data);
+      console.log('[PUSH] FCM call completed');
     } catch (error) {
       console.error('[PUSH] sendPushToUser failed:', error);
     }
