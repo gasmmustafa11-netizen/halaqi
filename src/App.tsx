@@ -31,6 +31,7 @@ import { MessagesView } from './components/messaging/MessagesView';
 import { DiscoverView } from './components/discover/DiscoverView';
 import YourSalonView from './components/your-salon/YourSalonView';
 import SupportCenterView from './components/support/SupportCenterView';
+import PullToRefresh from './components/common/PullToRefresh';
 import {
   initPushNotifications,
   setPushNavigator,
@@ -374,7 +375,8 @@ function AppContent() {
         )}
 
         {currentView === 'explore' && (
-          <HomeExploreView
+          <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, explore: (p.explore || 0) + 1 }))}>
+            <HomeExploreView
             key={`explore-${refreshTick.explore ?? 0}`}
             onSelectSalon={handleSelectSalon}
             onOpenMap={() => handleNavigate('map')}
@@ -382,9 +384,11 @@ function AppContent() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
           />
+          </PullToRefresh>
         )}
 
         {currentView === 'posts' && (
+        <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, posts: (p.posts || 0) + 1 }))}>
         <PostsView
           key={`posts-${refreshTick.posts ?? 0}`}
           salons={allSalons}
@@ -392,9 +396,11 @@ function AppContent() {
           onSelectSalon={handleSelectSalon}
           onNavigate={handleNavigate}
         />
+        </PullToRefresh>
       )}
 
         {currentView === 'photos' && (
+        <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, posts: (p.posts || 0) + 1 }))}>
         <PostsView
           key={`photos-${refreshTick.posts ?? 0}`}
           salons={allSalons}
@@ -402,6 +408,7 @@ function AppContent() {
           onSelectSalon={handleSelectSalon}
           onNavigate={handleNavigate}
         />
+        </PullToRefresh>
       )}
 
         {currentView === 'reels' && (
@@ -450,7 +457,9 @@ function AppContent() {
         )}
 
         {currentView === 'bookings' && (
+          <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, bookings: (p.bookings || 0) + 1 }))}>
           <MyBookingsView onSelectSalonId={handleSelectSalonById} />
+          </PullToRefresh>
         )}
 
         {currentView === 'salon_dashboard' && mySalon?.status === 'approved' && (
@@ -516,6 +525,7 @@ function AppContent() {
         )}
 
         {currentView === 'profile' && (
+          <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, profile: (p.profile || 0) + 1 }))}>
           <UserProfileView
             key={`profile-${refreshTick.profile ?? 0}`}
             onNavigate={handleNavigate}
@@ -525,17 +535,22 @@ function AppContent() {
               else handleNavigate('explore');
             }}
           />
+          </PullToRefresh>
         )}
 
         {currentView === 'messages' && (
+          <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, messages: (p.messages || 0) + 1 }))}>
           <MessagesView
             initialUserId={selectedMessageUserId}
             onNavigate={handleNavigate}
           />
+          </PullToRefresh>
         )}
 
         {currentView === 'discover' && (
+          <PullToRefresh onRefresh={() => setRefreshTick(p => ({ ...p, discover: (p.discover || 0) + 1 }))}>
           <DiscoverView onNavigate={handleNavigate} />
+          </PullToRefresh>
         )}
 
         {currentView === 'support' && (
