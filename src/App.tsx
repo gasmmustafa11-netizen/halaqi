@@ -222,6 +222,9 @@ function AppContent() {
   useEffect(() => {
     // ROOT CAUSE FIX: swipeRootRef (App root div) is the fixed parent that holds scroll
     // when children change inside <main>. window.scrollTo alone misses it.
+    // FIX: #root is the actual scroll owner (proven by runtime: scrollTop=4071 before, 1336 after)
+    const rootEl = document.querySelector('#root') as HTMLElement | null;
+    if (rootEl) rootEl.scrollTop = 0;
     if (swipeRootRef.current) {
       swipeRootRef.current.scrollTop = 0;
     }
