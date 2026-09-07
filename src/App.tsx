@@ -155,7 +155,14 @@ function AppContent() {
   }, [currentView]);
   // Reset scroll instantly after view changes and renders.
   useEffect(() => {
+    // Reset scroll on the scrolling element (window or internal container owner)
     window.scrollTo({ top: 0, behavior: 'auto' });
+    const scrollEl = document.scrollingElement || document.body || document.documentElement;
+    if (scrollEl && scrollEl !== document.body) {
+      (scrollEl as HTMLElement).scrollTop = 0;
+    }
+    if (document.body) document.body.scrollTop = 0;
+    if (document.documentElement) document.documentElement.scrollTop = 0;
     window.dispatchEvent(new CustomEvent('halaqi-scroll-reset', { detail: currentView }));
   }, [currentView]);
 
