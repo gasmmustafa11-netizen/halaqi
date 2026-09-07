@@ -1134,6 +1134,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
                   id={`post-${post.id}`}
                   key={post.id}
                   className="relative h-[100dvh] w-full snap-start overflow-hidden bg-black"
+                  style={{ scrollSnapStop: 'always' }}
                 >
                   <button
                     type="button"
