@@ -208,7 +208,11 @@ function AppContent() {
   }, [currentView]);
   // Reset scroll instantly after view changes and renders.
   useEffect(() => {
-    // Reset scroll on the scrolling element (window or internal container owner)
+    // ROOT CAUSE FIX: swipeRootRef (App root div) is the fixed parent that holds scroll
+    // when children change inside <main>. window.scrollTo alone misses it.
+    if (swipeRootRef.current) {
+      swipeRootRef.current.scrollTop = 0;
+    }
     window.scrollTo({ top: 0, behavior: 'auto' });
     const scrollEl = document.scrollingElement || document.body || document.documentElement;
     if (scrollEl && scrollEl !== document.body) {
