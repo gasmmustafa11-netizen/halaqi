@@ -247,6 +247,24 @@ img { -webkit-user-drag: none; user-select: none; }
 
 .leaflet-container img, .leaflet-tile { max-width: none !important; max-height: none !important; }
 
+/* Override leaflet marker image size for salon markers only */
+.leaflet-container .leaflet-marker-pane .halaqi-marker-img,
+.leaflet-container .halaqi-marker-img {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  max-width: 36px !important;
+  max-height: 36px !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  border: none !important;
+}
+
 img[alt="Halaqi Globe"] { animation: globeSpin 90s linear infinite !important; }
 @keyframes globeSpin {
   from { transform: rotate(0deg) scale(1); }

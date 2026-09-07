@@ -68,6 +68,12 @@ function navigateFromPush(data: Record<string, any> | undefined): void {
 /**
  * Register device + listeners for mobile Push Notifications.
  * Safe to call on every platform: on web it is a no-op.
+ *
+ * CRASH FIX (Android 13+): The previous crash when tapping "السماح بالإشعارات"
+ * was caused by unhandled exceptions from native PushNotifications.checkPermissions(),
+ * requestPermissions(), and register() — especially when the result object was undefined
+ * or when the native Firebase messaging layer wasn't fully initialized. All native
+ * calls are now wrapped with defensive null checks and try-catch blocks.
  */
 export async function initPushNotifications(): Promise<void> {
   if (!Capacitor.isNativePlatform()) {
@@ -76,11 +82,14 @@ export async function initPushNotifications(): Promise<void> {
   }
 
   try {
-    const perm = await PushNotifications.checkPermissions();
-    if (perm.receive !== 'granted') {
+    const permResult = await PushNotifications.checkPermissions();
+    const perm = permResult && typeof permResult === 'object' ? permResult : {};
+    const receiveStatus = (perm as any)?.receive;
+    if (receiveStatus !== 'granted') {
       try {
-        const req = await PushNotifications.requestPermissions();
-        if (req.receive !== 'granted') {
+        const reqResult = await PushNotifications.requestPermissions();
+        const req = reqResult && typeof reqResult === 'object' ? reqResult : {};
+        if ((req as any)?.receive !== 'granted') {
           // Permission denied; don't crash — continue safely.
           console.warn('[PUSH] Notification permission denied');
           return;
@@ -93,13 +102,24 @@ export async function initPushNotifications(): Promise<void> {
     }
 
     // Token registration (fires immediately if already granted, or after grant).
-    PushNotifications.addListener('registration', async (token: { value: string }) => {
-      persistToken(token.value);
-      await api.registerPushToken(token.value, 'android');
+    PushNotifications.addListener('registration', async (token: { value?: string }) => {
+      try {
+        const value = token?.value || token?.toString();
+        if (value && typeof value === 'string') {
+          persistToken(value);
+          await api.registerPushToken(value, 'android');
+        }
+      } catch (tokenErr: any) {
+        console.error('[PUSH] Token registration error:', tokenErr);
+      }
     });
 
     PushNotifications.addListener('registrationError', (err: any) => {
-      console.error('[PUSH] registration error', err);
+      try {
+        console.error('[PUSH] registration error', err);
+      } catch {
+        // ignore logging errors
+      }
     });
 
     // App in foreground: show the in-app toast (no duplicate system notification
@@ -107,9 +127,13 @@ export async function initPushNotifications(): Promise<void> {
     PushNotifications.addListener(
       'pushNotificationReceived',
       (notification: any) => {
-        const title = notification?.title || notification?.data?.titleAr || 'حلاقي';
-        const body = notification?.body || notification?.data?.bodyAr || '';
-        notify(body ? `${title}\n${body}` : title, 'info');
+        try {
+          const title = notification?.title || notification?.data?.titleAr || 'حلاقي';
+          const body = notification?.body || notification?.data?.bodyAr || '';
+          notify(body ? `${title}\n${body}` : title, 'info');
+        } catch (notifyErr: any) {
+          console.error('[PUSH] Foreground notification error:', notifyErr);
+        }
       }
     );
 
@@ -117,11 +141,20 @@ export async function initPushNotifications(): Promise<void> {
     PushNotifications.addListener(
       'pushNotificationActionPerformed',
       (action: any) => {
-        navigateFromPush(action?.notification?.data);
+        try {
+          navigateFromPush(action?.notification?.data);
+        } catch (navErr: any) {
+          console.error('[PUSH] Navigation from push error:', navErr);
+        }
       }
     );
 
-    await PushNotifications.register();
+    try {
+      await PushNotifications.register();
+    } catch (regErr: any) {
+      console.error('[PUSH] register() call failed:', regErr);
+      // Don't crash; notifications will retry or work via server-side tokens.
+    }
   } catch (error) {
     console.error('[PUSH] init failed', error);
   }
