@@ -199,8 +199,20 @@ function AppContent() {
           tagName: el.tagName || 'DIV',
         });
       });
-      console.log('[SCROLL DEBUG] Scrollable elements:', scrollables);
-      console.log('[SCROLL DEBUG] document.scrollingElement:', document.scrollingElement?.tagName, 'scrollTop:', document.scrollingElement?.scrollTop, 'scrollHeight:', document.scrollingElement?.scrollHeight);
+      console.table(scrollables);
+      // Detailed plain log for each element (not folded object)
+      scrollables.forEach((item: any, i: number) => {
+        const el = document.querySelector(`[class*="${item.className.split(' ')[0]}"]`) || document.body;
+        console.log(`[DEBUG] index=${i} tag=${item.tagName} id=${item.id || 'none'} class=${item.className}`);
+        console.log(`        scrollTop=${item.scrollTop} scrollHeight=${item.scrollHeight} clientHeight=${item.clientHeight} offsetHeight=${(el as any)?.offsetHeight || 'N/A'}`);
+        console.log(`        overflowY=${item.overflowY} overflow=${item.overflow} height=${window.getComputedStyle(el as any)?.height || 'N/A'} position=${window.getComputedStyle(el as any)?.position || 'N/A'}`);
+        if (el && (el as HTMLElement).outerHTML) {
+          console.log(`        outerHTML(first300)=${(el as HTMLElement).outerHTML.substring(0, 300)}`);
+        }
+      });
+      console.log('[SCROLL DEBUG DETAILS] document.scrollingElement=', document.scrollingElement?.tagName,
+        '| scrollTop=', document.scrollingElement?.scrollTop,
+        '| scrollHeight=', document.scrollingElement?.scrollHeight);
     };
     logScrollElements();
     // Log again after a tick
