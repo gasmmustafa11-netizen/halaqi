@@ -1110,6 +1110,7 @@ export const PostsView: React.FC<PostsViewProps> = ({
             <div
               ref={scrollContainerRef}
               className="fixed inset-0 z-30 h-[100dvh] overflow-y-auto snap-y snap-mandatory bg-black"
+              style={{ willChange: 'scroll-position' }}
             >
             {visiblePosts.map((post, postIndex) => {
               const salon = getSalon(post);
