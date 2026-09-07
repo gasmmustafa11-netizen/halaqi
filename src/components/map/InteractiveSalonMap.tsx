@@ -398,7 +398,16 @@ export const InteractiveSalonMap: React.FC<InteractiveSalonMapProps> = ({
             />
 
             {userLocation && (
-              <Marker position={[userLocation.lat, userLocation.lng]}>
+              <Marker
+                position={[userLocation.lat, userLocation.lng]}
+                icon={L.divIcon({
+                  html: `<div style="width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;max-width:28px!important;max-height:28px!important;border-radius:50%!important;background:#2563EB!important;border:3px solid #fff!important;box-shadow:0 0 0 2px rgba(37,99,235,0.35),0 4px 12px rgba(0,0,0,0.35)!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:0!important;margin:0!important;box-sizing:border-box!important;overflow:hidden!important;"><span style="font-size:10px!important;color:#fff!important;font-weight:bold!important;line-height:1!important;text-shadow:0 1px 2px rgba(0,0,0,0.4)!important;">📍</span></div>`,
+                  className: 'halaqi-user-marker',
+                  iconSize: [28, 28],
+                  iconAnchor: [14, 14],
+                  popupAnchor: [0, -30],
+                })}
+              >
                 <Popup>
                   {isRtl ? "📍 موقعك الحالي" : "📍 Your current location"}
                 </Popup>

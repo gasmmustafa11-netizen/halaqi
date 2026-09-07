@@ -265,6 +265,36 @@ img { -webkit-user-drag: none; user-select: none; }
   border: none !important;
 }
 
+.leaflet-container .halaqi-user-marker,
+.leaflet-marker-pane .halaqi-user-marker {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  border-radius: 50% !important;
+  background: #2563EB !important;
+  border: 3px solid #fff !important;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.35), 0 4px 12px rgba(0,0,0,0.35) !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+}
+
+.leaflet-container .halaqi-user-marker span,
+.leaflet-marker-pane .halaqi-user-marker span {
+  font-size: 10px !important;
+  color: #fff !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4) !important;
+}
+
 img[alt="Halaqi Globe"] { animation: globeSpin 90s linear infinite !important; }
 @keyframes globeSpin {
   from { transform: rotate(0deg) scale(1); }
