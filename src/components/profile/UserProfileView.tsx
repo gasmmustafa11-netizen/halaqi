@@ -603,15 +603,6 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
             >
               <Share2 size={20} />
             </button>
-
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              aria-label="الإعدادات"
-              className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-[#D4AF37] hover:bg-white/[0.08] hover:border-[#D4AF37]/20 transition-all"
-            >
-              <Settings size={20} />
-            </button>
           </div>
 
           {/* Stats */}
