@@ -15,6 +15,8 @@ import {
   Trash2,
   Quote,
   ArrowLeft,
+  Image,
+  Video,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { CaptionText } from './CaptionText';
@@ -1055,18 +1057,27 @@ export const PostsView: React.FC<PostsViewProps> = ({
           >
             <ArrowLeft className={`h-5 w-5 ${isRtl ? 'rotate-180' : ''}`} />
           </button>
-          <div className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.10] bg-white/[0.04] p-1.5 backdrop-blur-xl">
+          <div className="flex items-center justify-center gap-8 sm:gap-12">
             {([
-              { key: 'posts', label: isRtl ? 'المنشورات' : 'Posts', nav: 'posts' },
-              { key: 'reels', label: isRtl ? 'ريلز' : 'Reels', nav: 'reels' },
+              { key: 'posts', label: isRtl ? 'المنشورات' : 'Posts', nav: 'posts', Icon: Image, active: true },
+              { key: 'reels', label: isRtl ? 'ريلز' : 'Reels', nav: 'reels', Icon: Video, active: false },
             ] as const).map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => onNavigate?.(t.nav)}
-                className="flex-1 rounded-xl px-4 py-2 text-sm font-bold transition-all bg-white/[0.04] text-slate-300 hover:text-white"
+                className={`group relative flex flex-col items-center gap-1.5 py-1 transition-all duration-300 ${t.active ? 'text-[#D4AF37]' : 'text-slate-500 hover:text-slate-300'}`}
+                aria-current={t.active ? 'true' : undefined}
               >
-                {t.label}
+                <div className="flex items-center gap-1.5">
+                  <t.Icon
+                    className={`h-4 w-4 transition-all duration-300 ${t.active ? 'text-[#D4AF37] drop-shadow-[0_0_4px_rgba(212,175,55,0.5)]' : 'text-slate-500 group-hover:text-slate-300'}`}
+                  />
+                  <span className="text-sm font-bold tracking-wide">{t.label}</span>
+                </div>
+                <span
+                  className={`h-[2px] w-10 rounded-full transition-all duration-300 ${t.active ? 'bg-[#D4AF37] shadow-[0_0_6px_rgba(212,175,55,0.6)]' : 'bg-transparent'}`}
+                />
               </button>
             ))}
           </div>
