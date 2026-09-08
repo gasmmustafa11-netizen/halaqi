@@ -17,6 +17,7 @@ import {
     LogOut,
     Globe2,
     LockKeyhole,
+    Bell,
     X,
     UserRound,
     Phone,
@@ -24,6 +25,7 @@ import {
     Play,
     LifeBuoy,
     ShieldCheck,
+    Plus,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -517,35 +519,54 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
       className="min-h-screen w-full max-w-full overflow-hidden bg-[#08090B] text-white pb-20"
       dir="rtl"
     >
-      <div className="relative">
-        {/* Cover */}
-        <div className="h-32 bg-gradient-to-b from-[#D4AF37]/20 via-[#D4AF37]/10 to-transparent" />
+      {/* Minimal Header */}
+      <header className="sticky top-0 z-40 flex items-center justify-between px-5 py-4 bg-[#08090B]/80 backdrop-blur-md border-b border-white/[0.05]">
+        <h1 className="text-lg font-black tracking-tight text-white">ملفي الشخصي</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            aria-label="الإعدادات"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-slate-300 hover:text-[#D4AF37] hover:border-[#D4AF37]/30 transition-all"
+          >
+            <Settings size={17} />
+          </button>
+          <button
+            aria-label="الإشعارات"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-slate-300 hover:text-[#D4AF37] hover:border-[#D4AF37]/30 transition-all"
+          >
+            <Bell size={17} />
+          </button>
+        </div>
+      </header>
 
-        <div className="px-5 -mt-16">
-          {/* Profile image */}
-          <div className="flex justify-center mb-4">
+      <div className="relative">
+        {/* Cover - minimal dark gradient */}
+        <div className="h-20 bg-gradient-to-b from-[#111316] via-[#0D0F14] to-[#08090B]" />
+
+        <div className="px-6 -mt-16">
+          {/* Profile Hero */}
+          <div className="flex flex-col items-center mb-6">
             <div className="relative">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#D4AF37] via-[#D4AF37]/80 to-[#D4AF37]/60 p-1 shadow-2xl shadow-[#D4AF37]/30">
+              <div className="w-28 h-28 rounded-full border-2 border-[#D4AF37]/60 p-[3px] shadow-[0_0_30px_rgba(212,175,55,0.15)]">
                 {profileAvatar ? (
                   <img
                     src={profileAvatar}
                     alt={profileName}
-                    className="w-full h-full rounded-full object-cover border-4 border-[#08090B]"
+                    className="w-full h-full rounded-full object-cover bg-[#111316]"
                   />
                 ) : (
-                  <div className="w-full h-full rounded-full border-4 border-[#08090B] bg-[#171717] flex items-center justify-center text-5xl font-black text-[#D4AF37]">
+                  <div className="w-full h-full rounded-full bg-[#171717] flex items-center justify-center text-4xl font-black text-[#D4AF37]">
                     {profileName.charAt(0)}
                   </div>
                 )}
               </div>
-
               <button
                 onClick={handleProfileImageClick}
-                className="absolute bottom-0 right-0 w-10 h-10 bg-[#D4AF37] rounded-full flex items-center justify-center shadow-lg hover:bg-[#C5A028] transition-all"
+                className="absolute bottom-0 left-0 w-9 h-9 bg-[#D4AF37] rounded-full flex items-center justify-center shadow-lg hover:bg-[#C5A028] transition-all"
+                aria-label="تغيير الصورة"
               >
-                <Camera size={18} className="text-[#08090B]" />
+                <Camera size={16} className="text-[#08090B]" />
               </button>
-
               <input
                 ref={fileInputRef}
                 type="file"
@@ -554,154 +575,116 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                 className="hidden"
               />
             </div>
-          </div>
 
-          {/* Name */}
-          <div className="text-center mb-4">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <h1 className="text-2xl font-bold">
-                {profileName}
-              </h1>
-              {(user as any)?.isVerified && <VerifiedBadge />}
-
-                              {(user as any)?.role === 'admin' && (
-                                <p className="text-black text-[11px] font-medium text-center mt-1">
-                                  المؤسس
-                                </p>
-                              )}
-
-              {(user as any)?.role === 'salon_owner' && (
-                <div className="w-6 h-6 bg-[#D4AF37] rounded-full flex items-center justify-center">
-                  <Check size={14} className="text-[#08090B]" />
-                </div>
+            <div className="mt-5 text-center space-y-1">
+              <div className="flex items-center justify-center gap-2">
+                <h1 className="text-3xl font-black text-white tracking-tight">{profileName}</h1>
+                {(user as any)?.isVerified && <VerifiedBadge />}
+              </div>
+              {(user as any)?.username && (
+                <p className="text-sm text-slate-400 font-medium">@{(user as any).username}</p>
               )}
             </div>
-            {(user as any)?.username && (
-              <p className="text-xs text-[#D4AF37]/80 font-medium mt-0.5">@{(user as any).username}</p>
-            )}
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex gap-3 mb-8 px-2">
             <button
               onClick={handleEditProfile}
-              className="flex-1 bg-[#D4AF37] text-[#08090B] py-3 rounded-xl font-semibold hover:bg-[#C5A028] transition-all shadow-lg shadow-[#D4AF37]/20"
+              className="flex-1 bg-[#D4AF37] text-[#08090B] py-3.5 rounded-2xl font-bold hover:bg-[#C5A028] transition-all shadow-lg shadow-[#D4AF37]/10 text-sm"
             >
               تعديل الملف الشخصي
             </button>
 
             <button
               onClick={handleShare}
-              className="w-12 h-12 bg-white/5 backdrop-blur-sm rounded-xl flex items-center justify-center hover:bg-white/10 transition-all border border-white/10"
+              className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-[#D4AF37] hover:bg-white/[0.08] hover:border-[#D4AF37]/20 transition-all"
+              aria-label="مشاركة"
             >
-              <Share2 size={20} className="text-[#D4AF37]" />
+              <Share2 size={20} />
             </button>
 
             <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                aria-label={language === 'ar' ? 'الإعدادات' : 'Settings'}
-                className="w-12 h-12 bg-white/5 backdrop-blur-sm rounded-xl flex items-center justify-center hover:bg-[#D4AF37]/10 hover:border-[#D4AF37]/30 transition-all border border-white/10"
-              >
-                <Settings size={20} className="text-[#D4AF37]" />
-              </button>
+              type="button"
+              onClick={() => setShowSettings(true)}
+              aria-label="الإعدادات"
+              className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-[#D4AF37] hover:bg-white/[0.08] hover:border-[#D4AF37]/20 transition-all"
+            >
+              <Settings size={20} />
+            </button>
           </div>
 
-          {/* Stats - real data */}
-          <div className="flex justify-around py-4 mb-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
-            <div className="text-center">
-              <p className="text-xl font-bold text-[#D4AF37]">
-                {posts.length}
-              </p>
-              <p className="text-xs text-[#9CA3AF] mt-1">
-                منشور
-              </p>
+          {/* Stats */}
+          <div className="flex justify-center mb-8 px-2">
+            <div className="w-full max-w-md rounded-[24px] border border-white/[0.08] bg-[#111316] px-8 py-6 shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
+              <div className="flex items-center justify-between">
+                <div className="text-center flex-1">
+                  <p className="text-3xl font-black text-white">{posts.length}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 tracking-wide">منشور</p>
+                </div>
+                <div className="w-px h-8 bg-white/[0.08]" />
+                <button
+                  type="button"
+                  onClick={() => openFollowersList('followers')}
+                  className="text-center flex-1 hover:opacity-80 transition-opacity"
+                >
+                  <p className="text-3xl font-black text-[#D4AF37]">{followersCount}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 tracking-wide">متابع</p>
+                </button>
+                <div className="w-px h-8 bg-white/[0.08]" />
+                <button
+                  type="button"
+                  onClick={() => openFollowersList('following')}
+                  className="text-center flex-1 hover:opacity-80 transition-opacity"
+                >
+                  <p className="text-3xl font-black text-white">{followingCount}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 tracking-wide">يتابع</p>
+                </button>
+              </div>
             </div>
-
-            <div className="w-px bg-white/10" />
-
-            <button
-              type="button"
-              onClick={() => openFollowersList('followers')}
-              className="text-center cursor-pointer hover:opacity-80 transition-opacity"
-            >
-              <p className="text-xl font-bold text-[#D4AF37]">
-                {followersCount}
-              </p>
-              <p className="text-xs text-[#9CA3AF] mt-1">
-                متابع
-              </p>
-            </button>
-
-            <div className="w-px bg-white/10" />
-
-            <button
-              type="button"
-              onClick={() => openFollowersList('following')}
-              className="text-center cursor-pointer hover:opacity-80 transition-opacity"
-            >
-              <p className="text-xl font-bold text-[#D4AF37]">
-                {followingCount}
-              </p>
-              <p className="text-xs text-[#9CA3AF] mt-1">
-                يتابع
-              </p>
-            </button>
           </div>
 
-          {/* Bio / Intro */}
+          {/* Bio */}
           {(user as any)?.bio && (
-            <div className="mb-4 px-1">
-              <p className="text-sm text-gray-200 leading-relaxed break-words">{(user as any).bio}</p>
+            <div className="mb-6 px-2">
+              <p className="text-sm text-slate-300 leading-relaxed break-words">{(user as any).bio}</p>
             </div>
           )}
 
-          {/* About */}
-          <div className="mb-6">
-            <p className="text-sm leading-relaxed text-[#E5E7EB]">
+          {/* Account Info */}
+          <div className="mb-8 px-2">
+            <div className="rounded-[20px] border border-white/[0.08] bg-[#111316] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
               {profileCity && (
-                <>
-                  <span className="inline-flex items-center gap-1.5">
-                      <MapPin size={14} className="text-[#D4AF37]" />
-                      {cityNames[profileCity] || profileCity}
-                    </span>
-                </>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/10 flex items-center justify-center text-[#D4AF37]">
+                    <MapPin size={16} />
+                  </div>
+                  <p className="text-sm text-slate-200">{cityNames[profileCity] || profileCity}</p>
+                </div>
               )}
-            </p>
-
-            {profileCity && (
-              <div className="flex items-center gap-2 mt-3 text-[#D4AF37] text-sm">
-                <MapPin size={16} />
-                <span>
-                  {cityNames[profileCity] || profileCity}
-                </span>
-              </div>
-            )}
-
-            {joinedDate && (
-              <div className="flex items-center gap-2 mt-3 text-[#9CA3AF] text-sm">
-                <Calendar size={16} />
-                <span>عضو منذ {joinedDate}</span>
-              </div>
-            )}
+              {profileCity && <div className="h-px bg-white/[0.06] mb-3" />}
+              {joinedDate && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/10 flex items-center justify-center text-[#D4AF37]">
+                    <Calendar size={16} />
+                  </div>
+                  <p className="text-sm text-slate-400">عضو منذ {joinedDate}</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Publish */}
-          <div className="mb-6">
+          <div className="mb-8 px-2">
             <button
               type="button"
               onClick={handleCreatePostClick}
-              className="group relative w-full overflow-hidden rounded-2xl border border-[#D4AF37]/30 bg-white/[0.04] px-5 py-3.5 text-white shadow-[0_8px_30px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-all duration-300 hover:border-[#D4AF37]/60 hover:bg-[#D4AF37]/[0.08] hover:shadow-[0_0_30px_rgba(212,175,55,0.12)] active:scale-[0.99]"
+              className="w-full rounded-[20px] border border-[#D4AF37]/30 bg-[#111316] px-6 py-4 text-sm font-black text-white hover:border-[#D4AF37]/60 hover:bg-[#13151A] transition-all shadow-[0_4px_20px_rgba(212,175,55,0.06)] flex items-center justify-center gap-2.5"
             >
-              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-[#D4AF37]/[0.08] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              <span className="relative flex items-center justify-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/10 text-[#D4AF37] shadow-[0_0_18px_rgba(212,175,55,0.08)]">
-                  <span className="text-xl leading-none">+</span>
-                </span>
-                <span className="text-sm font-black tracking-wide">
-                  {language === 'ar' ? 'نشر منشور' : 'Create Post'}
-                </span>
+              <span className="w-8 h-8 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] flex items-center justify-center shadow-[0_0_12px_rgba(212,175,55,0.15)]">
+                <Plus size={16} />
               </span>
+              <span>نشر منشور</span>
             </button>
           </div>
 
@@ -714,38 +697,32 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
             className="hidden"
           />
 
-          {/* Tabs */}
-          <div className="flex border-b border-white/10 mb-6">
+          {/* Minimal Tabs */}
+          <div className="flex items-center justify-center gap-10 mb-6">
             <button
               onClick={() => setActiveTab('posts')}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 transition-all relative ${
-                activeTab === 'posts'
-                  ? 'text-[#D4AF37]'
-                  : 'text-[#9CA3AF]'
+              className={`group relative flex flex-col items-center gap-1.5 py-1 transition-all duration-300 ${
+                activeTab === 'posts' ? 'text-[#D4AF37]' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              <Grid3x3 size={20} />
-              <span className="font-semibold">المنشورات</span>
-
-              {activeTab === 'posts' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#D4AF37]" />
-              )}
+              <div className="flex items-center gap-1.5">
+                <Grid3x3 size={16} className={activeTab === 'posts' ? 'text-[#D4AF37]' : 'text-slate-500 group-hover:text-slate-300'} />
+                <span className="text-sm font-bold tracking-wide">المنشورات</span>
+              </div>
+              <span className={`h-[2px] w-8 rounded-full transition-all duration-300 ${activeTab === 'posts' ? 'bg-[#D4AF37] shadow-[0_0_6px_rgba(212,175,55,0.5)]' : 'bg-transparent'}`} />
             </button>
 
             <button
-              onClick={() => setActiveTab('saved')}
-              className={`flex-1 py-3 flex items-center justify-center gap-2 transition-all relative ${
-                activeTab === 'saved'
-                  ? 'text-[#D4AF37]'
-                  : 'text-[#9CA3AF]'
+              onClick={() => setActiveTab('reels')}
+              className={`group relative flex flex-col items-center gap-1.5 py-1 transition-all duration-300 ${
+                activeTab === 'reels' ? 'text-[#D4AF37]' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              <Bookmark size={20} />
-              <span className="font-semibold">المحفوظات</span>
-
-              {activeTab === 'saved' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#D4AF37]" />
-              )}
+              <div className="flex items-center gap-1.5">
+                <Play size={16} className={activeTab === 'reels' ? 'text-[#D4AF37]' : 'text-slate-500 group-hover:text-slate-300'} />
+                <span className="text-sm font-bold tracking-wide">الريلز</span>
+              </div>
+              <span className={`h-[2px] w-8 rounded-full transition-all duration-300 ${activeTab === 'reels' ? 'bg-[#D4AF37] shadow-[0_0_6px_rgba(212,175,55,0.5)]' : 'bg-transparent'}`} />
             </button>
           </div>
 
@@ -761,14 +738,12 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
                   {postsError}
                 </div>
               ) : posts.length === 0 ? (
-                <div className="py-16 text-center">
-                  <Grid3x3 className="w-10 h-10 mx-auto text-[#D4AF37] mb-3" />
-                  <p className="text-white font-bold">
-                    لا توجد منشورات بعد
-                  </p>
-                  <p className="text-sm text-[#9CA3AF] mt-2">
-                    عندما ينشر المستخدم محتوى سيظهر هنا.
-                  </p>
+                <div className="py-20 text-center">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-[#D4AF37]/10 flex items-center justify-center mb-4 text-[#D4AF37] shadow-[0_0_20px_rgba(212,175,55,0.08)]">
+                    <Grid3x3 size={22} />
+                  </div>
+                  <p className="text-white font-bold text-base">لا توجد منشورات بعد</p>
+                  <p className="text-xs text-[#9CA3AF] mt-2">عندما ينشر المستخدم محتوى سيظهر هنا.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-1">
@@ -833,17 +808,56 @@ const UserProfileView: React.FC<UserProfileViewProps> = ({ onNavigate }) => {
             </>
           )}
 
-          {/* Saved - intentionally not fake */}
-          {activeTab === 'saved' && (
-            <div className="py-16 text-center">
-              <Bookmark className="w-10 h-10 mx-auto text-[#D4AF37] mb-3" />
-              <p className="text-white font-bold">
-                المحفوظات
-              </p>
-              <p className="text-sm text-[#9CA3AF] mt-2">
-                نظام المنشورات المحفوظة سيتم ربطه بقاعدة البيانات بشكل مستقل.
-              </p>
-            </div>
+          {/* Reels */}
+          {activeTab === 'reels' && (
+            (() => {
+              const reels = posts.filter((p) => p.mediaType === 'video');
+              return (
+                <>
+                  {reels.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <Play className="w-8 h-8 mx-auto text-[#D4AF37]/70 mb-3" />
+                      <p className="text-white font-bold text-sm">لا توجد ريلز بعد</p>
+                      <p className="text-xs text-[#9CA3AF] mt-2">عندما تنشر فيديو سيظهر هنا.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-1">
+                      {reels.map((post) => (
+                        <div
+                          key={post.id}
+                          onClick={() => {
+                            if (!post.imageUrl) return;
+                            setViewerPost(post);
+                            setViewerIsVideo(true);
+                            setViewerUrl(`/api/reels/${post.id}/video`);
+                          }}
+                          className="aspect-square bg-white/5 rounded-lg overflow-hidden relative group cursor-pointer"
+                        >
+                          <video
+                            src={`/api/reels/${post.id}/video`}
+                            poster={post.thumbnailUrl || undefined}
+                            className="w-full h-full object-cover"
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Play className="h-7 w-7 text-white drop-shadow" />
+                          </div>
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                            <div className="flex items-center gap-1 text-white text-xs font-bold">
+                              <Heart size={14} />
+                              <span>{Number(post.likeCount || 0)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()
           )}
         </div>
       </div>
