@@ -26,7 +26,8 @@ interface Reel {
   userName?: string;
   userAvatar?: string;
   isVerified?: boolean;
-  imageUrl?: string; // Holds the video URL for Reels
+  imageUrl?: string; // Video URL for Reels
+  thumbnailUrl?: string; // Real thumbnail URL for Reels
   caption: string;
   mediaType?: 'image' | 'video';
   duration?: number;
@@ -132,15 +133,19 @@ const ReelItem: React.FC<{
       {/* Video fills the whole viewport (9:16 source, object-cover, never distorted) */}
       <video
         ref={videoRef}
-        src={`/api/reels/${reel.id}/video`}
+        src={reel.imageUrl ? `/api/reels/${reel.id}/video` : undefined}
+        poster={reel.thumbnailUrl || undefined}
         className="absolute inset-0 h-full w-full bg-black object-cover"
         playsInline
         loop
         muted={muted}
-        preload="auto"
+        preload="metadata"
         onClick={togglePlay}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onLoadedData={() => {
+          // When video data loads, hide any poster overlay by switching to playing state or letting video cover.
+        }}
       />
 
       {/* Center play affordance when paused */}
@@ -280,6 +285,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   const [createDuration, setCreateDuration] = useState(0);
   const [createIdempotencyKey, setCreateIdempotencyKey] = useState('');
   const [createUploading, setCreateUploading] = useState(false);
+  const [createThumbnailDataUrl, setCreateThumbnailDataUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadReels = useCallback(async () => {
@@ -368,6 +374,55 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
   };
 
   // ---- Create Reel flow ----
+  // Generate a real thumbnail from a video File using canvas.
+  const generateThumbnail = async (file: File): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.autoplay = false;
+      video.src = url;
+      video.onloadeddata = () => {
+        try {
+          video.currentTime = Math.min(1, video.duration / 4 || 1);
+        } catch {
+          video.currentTime = 1;
+        }
+      };
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          // Maintain vertical 9:16 thumb but cap width for performance.
+          const maxW = 480;
+          const w = Math.min(video.videoWidth || 720, maxW);
+          const h = Math.round(w * ((video.videoHeight || 1280) / (video.videoWidth || 720)));
+          canvas.width = w;
+          canvas.height = h || 640;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          }
+          URL.revokeObjectURL(url);
+          const thumbDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(thumbDataUrl);
+        } catch {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        }
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      // Fallback if seeked never fires.
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      }, 4000);
+    });
+  };
+
   const readDuration = (file: File): Promise<number> =>
     new Promise((resolve) => {
       const url = URL.createObjectURL(file);
@@ -411,15 +466,24 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
       return;
     }
 
-    // Convert to base64 data URL and preview.
+    // Convert to base64 data URL and preview, and generate real thumbnail.
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result as string;
       setCreatePreview(dataUrl);
       setCreateDuration(Math.round(duration));
       setCreateCaption('');
       setCreateIdempotencyKey(crypto.randomUUID());
       setCreateOpen(true);
+      // Generate real thumbnail from file in background.
+      try {
+        const thumbDataUrl = await generateThumbnail(file);
+        if (thumbDataUrl) {
+          setCreateThumbnailDataUrl(thumbDataUrl);
+        }
+      } catch {
+        // Thumbnail generation is best-effort; video upload continues regardless.
+      }
     };
     reader.onerror = () => {
       notify(isRtl ? 'تعذر قراءة الفيديو.' : 'Could not read video.', 'error');
@@ -440,17 +504,31 @@ export const ReelsView: React.FC<ReelsViewProps> = ({ onBack, onNavigate }) => {
         notify(upload.error || (isRtl ? 'تعذر رفع الفيديو.' : 'Could not upload video.'), 'error');
         return;
       }
+      let thumbnailUrl: string | undefined = undefined;
+      if (createThumbnailDataUrl) {
+        try {
+          const thumbUpload = await api.uploadImage(createThumbnailDataUrl);
+          if (thumbUpload.success && thumbUpload.imageUrl) {
+            thumbnailUrl = thumbUpload.imageUrl;
+          }
+        } catch {
+          // Thumbnail upload is best-effort.
+        }
+      }
+
       const create = await api.createUserPost({
         imageUrl: upload.videoUrl,
         caption: createCaption.trim(),
         mediaType: 'video',
         duration: createDuration,
+        thumbnailUrl,
         idempotencyKey: createIdempotencyKey,
       });
       if (create.success) {
         notify(isRtl ? 'تم نشر الريل.' : 'Reel published.', 'success');
         setCreateOpen(false);
         setCreatePreview(null);
+        setCreateThumbnailDataUrl(null);
         setCreateCaption('');
         setCreateDuration(0);
         setCreateIdempotencyKey('');

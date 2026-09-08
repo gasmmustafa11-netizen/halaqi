@@ -5841,6 +5841,7 @@ class DatabaseStore {
       caption?: string;
       mediaType?: 'image' | 'video';
       duration?: number;
+      thumbnailUrl?: string;
     },
     requestingUser: User,
     idempotencyKey?: string,
@@ -5879,6 +5880,7 @@ class DatabaseStore {
         userName: requestingUser.name || 'مستخدم',
         userAvatar: requestingUser.avatar || undefined,
         imageUrl: hasMedia ? data.imageUrl!.trim() : undefined,
+        thumbnailUrl: data.thumbnailUrl ? String(data.thumbnailUrl).trim() || undefined : undefined,
         caption: captionText,
         createdAt: new Date().toISOString(),
         likeCount: 0,
@@ -5938,6 +5940,7 @@ class DatabaseStore {
                   commentCount: Number(p.comment_count || 0),
                   mediaType: p.media_type || 'image',
                   duration: p.duration != null ? Number(p.duration) : undefined,
+                  thumbnailUrl: p.thumbnail_url || undefined,
                 } as UserPost,
               };
             }
@@ -5946,9 +5949,9 @@ class DatabaseStore {
 
           // Insert the post within the transaction.
           await client.query(
-            `INSERT INTO user_posts
-             (id, user_id, image_url, caption, media_type, duration, created_at, updated_at, like_count, comment_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0)`,
+             `INSERT INTO user_posts
+              (id, user_id, image_url, caption, media_type, duration, thumbnail_url, created_at, updated_at, like_count, comment_count)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0)`,
             [
               post.id,
               post.userId,
@@ -5956,6 +5959,7 @@ class DatabaseStore {
               post.caption,
               post.mediaType,
               post.duration ?? null,
+              post.thumbnailUrl ?? null,
               post.createdAt,
               post.createdAt,
             ]
@@ -6037,6 +6041,7 @@ class DatabaseStore {
           caption,
           media_type,
           duration,
+          thumbnail_url,
           created_at,
           updated_at,
           like_count,
@@ -6050,6 +6055,7 @@ class DatabaseStore {
           ${post.caption},
           ${post.mediaType},
           ${post.duration ?? null},
+          ${post.thumbnailUrl ?? null},
           ${post.createdAt},
           ${post.createdAt},
           0,
@@ -6598,7 +6604,8 @@ class DatabaseStore {
       await sql`
         ALTER TABLE user_posts
           ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image',
-          ADD COLUMN IF NOT EXISTS duration INTEGER
+          ADD COLUMN IF NOT EXISTS duration INTEGER,
+          ADD COLUMN IF NOT EXISTS thumbnail_url TEXT
       `;
       await sql`
         ALTER TABLE users
@@ -6647,6 +6654,7 @@ class DatabaseStore {
           up.id,
           up.user_id,
           up.image_url,
+          up.thumbnail_url,
           up.caption,
           up.media_type,
           up.duration,
@@ -6679,6 +6687,7 @@ class DatabaseStore {
         userAvatar: p.user_avatar || undefined,
         isVerified: p.user_is_verified ?? false,
         imageUrl: p.image_url,
+        thumbnailUrl: p.thumbnail_url || undefined,
         caption: p.caption || '',
         mediaType: 'video' as const,
         duration: p.duration ? Number(p.duration) : undefined,

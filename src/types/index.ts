@@ -322,6 +322,7 @@ export interface UserPost {
   commentCount: number;
   mediaType?: 'image' | 'video'; // Reels are stored as media_type='video'
   duration?: number; // Video duration in seconds (Reels only)
+  thumbnailUrl?: string; // Real thumbnail URL for Reels
   isHidden?: boolean; // AI/Admin moderation: hidden from feeds
   hiddenReason?: string;
   moderationStatus?: string;
